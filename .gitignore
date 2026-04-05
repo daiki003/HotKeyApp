@@ -1,0 +1,184 @@
+## [Visual Studio / .NET]
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Pp][Ff]/
+[Ll]og/
+[Log]/
+bld/
+[Bb]in/
+[Oo]bj/
+[Tt]est[Rr]esult*/
+[Tt]est[Rr]esults*/
+
+# Visual Studio 2015/2017/2019/2022 cache/options directory
+.vs/
+# Uncomment if you have tasks that create the .vs directory
+# .vs/
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# User-specific files (MonoDevelop/Xamarin Studio)
+*.userprefs
+
+# Mono auto generated files
+mono_crash.*
+
+# Vicini project files
+*.viciny
+
+# ReSharper is a productivity tool for .NET developers
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# JustCode is a productivity tool for .NET developers
+.JustCode
+
+# TeamCity is a build server
+_TeamCity*
+
+# DotCover is a Code Coverage Tool
+*.dotCover
+
+# AxTools FastReports
+*.frx
+
+# NCrunch
+_NCrunch_*
+.*crunch*.local.xml
+nCrunchTemp_*
+
+# MightyMoose
+*.mm.*
+AutoTest.Net/
+
+# Web workbench (sass)
+.sass-cache/
+
+# Installshield output folder
+[Ee]xpress/
+
+# DocProject is a documentation generator for .NET
+DocProject/buildhelp/
+DocProject/Help/*.mcgh
+
+# NDRepend is a static analysis tool
+NDependOut/
+
+# Visual Studio Essentials
+My Project/
+# My Project/Backup/
+
+# Visual Studio Local Workspace
+$tf/
+
+# GhostDoc is a Visual Studio extension for documentation
+*.GhostDoc.xml
+
+# StyleCop is a static analysis tool
+StyleCop.Cache
+
+# Team Foundation Error Log
+*.psess
+*.vsp
+*.vspx
+*.sap
+
+# Python Tools for Visual Studio
+*.pyc
+
+# Cake build
+tools/*
+!tools/packages.config
+
+# Tabs Studio
+*.tabsstudio.user
+
+# Glimpse
+GlimpseUsageStatistics.log
+
+# Tools for Apache Cordova
+.cordova/
+platforms/
+plugins/
+node_modules/
+
+# Visual Studio Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# ASP.NET Scaffolding
+ScaffoldingReadMe.txt
+
+# StyleCop
+StyleCop.Cache
+
+# Backup & swap files
+*.bak
+*~
+
+# Temporary files
+*.tmp
+
+# SQL Server files
+*.mdf
+*.ldf
+*.ndf
+
+# Business Intelligence Projects
+*.rdl.data
+*.bim.layout
+*.bim_*.settings
+*.rptproj.bak
+
+# Microsoft Azure Build Output
+csx/
+*.build.csdef
+
+# Microsoft Azure Emulator
+ecf/
+rcf/
+
+# Azure Cloud Service projects
+Intermediate/
+Model/
+
+# Others
+ClientBin/
+~$*
+*.[Cc]ache
+![Cc]ache/
+[Gg]enerated/
+[Gg]en/
+Generated_Files/
+
+# Project Specific
+build_*.txt
+*.log
+error_output.txt
+warnings.txt
+sync_json.bat
+reload.bat
+commands.json
+*.json.bak
+*.bak
+*wpftmp.csproj
