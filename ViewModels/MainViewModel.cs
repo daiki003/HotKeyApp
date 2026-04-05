@@ -835,8 +835,23 @@ namespace HotKeyCommandApp.ViewModels
             {
                 if (IsFileSearchMode) CancelInput(); // Exit search if navigating
 
-                // Push the PARENT of the CURRENT display list
-                _navigationHistory.Push((CurrentParent, SelectedItem, Title));
+                // 親階層の特定（現在の親の直下にあるメニューか判定）
+                bool isChildOfCurrent = (CurrentParent == null)
+                    ? _rootCommands.Contains(command)
+                    : (CurrentParent.Children?.Contains(command) ?? false);
+
+                if (isChildOfCurrent)
+                {
+                    // 同一階層内または直下への移動なら通常どおりプッシュ
+                    _navigationHistory.Push((CurrentParent, SelectedItem, Title));
+                }
+                else
+                {
+                    // ショートカットなどによるジャンプ時：
+                    // 実際の階層構造に合わせてナビゲーションスタックを再構築する
+                    ReconstructNavigationHistory(command);
+                }
+
                 UpdateDisplay(command.Children, command.Name, null, command);
                 RequestShow?.Invoke();
                 return;
@@ -1121,6 +1136,48 @@ namespace HotKeyCommandApp.ViewModels
                 }
             }
             return null;
+        }
+
+        private void ReconstructNavigationHistory(CommandEntry target)
+        {
+            // 階層パスを取得
+            var path = new List<CommandEntry>();
+            if (FindPathToCommand(_rootCommands, target, path))
+            {
+                // ターゲット本体もパスに含める（スタックには親・自分・タイトルのセットが必要なため）
+                path.Add(target);
+
+                _navigationHistory.Clear();
+                
+                CommandEntry? currentParent = null;
+                string currentTitle = "Quick Actions";
+
+                // パス上の祖先（および自身）を順にスタックに積む
+                // 最後の要素（ターゲット自身）に対するプッシュが、ターゲットから「戻る」際の状態になる
+                for (int i = 0; i < path.Count; i++)
+                {
+                    var itemInPath = path[i];
+                    _navigationHistory.Push((currentParent, itemInPath, currentTitle));
+                    
+                    currentParent = itemInPath;
+                    currentTitle = itemInPath.Name;
+                }
+            }
+        }
+
+        private bool FindPathToCommand(List<CommandEntry> list, CommandEntry target, List<CommandEntry> path)
+        {
+            foreach (var item in list)
+            {
+                if (item == target) return true;
+                if (item.Children != null)
+                {
+                    path.Add(item);
+                    if (FindPathToCommand(item.Children, target, path)) return true;
+                    path.RemoveAt(path.Count - 1);
+                }
+            }
+            return false;
         }
 
         private readonly Dictionary<int, CommandEntry> _globalHotkeyMapping = new();
