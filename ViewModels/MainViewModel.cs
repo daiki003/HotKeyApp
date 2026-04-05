@@ -10,6 +10,7 @@ using System.Linq;
 using System.IO;
 using HotKeyCommandApp.Models;
 using HotKeyCommandApp.Services;
+using Newtonsoft.Json;
 
 namespace HotKeyCommandApp.ViewModels
 {
@@ -409,6 +410,9 @@ namespace HotKeyCommandApp.ViewModels
 
         private ICommand? _editRegisteredAppCommand;
         public ICommand EditRegisteredAppCommand => _editRegisteredAppCommand ??= new RelayCommand<CommandEntry>(EditRegisteredApp);
+
+        private ICommand? _duplicateCommand;
+        public ICommand DuplicateCommand => _duplicateCommand ??= new RelayCommand<CommandEntry>(Duplicate);
 
         private bool _isDialogActive;
         public bool IsDialogActive
@@ -1601,6 +1605,39 @@ namespace HotKeyCommandApp.ViewModels
             // Refresh UI (UpdateDisplay will add the ADD_BUTTON back for UI)
             UpdateDisplay(targetList.ToList(), Title, newEntry, CurrentParent);
             CancelInput(false);
+        }
+
+        private void Duplicate(CommandEntry? command)
+        {
+            if (command == null || (command.Type == CommandType.Command && (command.Value?.StartsWith("ADD_") ?? false))) return;
+
+            // Deep clone
+            var json = JsonConvert.SerializeObject(command);
+            var clone = JsonConvert.DeserializeObject<CommandEntry>(json);
+            if (clone == null) return;
+
+            clone.Name += " - コピー";
+            clone.IsTargetedForMove = false;
+
+            var targetList = (CurrentParent == null) ? _rootCommands : CurrentParent.Children;
+            if (targetList == null)
+            {
+                if (CurrentParent != null) CurrentParent.Children = new List<CommandEntry>();
+                targetList = CurrentParent?.Children ?? _rootCommands;
+            }
+
+            int index = targetList.IndexOf(command);
+            if (index >= 0)
+            {
+                targetList.Insert(index + 1, clone);
+            }
+            else
+            {
+                targetList.Add(clone);
+            }
+
+            _configService.SaveCommands(_rootCommands);
+            UpdateDisplay(targetList, Title, clone, CurrentParent);
         }
 
         private List<CommandEntry> ReconstructionFromDisplay()

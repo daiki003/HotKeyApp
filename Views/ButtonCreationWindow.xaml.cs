@@ -3,6 +3,8 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Controls;
 using HotKeyCommandApp.ViewModels;
+using HotKeyCommandApp.Services;
+using System.Windows.Interop;
 
 namespace HotKeyCommandApp.Views
 {
@@ -188,6 +190,11 @@ namespace HotKeyCommandApp.Views
                 e.Handled = true;
                 return;
             }
+        }
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            WindowHelper.DisableSystemMenu(this);
         }
     }
 }

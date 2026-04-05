@@ -28,9 +28,62 @@ namespace HotKeyCommandApp.Services
                 }
 
                 // 「ファイルを開く」の場合、既存の開いているウィンドウがあればそれを最前面に出す
-                if (command.Type == CommandType.File && _windowService.ActivateVscodeWindow(value))
+                if (command.Type == CommandType.File)
                 {
-                    return true;
+                    // アプリそのものを起動しようとしているか、または特定のファイル/フォルダを開こうとしているかを判定
+                    bool isOpeningAppItself = string.IsNullOrEmpty(value) || 
+                                              (value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && 
+                                               (string.IsNullOrEmpty(command.AppPath) || string.Equals(value, command.AppPath, StringComparison.OrdinalIgnoreCase)));
+
+                    if (isOpeningAppItself)
+                    {
+                        // アプリパスが指定されている場合、そのアプリがすでに起動しているか確認
+                        if (!string.IsNullOrEmpty(command.AppPath))
+                        {
+                            if (_windowService.ActivateWindowByProcessPath(command.AppPath))
+                            {
+                                return true;
+                            }
+                        }
+                        // アプリパスがなく、Value自体が実行ファイルの場合
+                        else if (value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (_windowService.ActivateWindowByProcessPath(value))
+                            {
+                                return true;
+                            }
+                        }
+                        // ショートカット（.lnk）の場合、実行ファイル名と一致するか確認
+                        else if (value.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string processName = System.IO.Path.GetFileNameWithoutExtension(value);
+                            if (_windowService.ActivateWindowByProcessName(processName))
+                            {
+                                return true;
+                            }
+                        }
+
+                        // アプリ本体のタイトルマッチング
+                        string titleToMatch = !string.IsNullOrEmpty(command.AppPath) 
+                            ? System.IO.Path.GetFileNameWithoutExtension(command.AppPath) 
+                            : System.IO.Path.GetFileNameWithoutExtension(value);
+
+                        if (!string.IsNullOrEmpty(titleToMatch) && _windowService.ActivateWindowByTitle(titleToMatch) > 0)
+                        {
+                            return true;
+                        }
+                    }
+                    else
+                    {
+                        // ファイル/フォルダを開く場合
+                        // VS Codeなどでその特定のファイル/フォルダがすでに開いているかを確認
+                        if (_windowService.ActivateVscodeWindow(value))
+                        {
+                            return true;
+                        }
+                        
+                        // 開いていない場合は、後の Process.Start へ処理を移す
+                    }
                 }
 
                 var psi = CreateProcessStartInfo(command, value, argument);

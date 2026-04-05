@@ -2,6 +2,8 @@ using System;
 using System.Windows;
 using System.Windows.Input;
 using HotKeyCommandApp.Models;
+using HotKeyCommandApp.Services;
+using System.Windows.Interop;
 
 namespace HotKeyCommandApp.Views
 {
@@ -115,6 +117,12 @@ namespace HotKeyCommandApp.Views
             SelectedHotkey = null;
             this.DialogResult = true;
             this.Close();
+        }
+
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            WindowHelper.DisableSystemMenu(this);
         }
     }
 }

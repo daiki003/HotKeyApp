@@ -15,6 +15,18 @@ namespace HotKeyCommandApp.Services
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(uint processAccess, bool bInheritHandle, uint processId);
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        private static extern bool QueryFullProcessImageName(IntPtr hProcess, int dwFlags, StringBuilder lpExeName, ref int lpdwSize);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CloseHandle(IntPtr hObject);
+
+        private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         static extern IntPtr SendMessageTimeout(IntPtr windowHandle, uint Msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
 
@@ -48,6 +60,43 @@ namespace HotKeyCommandApp.Services
         private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
 
         private const uint GW_HWNDNEXT = 2;
+        private const uint GW_OWNER = 4;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetAncestor(IntPtr hWnd, uint uCmd);
+        private const uint GA_ROOT = 2;
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLong")]
+        private static extern int GetWindowLong32(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")]
+        private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
+
+        private static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex)
+        {
+            if (IntPtr.Size == 4) return (IntPtr)GetWindowLong32(hWnd, nIndex);
+            else return GetWindowLongPtr64(hWnd, nIndex);
+        }
+
+        private const int GWL_EXSTYLE = -20;
+        private const uint WS_EX_TOOLWINDOW = 0x00000080;
+
+        [DllImport("user32.dll")]
+        private static extern bool BringWindowToTop(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+            public int Width => Right - Left;
+            public int Height => Bottom - Top;
+        }
 
         [DllImport("user32.dll")]
         private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
@@ -60,8 +109,17 @@ namespace HotKeyCommandApp.Services
         [DllImport("user32.dll")]
         private static extern bool IsWindowVisible(IntPtr hWnd);
 
-        [DllImport("user32.dll")]
+        [DllImport("user32.dll", SetLastError = true)]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        private static readonly IntPtr HWND_TOP = (IntPtr)0;
+        private static readonly IntPtr HWND_TOPMOST = (IntPtr)(-1);
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_SHOWWINDOW = 0x0040;
 
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -73,6 +131,7 @@ namespace HotKeyCommandApp.Services
         private static extern bool IsIconic(IntPtr hWnd);
 
         private const int SW_RESTORE = 9;
+        private const int SW_SHOW = 5;
 
         public bool ActivateVscodeWindow(string target)
         {
@@ -93,16 +152,120 @@ namespace HotKeyCommandApp.Services
 
             if (targetHWnd != IntPtr.Zero)
             {
-                if (IsIconic(targetHWnd))
-                {
-                    ShowWindow(targetHWnd, SW_RESTORE);
-                }
-
-                SetForegroundWindow(targetHWnd);
+                FocusWindow(targetHWnd);
                 return true;
             }
 
             return false;
+        }
+
+        public bool ActivateWindowByProcessPath(string executablePath)
+        {
+            if (string.IsNullOrWhiteSpace(executablePath)) return false;
+
+            // 比較用に正規化
+            string targetPath = System.IO.Path.GetFullPath(executablePath).ToLowerInvariant();
+            IntPtr targetHWnd = IntPtr.Zero;
+
+            EnumerateRealWindows((hWnd, title) =>
+            {
+                if (targetHWnd != IntPtr.Zero) return;
+
+                uint pid;
+                GetWindowThreadProcessId(hWnd, out pid);
+                string processPath = GetProcessPath(pid);
+
+                if (!string.IsNullOrEmpty(processPath) && processPath.ToLowerInvariant() == targetPath)
+                {
+                    targetHWnd = hWnd;
+                }
+            });
+
+            if (targetHWnd != IntPtr.Zero)
+            {
+                FocusWindow(targetHWnd);
+                return true;
+            }
+
+            return false;
+        }
+
+        public bool ActivateWindowByProcessName(string processName)
+        {
+            if (string.IsNullOrWhiteSpace(processName)) return false;
+
+            string targetName = processName.ToLowerInvariant();
+            IntPtr targetHWnd = IntPtr.Zero;
+
+            EnumerateRealWindows((hWnd, title) =>
+            {
+                if (targetHWnd != IntPtr.Zero) return;
+
+                uint pid;
+                GetWindowThreadProcessId(hWnd, out pid);
+                string processPath = GetProcessPath(pid);
+
+                if (!string.IsNullOrEmpty(processPath))
+                {
+                    string nameOnly = System.IO.Path.GetFileNameWithoutExtension(processPath).ToLowerInvariant();
+                    if (nameOnly == targetName)
+                    {
+                        targetHWnd = hWnd;
+                    }
+                }
+            });
+
+            if (targetHWnd != IntPtr.Zero)
+            {
+                FocusWindow(targetHWnd);
+                return true;
+            }
+
+            return false;
+        }
+
+        private string GetProcessPath(uint pid)
+        {
+            IntPtr hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+            if (hProcess != IntPtr.Zero)
+            {
+                try
+                {
+                    int size = 1024;
+                    StringBuilder sb = new StringBuilder(size);
+                    if (QueryFullProcessImageName(hProcess, 0, sb, ref size))
+                    {
+                        return sb.ToString();
+                    }
+                }
+                finally
+                {
+                    CloseHandle(hProcess);
+                }
+            }
+            return string.Empty;
+        }
+
+        private void FocusWindow(IntPtr hWnd)
+        {
+            if (IsIconic(hWnd))
+            {
+                ShowWindow(hWnd, SW_RESTORE);
+            }
+            else
+            {
+                ShowWindow(hWnd, SW_SHOW);
+            }
+
+            // Force Z-order change
+            SetWindowPos(hWnd, HWND_TOP, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_SHOWWINDOW);
+
+            // Give it the focus
+            if (!SetForegroundWindow(hWnd))
+            {
+                // If it fails, maybe try BringWindowToTop again
+                BringWindowToTop(hWnd);
+            }
         }
 
         public int ActivateWindowByTitle(string title)
@@ -127,11 +290,8 @@ namespace HotKeyCommandApp.Services
 
                 if (currentPid == myPid)
                 {
-                    // If the app itself is foreground, find the first matching window in Z-order
-                    // but if that top match was the one active just before the app, cycle to next.
-
-                    // Find the "previously active" window by looking for the first "real" window 
-                    // that is NOT our process in Z-order.
+                    // If the app itself is foreground (palette open), find the window it was "covering"
+                    // Get the "actual" window behind the palette by solving child windows to roots
                     IntPtr prevWindow = currentForeground;
                     while ((prevWindow = GetWindow(prevWindow, GW_HWNDNEXT)) != IntPtr.Zero)
                     {
@@ -140,35 +300,33 @@ namespace HotKeyCommandApp.Services
                         if (pid == myPid) continue;
                         if (!IsWindowVisible(prevWindow)) continue;
 
-                        // Check if it's a "real" window by checking for a non-empty title
-                        StringBuilder sb = new StringBuilder(256);
-                        GetWindowText(prevWindow, sb, sb.Capacity);
-                        string titleText = sb.ToString();
-
-                        if (string.IsNullOrWhiteSpace(titleText)) continue;
-                        if (titleText == "Program Manager") continue;
-
-                        break;
+                        // Resolve to root window to match the enumerated list
+                        IntPtr rootWindow = GetAncestor(prevWindow, GA_ROOT);
+                        int prevIndex = windows.IndexOf(rootWindow);
+                        if (prevIndex >= 0)
+                        {
+                            targetHWnd = GetTargetHWnd(windows, prevIndex);
+                            break;
+                        }
                     }
 
-                    int prevIndex = windows.IndexOf(prevWindow);
-                    targetHWnd = GetTargetHWnd(windows, prevIndex);
+                    if (targetHWnd == IntPtr.Zero)
+                    {
+                        targetHWnd = windows.LastOrDefault();
+                    }
                 }
                 else
                 {
-                    int currentIndex = windows.IndexOf(currentForeground);
+                    // If focusing from another app, resolve that app's window to its root
+                    IntPtr rootForeground = GetAncestor(currentForeground, GA_ROOT);
+                    int currentIndex = windows.IndexOf(rootForeground);
                     targetHWnd = GetTargetHWnd(windows, currentIndex);
                 }
 
 
                 if (targetHWnd != IntPtr.Zero)
                 {
-                    if (IsIconic(targetHWnd))
-                    {
-                        ShowWindow(targetHWnd, SW_RESTORE);
-                    }
-
-                    SetForegroundWindow(targetHWnd);
+                    FocusWindow(targetHWnd);
                 }
             }
             return windows.Count;
@@ -288,13 +446,29 @@ namespace HotKeyCommandApp.Services
                     GetWindowThreadProcessId(hWnd, out pid);
                     if (pid == myPid) return true;
 
+                    // Ensure it's a top-level main window
+                    // Main windows usually don't have an owner
+                    if (GetWindow(hWnd, GW_OWNER) != IntPtr.Zero) return true;
+
+                    // Skip Tool Windows (those that don't appear in Taskbar)
+                    long exStyle = (long)GetWindowLongPtr(hWnd, GWL_EXSTYLE);
+                    if ((exStyle & WS_EX_TOOLWINDOW) != 0) return true;
+
                     StringBuilder sb = new StringBuilder(256);
                     GetWindowText(hWnd, sb, sb.Capacity);
                     string title = sb.ToString();
 
                     if (!string.IsNullOrWhiteSpace(title) && title != "Program Manager")
                     {
-                        action(hWnd, title);
+                        // Check if the window has a non-zero size
+                        RECT rect;
+                        if (GetWindowRect(hWnd, out rect))
+                        {
+                            if (rect.Width > 0 && rect.Height > 0)
+                            {
+                                action(hWnd, title);
+                            }
+                        }
                     }
                 }
                 return true;

@@ -3,6 +3,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using HotKeyCommandApp.ViewModels;
+using HotKeyCommandApp.Services;
+using System.Windows.Interop;
 
 namespace HotKeyCommandApp.Views
 {
@@ -120,6 +122,12 @@ namespace HotKeyCommandApp.Views
                         textBox.CaretIndex = textBox.Text.Length;
                 }), System.Windows.Threading.DispatcherPriority.Background);
             }
+        }
+
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            WindowHelper.DisableSystemMenu(this);
         }
     }
 }

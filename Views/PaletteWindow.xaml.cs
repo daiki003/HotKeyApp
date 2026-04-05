@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using HotKeyCommandApp.ViewModels;
 using HotKeyCommandApp.Services;
 using HotKeyCommandApp.Models;
+using System.Windows.Interop;
 
 namespace HotKeyCommandApp.Views
 {
@@ -226,6 +227,9 @@ namespace HotKeyCommandApp.Views
         protected override void OnSourceInitialized(EventArgs e)
         {
             base.OnSourceInitialized(e);
+
+            // Altキーによるシステムメニュー（移動、サイズ変更など）を抑制
+            WindowHelper.DisableSystemMenu(this);
 
             string hotkey = "Win+Alt+Z";
             if (DataContext is MainViewModel vm)
@@ -717,6 +721,17 @@ namespace HotKeyCommandApp.Views
             // Ctrl+Arrows（移動および設定のショートカット）
             else if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
             {
+                if (e.Key == Key.D)
+                {
+                    bool isAnyDialogOpen = mainVm.IsInputMode || mainVm.IsDialogActive;
+                    if (!isAnyDialogOpen && mainVm.DuplicateCommand.CanExecute(mainVm.SelectedItem))
+                    {
+                        mainVm.DuplicateCommand.Execute(mainVm.SelectedItem);
+                        e.Handled = true;
+                        return;
+                    }
+                }
+
                 if (e.Key == Key.OemComma)
                 {
                     if (mainVm.OpenSettingsCommand.CanExecute(null))
@@ -872,7 +887,6 @@ namespace HotKeyCommandApp.Views
                 vm.SaveWindowBounds();
             }
         }
-
     }
 
     public class ImageSourceToVisibilityConverter : System.Windows.Data.IValueConverter
