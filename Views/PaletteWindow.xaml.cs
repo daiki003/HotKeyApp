@@ -196,9 +196,9 @@ namespace HotKeyCommandApp.Views
 
             if (vm.IsInputMode)
             {
-                // In EnteringAppPath, we want to focus the ListBox items immediately
                 if (vm.CurrentStep == InputStep.EnteringAppPath)
                 {
+                    // EnteringAppPathの場合はListBoxをすぐにフォーカスさせる
                     CommandListBox.Focus();
                 }
                 else
@@ -252,7 +252,7 @@ namespace HotKeyCommandApp.Views
 
         private void OnHotKeyPressed(int id)
         {
-            if (id == 9000) // Default Hotkey (Win+Alt+Z)
+            if (id == 9000) // デフォルトのホットキー (Win+Alt+Z)
             {
                 if (this.IsVisible)
                 {
@@ -284,7 +284,7 @@ namespace HotKeyCommandApp.Views
             }
             else
             {
-                // Global Shortcut for specific commands
+                // 個別コマンドのグローバルショートカット実行
                 if (DataContext is MainViewModel vm)
                 {
                     // ウィンドウが非表示の場合は、ジャンプ前に状態をリセットする
@@ -325,7 +325,7 @@ namespace HotKeyCommandApp.Views
         {
             if (DataContext is MainViewModel vm)
             {
-                // Clear any lingering search if we're not in a state that supports it
+                // 検索等をサポートしない状態の場合、残っている検索入力をクリアする
                 if (!vm.IsInputMode && !vm.IsFileSearchMode && !vm.IsDialogActive)
                 {
                     vm.InputText = string.Empty;
@@ -335,7 +335,7 @@ namespace HotKeyCommandApp.Views
                     vm.CancelInputCommand.Execute(null);
                     return;
                 }
-                // IsSettingsMode logic removed - already handled by separate window
+                // IsSettingsModeのロジックは削除済み（別ウィンドウで処理）
                 vm.ResetToRoot();
             }
 
@@ -359,10 +359,10 @@ namespace HotKeyCommandApp.Views
             {
                 CommandListBox.ScrollIntoView(CommandListBox.SelectedItem);
 
-                // Only focus the list item if we AREN'T in input mode
+                // 入力モードではない場合にのみリストアイテムにフォーカスを当てる
                 if (!vm.IsInputMode)
                 {
-                    // Update layout immediately to ensure containers are generated
+                    // コンテナが生成されるようレイアウトを即座に更新する
                     CommandListBox.UpdateLayout();
 
                     var container = (ListBoxItem)CommandListBox.ItemContainerGenerator.ContainerFromItem(CommandListBox.SelectedItem);
@@ -461,13 +461,13 @@ namespace HotKeyCommandApp.Views
                     if (key == Key.Right) { vm.NavigateForwardCommand.Execute(null); e.Handled = true; return; }
                 }
 
-                // Disable special shortcuts (reordering, F1 toggle, global hotkeys) when any dialog is active
+                // 何らかのダイアログがアクティブな場合は特殊なショートカット（並び替え、F1トグル、グローバルホットキー等）を無効化する
                 bool isAnyDialogOpen = vm.IsInputMode || vm.IsDialogActive;
 
-                // 2. Shortcut blocking when in input mode
+                // 2. 入力モード時のショートカットブロック
                 if (isAnyDialogOpen)
                 {
-                    // Handle Delete for Registered Apps
+                    // 登録済みアプリの削除処理
                     if (key == Key.Delete && vm.CurrentStep == InputStep.EnteringAppPath && vm.SelectedItem != null &&
                         vm.SelectedItem.Value != "NONE" && vm.SelectedItem.Value != "ADD_REGISTERED_APP")
                     {
@@ -488,24 +488,24 @@ namespace HotKeyCommandApp.Views
                         return;
                     }
 
-                    // Allow navigation keys within the dialog context if needed
-                    // (Though currently InputFlow handles its own navigation via CommitInput/MoveSelection)
+                    // 必要に応じてダイアログコンテキスト内でのナビゲーションキーを許可する
+                    // (ただし現在はInputFlowが独自のナビゲーションをCommitInput/MoveSelection経由で処理している)
 
-                    // Allow Delete/Back only if not in value input? 
-                    // No, let's just block most "palette" level shortcuts.
+                    // 値の入力中でなければDelete/Backを許可するべきか？
+                    // いいえ、パレットレベルのほとんどのショートカットをブロックする。
                     if (e.Key == Key.F1 || e.Key == Key.Delete || e.Key == Key.Back)
                     {
-                        // But allow input-specific handling if any?
+                        // ただし何らかの入力特有の処理があれば許可する
                     }
 
-                    // Special reordering shortcuts should be blocked
+                    // 並び替え用の特殊ショートカットはブロックされるべき
                     if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && (e.Key == Key.Up || e.Key == Key.Down))
                     {
                         e.Handled = true;
                         return;
                     }
 
-                    // Also block the "Global Hotkey" toggle
+                    // グローバルホットキーのトグルもブロックする
                     if (e.Key == Key.H && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
                     {
                         e.Handled = true;
@@ -513,7 +513,7 @@ namespace HotKeyCommandApp.Views
                     }
                 }
 
-                // 2. Block background navigation keys when any dialog is open
+                // 3. ダイアログ展開時は背面のナビゲーションキーもブロック
                 if (isAnyDialogOpen)
                 {
                     if (vm.IsFileSearchMode || vm.CurrentStep == InputStep.EnteringName || vm.CurrentStep == InputStep.EnteringValue || vm.CurrentStep == InputStep.EnteringAppPath)
@@ -524,13 +524,13 @@ namespace HotKeyCommandApp.Views
 
                     if (key == Key.Up || key == Key.Down || key == Key.PageUp || key == Key.PageDown || key == Key.Home || key == Key.End)
                     {
-                        // Don't let these through to the ListBox
+                        // これらを背面のListBoxに渡さない
                         if (!vm.IsInputMode) e.Handled = true;
                         return;
                     }
                 }
 
-                // Shift + Arrows for reordering
+                // Shift + 矢印キーでの並び替え
                 if (!isAnyDialogOpen && e.KeyboardDevice.Modifiers == ModifierKeys.Shift)
                 {
                     if (key == Key.Up)
@@ -593,13 +593,13 @@ namespace HotKeyCommandApp.Views
                         return;
                     }
 
-                    // Let the keys pass through to input controls, but don't process as global shortcuts
+                    // 入力コントロールにはキーを通すが、グローバルショートカットとしては処理しない
                     return;
                 }
 
                 if (vm.IsInputMode && key == Key.Enter)
                 {
-                    // Let TextBox handle Enter its own bindings (better IME compatibility)
+                    // TextBoxに自身のバインディングでEnterを処理させる（IME互換性向上のため）
                     if (FocusManager.GetFocusedElement(this) is TextBox) return;
 
                     vm.CommitInputCommand.Execute(null);
@@ -615,7 +615,7 @@ namespace HotKeyCommandApp.Views
                     return;
                 }
 
-                // Global logic: check if any displayed command has a hotkey that matches this key
+                // グローバルロジック：表示中のコマンドで、このキーに一致するホットキーがあるか確認する
                 if (!isAnyDialogOpen && e.KeyboardDevice.Modifiers == ModifierKeys.None)
                 {
                     // ナビゲーションと実行キーを直接処理（フォーカス関係の不具合回避）
@@ -674,7 +674,7 @@ namespace HotKeyCommandApp.Views
             {
                 if (mainVm.IsDialogActive)
                 {
-                    // Let the dialog handle it or just block it here
+                    // ダイアログ側で処理させるか、ここでブロックする
                     e.Handled = true;
                     return;
                 }
@@ -785,7 +785,7 @@ namespace HotKeyCommandApp.Views
             double deltaTime = (args.RenderingTime - _lastRenderingTime).TotalSeconds;
             _lastRenderingTime = args.RenderingTime;
 
-            // Cap delta time to prevent huge jumps if the app freezes
+            // アプリがフリーズした場合に膨大なジャンプを防ぐためにデルタタイムを制限する
             if (deltaTime > 0.1) deltaTime = 0.1;
 
             if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && !Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
@@ -829,7 +829,7 @@ namespace HotKeyCommandApp.Views
                 {
                     if (sender is ListBoxItem item && item.DataContext is CommandEntry entry)
                     {
-                        // Don't drag system commands
+                        // システムコマンドはドラッグしない
                         if (entry.Type == CommandType.Command) return;
 
                         DragDrop.DoDragDrop(item, entry, DragDropEffects.Move);
@@ -846,7 +846,7 @@ namespace HotKeyCommandApp.Views
                 {
                     if (DataContext is MainViewModel vm)
                     {
-                        // Move item to new position
+                        // アイテムを新しい位置へ移動
                         int oldIndex = vm.DisplayCommands.IndexOf(droppedEntry);
                         int newIndex = vm.DisplayCommands.IndexOf(targetEntry);
 
@@ -864,10 +864,10 @@ namespace HotKeyCommandApp.Views
         {
             if (sender is TextBox textBox)
             {
-                // Immediate move to end
+                // すぐに末尾へ移動させる
                 textBox.CaretIndex = textBox.Text.Length;
 
-                // Using Background priority for smoother results when Tabbing
+                // Tabキー押下時のスムーズな動作のため、Background優先度を使用する
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (textBox.IsFocused)

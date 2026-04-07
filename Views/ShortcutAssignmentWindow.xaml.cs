@@ -40,7 +40,7 @@ namespace HotKeyCommandApp.Views
             Key key = (e.Key == Key.ImeProcessed) ? e.ImeProcessedKey : e.Key;
             if (key == Key.System) key = e.SystemKey;
 
-            // Handle Escape for cancel
+            // Escapeでキャンセル処理
             if (key == Key.Escape)
             {
                 this.DialogResult = false;
@@ -49,7 +49,7 @@ namespace HotKeyCommandApp.Views
                 return;
             }
 
-            // Handle Delete for clearing
+            // Deleteでクリア処理
             if (key == Key.Delete || key == Key.Back)
             {
                 SelectedHotkey = null;
@@ -59,7 +59,7 @@ namespace HotKeyCommandApp.Views
                 return;
             }
 
-            // Handle Arrow keys for type selection
+            // 矢印キーで種類の選択処理
             if (key == Key.Up)
             {
                 if (TypeListBox.SelectedIndex > 0) TypeListBox.SelectedIndex--;
@@ -78,7 +78,7 @@ namespace HotKeyCommandApp.Views
                 return;
             }
 
-            // Skip modifier-only presses
+            // 修飾キーのみの押下はスキップする
             if (key == Key.LeftCtrl || key == Key.RightCtrl ||
                 key == Key.LeftAlt || key == Key.RightAlt ||
                 key == Key.LeftShift || key == Key.RightShift ||
@@ -87,7 +87,7 @@ namespace HotKeyCommandApp.Views
                 return;
             }
 
-            // Capture the key and type
+            // キーと種類をキャプチャする
             var parts = new System.Collections.Generic.List<string>();
             if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) parts.Add("Ctrl");
             if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt)) parts.Add("Alt");

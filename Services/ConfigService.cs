@@ -38,6 +38,9 @@ namespace HotKeyCommandApp.Services
         {
             try
             {
+                // Ensure no system commands (ADD_BUTTON) are persisted
+                CleanupForSave(commands);
+
                 var settings = new JsonSerializerSettings { Formatting = Formatting.Indented };
                 settings.Converters.Add(new Newtonsoft.Json.Converters.StringEnumConverter());
                 var json = JsonConvert.SerializeObject(commands, settings);
@@ -46,6 +49,23 @@ namespace HotKeyCommandApp.Services
             catch (Exception ex)
             {
                 Console.WriteLine($"Error saving config: {ex.Message}");
+            }
+        }
+
+        private void CleanupForSave(List<CommandEntry> list)
+        {
+            if (list == null) return;
+
+            // Remove system buttons
+            list.RemoveAll(c => c.Type == CommandType.Command && (c.Value?.StartsWith("ADD_") ?? false));
+
+            // Recurse into children
+            foreach (var item in list)
+            {
+                if (item.Children != null)
+                {
+                    CleanupForSave(item.Children);
+                }
             }
         }
 

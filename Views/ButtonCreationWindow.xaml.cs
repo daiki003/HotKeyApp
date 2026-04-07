@@ -12,7 +12,7 @@ namespace HotKeyCommandApp.Views
     {
         private readonly ButtonCreationViewModel _viewModel;
 
-        // This effectively tracks if we consumed the first Alt+Left key to avoid exiting/doing nothing if we shouldn't
+        // 一度でもステップを進めたか（最初のAlt+Leftで意図せず閉じないようにする）を追跡します
         private bool _canNavigateBack = false;
 
         public ButtonCreationWindow(ButtonCreationViewModel viewModel)
@@ -48,7 +48,7 @@ namespace HotKeyCommandApp.Views
                 }), System.Windows.Threading.DispatcherPriority.Render);
             };
 
-            // Allow navigation back once we advance steps
+            // ステップが進んだら「戻る」ナビゲーションを許可する
             _viewModel.PropertyChanged += (s, e) =>
             {
                 if (e.PropertyName == nameof(ButtonCreationViewModel.CurrentStep))
@@ -56,12 +56,12 @@ namespace HotKeyCommandApp.Views
                     _canNavigateBack = true;
                 }
 
-                // Auto-scroll when selection changes via keyboard/commands
+                // キーボードやコマンドで選択が変更された際に自動スクロールする
                 if (e.PropertyName == nameof(ButtonCreationViewModel.SelectedItem))
                 {
                     if (_viewModel.SelectedItem != null)
                     {
-                        // Use a higher priority to scroll before the next render to avoid flickering
+                        // ちらつきを防ぐため、次のレンダリング前に高い優先度でスクロールを実行する
                         Dispatcher.BeginInvoke(new Action(() =>
                         {
                             CommandListBox.ScrollIntoView(_viewModel.SelectedItem);
@@ -184,8 +184,8 @@ namespace HotKeyCommandApp.Views
 
             if (e.Key == Key.Enter)
             {
-                // In this window, focus is almost always on the InputTextBox.
-                // CommitInputCommand handles the logic of whether to use typed text or SelectedItem.
+                // このウィンドウでは、フォーカスはほぼ常にInputTextBoxにあります。
+                // CommitInputCommandが、入力されたテキストを使うか、選択されたアイテムを使うかのロジックを処理します。
                 _viewModel.CommitInputCommand.Execute(null);
                 e.Handled = true;
                 return;

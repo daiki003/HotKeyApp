@@ -85,10 +85,10 @@ namespace HotKeyCommandApp.ViewModels
         public CommandEntry? SelectedItem
         {
             get => _selectedItem;
-            set 
-            { 
-                _selectedItem = value; 
-                OnPropertyChanged(); 
+            set
+            {
+                _selectedItem = value;
+                OnPropertyChanged();
                 OnPropertyChanged(nameof(IsItemSelected));
             }
         }
@@ -581,12 +581,15 @@ namespace HotKeyCommandApp.ViewModels
                     {
                         // パスを更新
                         appToEdit.Path = dialog.FileName;
-                        
+
                         // 名前も更新（オプション）
-                        try {
+                        try
+                        {
                             var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(dialog.FileName);
                             appToEdit.Name = !string.IsNullOrWhiteSpace(info.ProductName) ? info.ProductName : System.IO.Path.GetFileNameWithoutExtension(dialog.FileName);
-                        } catch {
+                        }
+                        catch
+                        {
                             appToEdit.Name = System.IO.Path.GetFileNameWithoutExtension(dialog.FileName);
                         }
 
@@ -1148,7 +1151,7 @@ namespace HotKeyCommandApp.ViewModels
                 path.Add(target);
 
                 _navigationHistory.Clear();
-                
+
                 CommandEntry? currentParent = null;
                 string currentTitle = "Quick Actions";
 
@@ -1158,7 +1161,7 @@ namespace HotKeyCommandApp.ViewModels
                 {
                     var itemInPath = path[i];
                     _navigationHistory.Push((currentParent, itemInPath, currentTitle));
-                    
+
                     currentParent = itemInPath;
                     currentTitle = itemInPath.Name;
                 }
@@ -1317,7 +1320,7 @@ namespace HotKeyCommandApp.ViewModels
                     // Moved away from the stop point
                     if (TargetHierarchyItem != null) TargetHierarchyItem.IsTargetedForMove = false;
                     IsOnHierarchyButton = false;
-                    return; 
+                    return;
                 }
             }
             else
@@ -1918,12 +1921,12 @@ namespace HotKeyCommandApp.ViewModels
             _configService.SaveCommands(_rootCommands);
             targetMenu.IsTargetedForMove = false;
             IsOnHierarchyButton = false;
-            
+
             // Set SelectedItem to the TARGET hierarchy button before entering it.
             // This ensures that when we go back (via Left key), the focus is restored to the hierarchy button.
             SelectedItem = targetMenu;
             Execute(targetMenu);
-            
+
             // Focus the item inside the hierarchy
             SelectedItem = itemToEnter;
             RequestSync?.Invoke();
@@ -1935,7 +1938,7 @@ namespace HotKeyCommandApp.ViewModels
 
             var itemToExit = SelectedItem;
             var currentMenu = CurrentParent; // e.g. Menu1
-            
+
             // Remove from current list (item stays in our memory)
             if (!RemoveFromCurrentList(itemToExit)) return;
 
@@ -1978,7 +1981,7 @@ namespace HotKeyCommandApp.ViewModels
                 parentList.AddRange(itemsToPersist);
             }
             _configService.SaveCommands(_rootCommands);
-            
+
             SelectedItem = itemToExit;
             RequestSync?.Invoke();
         }
@@ -2042,15 +2045,15 @@ namespace HotKeyCommandApp.ViewModels
 
             if (direction > 0) // Down
             {
-                if (index == -1) 
+                if (index == -1)
                 {
                     SelectedItem = DisplayCommands[0];
                 }
-                else if (index < DisplayCommands.Count - 1) 
+                else if (index < DisplayCommands.Count - 1)
                 {
                     SelectedItem = DisplayCommands[index + 1];
                 }
-                else 
+                else
                 {
                     // ファイル検索モードの場合は、一番下から入力ボックスへ移動
                     if (IsFileSearchMode)
@@ -2066,7 +2069,7 @@ namespace HotKeyCommandApp.ViewModels
             }
             else // Up
             {
-                if (index == 0) 
+                if (index == 0)
                 {
                     // ファイル検索モードの場合は、一番上から入力ボックスへ戻る
                     if (IsFileSearchMode)
@@ -2079,11 +2082,11 @@ namespace HotKeyCommandApp.ViewModels
                         SelectedItem = DisplayCommands.Last(); // Wrap to bottom
                     }
                 }
-                else if (index == -1) 
+                else if (index == -1)
                 {
                     SelectedItem = DisplayCommands.Last(); // From none to last
                 }
-                else 
+                else
                 {
                     SelectedItem = DisplayCommands[index - 1];
                 }

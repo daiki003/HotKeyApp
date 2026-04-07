@@ -7,11 +7,6 @@ namespace HotKeyCommandApp.Services
 {
     public class HotKeyService : IDisposable
     {
-        [DllImport("user32.dll")]
-        private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
-
-        [DllImport("user32.dll")]
-        private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
         private const uint MOD_ALT = 0x0001;
         private const uint MOD_WIN = 0x0008;
@@ -48,7 +43,7 @@ namespace HotKeyCommandApp.Services
         {
             if (_hWnd == IntPtr.Zero) return;
 
-            UnregisterHotKey(_hWnd, id);
+            NativeMethods.UnregisterHotKey(_hWnd, id);
             _registeredHotKeys.Remove(id);
 
             if (string.IsNullOrWhiteSpace(hotkeyString)) return;
@@ -82,7 +77,7 @@ namespace HotKeyCommandApp.Services
 
             if (vk != 0)
             {
-                if (RegisterHotKey(_hWnd, id, modifiers, vk))
+                if (NativeMethods.RegisterHotKey(_hWnd, id, modifiers, vk))
                 {
                     _registeredHotKeys[id] = hotkeyString;
                 }
@@ -93,7 +88,7 @@ namespace HotKeyCommandApp.Services
         {
             if (_hWnd != IntPtr.Zero)
             {
-                UnregisterHotKey(_hWnd, id);
+                NativeMethods.UnregisterHotKey(_hWnd, id);
                 _registeredHotKeys.Remove(id);
             }
         }
@@ -104,7 +99,7 @@ namespace HotKeyCommandApp.Services
             {
                 foreach (var id in new System.Collections.Generic.List<int>(_registeredHotKeys.Keys))
                 {
-                    UnregisterHotKey(_hWnd, id);
+                    NativeMethods.UnregisterHotKey(_hWnd, id);
                 }
                 _registeredHotKeys.Clear();
             }
@@ -119,7 +114,7 @@ namespace HotKeyCommandApp.Services
                 {
                     if (id != DEFAULT_HOTKEY_ID)
                     {
-                        UnregisterHotKey(_hWnd, id);
+                        NativeMethods.UnregisterHotKey(_hWnd, id);
                         _registeredHotKeys.Remove(id);
                     }
                 }

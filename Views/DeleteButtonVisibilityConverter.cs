@@ -12,11 +12,11 @@ namespace HotKeyCommandApp.Views
         {
             if (value is CommandEntry entry)
             {
-                // Hide for Menus (categories) and system Commands (Add Button)
+                // メニュー（カテゴリ）およびシステムコマンド（ボタン追加）の場合は非表示にする
                 if (entry.Type == CommandType.Command) 
                     return Visibility.Collapsed;
                 
-                // Hide specifically for "Reload App" (再ビルド)
+                // 「Reload App」 (再ビルド) の場合は特別に非表示にする
                 if (entry.Name == "再ビルド" || (entry.Type == CommandType.Batch && entry.Value == "reload.bat"))
                     return Visibility.Collapsed;
                 

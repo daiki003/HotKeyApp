@@ -12,7 +12,7 @@ namespace HotKeyCommandApp.Views
         {
             if (value is CommandEntry entry && entry.Type == CommandType.Menu)
             {
-                // Don't show arrow for type selection templates
+                // 種類選択テンプレート用の矢印は表示しない
                 if (entry.Value == "TYPE_TEMPLATE") return Visibility.Collapsed;
                 
                 return Visibility.Visible;

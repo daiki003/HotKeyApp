@@ -14,11 +14,17 @@
 
   <ItemGroup>
     <None Update="commands.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </None>
     <None Update="reload.bat">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <Target Name="CopyCommandsJsonIfMissing" AfterTargets="Build">
+    <Copy SourceFiles="commands.json" 
+          DestinationFiles="$(OutputPath)commands.json" 
+          Condition="!Exists('$(OutputPath)commands.json')" />
+  </Target>
 
 </Project>

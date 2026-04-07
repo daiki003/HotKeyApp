@@ -37,14 +37,14 @@ namespace HotKeyCommandApp.Views
                     return;
                 }
 
-                // Hotkey capturing logic is handled by PaletteWindow's PreviewKeyDown 
-                // but since this is modal, we need to handle it here too or move it to ViewModel.
-                // For simplicity, let's handle the capture here.
+                // ホットキーのキャプチャロジックはPaletteWindowのPreviewKeyDownで処理されますが、
+                // これはモーダルウィンドウであるため、ここでも処理するかViewModelに移動する必要があります。
+                // 簡略化のため、ここではキャプチャを処理します。
                 
                 Key key = (e.Key == Key.ImeProcessed) ? e.ImeProcessedKey : e.Key;
                 if (key == Key.System) key = e.SystemKey;
 
-                // Modifiers only
+                // 修飾キーのみの場合
                 if (key == Key.LeftCtrl || key == Key.RightCtrl ||
                     key == Key.LeftAlt || key == Key.RightAlt ||
                     key == Key.LeftShift || key == Key.RightShift ||
@@ -73,7 +73,7 @@ namespace HotKeyCommandApp.Views
 
             if (e.Key == Key.Enter)
             {
-                if (FocusManager.GetFocusedElement(this) is Button) return; // Let button handle it
+                if (FocusManager.GetFocusedElement(this) is Button) return; // ボタン自身に処理させる
                 SaveAndClose();
                 e.Handled = true;
             }
