@@ -34,6 +34,8 @@ namespace HotKeyCommandApp.ViewModels
             public string NewEntryName { get; init; } = "";
             public CommandType NewEntryType { get; init; }
             public CommandType? SelectedType { get; init; }
+            public string SlackTeamID { get; init; } = "";
+            public string SlackChannelID { get; init; } = "";
         }
 
         private InputStep _currentStep = InputStep.EnteringName;
@@ -73,6 +75,10 @@ namespace HotKeyCommandApp.ViewModels
                 {
                     PerformIncrementalSearch(value);
                 }
+                else if (CurrentStep == InputStep.EnteringSlackTeamID)
+                {
+                    PopulateSlackTeamHistory(value);
+                }
             }
         }
 
@@ -105,6 +111,9 @@ namespace HotKeyCommandApp.ViewModels
         private CommandType _newEntryType;
         private CommandEntry? _editingCommand;
 
+        private string _slackTeamID = "";
+        private string _slackChannelID = "";
+
         private bool _isRequiresArgumentChecked;
         public bool IsRequiresArgumentChecked
         {
@@ -127,6 +136,7 @@ namespace HotKeyCommandApp.ViewModels
         public List<CommandTypeOption> AvailableCommandTypes { get; } = new()
         {
             new CommandTypeOption { Name = "URLを開く", Type = CommandType.URL },
+            new CommandTypeOption { Name = "Slackを開く", Type = CommandType.Slack },
             new CommandTypeOption { Name = "フォルダを開く", Type = CommandType.Folder },
             new CommandTypeOption { Name = "バッチ実行", Type = CommandType.Batch },
             new CommandTypeOption { Name = "ファイルを開く", Type = CommandType.File },
@@ -224,7 +234,9 @@ namespace HotKeyCommandApp.ViewModels
                 InputPrompt = InputPrompt,
                 NewEntryName = _newEntryName,
                 NewEntryType = _newEntryType,
-                SelectedType = SelectedItem?.Type
+                SelectedType = SelectedItem?.Type,
+                SlackTeamID = _slackTeamID,
+                SlackChannelID = _slackChannelID
             };
 
             if (_history.Count > 0)
@@ -271,6 +283,8 @@ namespace HotKeyCommandApp.ViewModels
             InputPrompt = state.InputPrompt;
             _newEntryName = state.NewEntryName;
             _newEntryType = state.NewEntryType;
+            _slackTeamID = state.SlackTeamID;
+            _slackChannelID = state.SlackChannelID;
 
             if (CurrentStep == InputStep.EnteringName)
             {
@@ -393,6 +407,15 @@ namespace HotKeyCommandApp.ViewModels
                 {
                     FinishInputFlow();
                 }
+                else if (_newEntryType == CommandType.Slack)
+                {
+                    _slackTeamID = _appSettings.SlackTeamIdHistory.FirstOrDefault() ?? "";
+                    InputText = _slackTeamID;
+                    CurrentStep = InputStep.EnteringSlackTeamID;
+                    InputPrompt = "チームIDを入力してください (TXXXXXXXX):";
+                    PopulateSlackTeamHistory(_slackTeamID);
+                    RequestControlFocus?.Invoke("InputTextBox");
+                }
                 else
                 {
                     InputText = _editingCommand?.Value ?? "";
@@ -470,12 +493,59 @@ namespace HotKeyCommandApp.ViewModels
                 FinishInputFlow();
                 return;
             }
+
+            if (CurrentStep == InputStep.EnteringSlackTeamID)
+            {
+                // If an item is selected from history, use it
+                if (SelectedItem != null)
+                {
+                    InputText = SelectedItem.Name;
+                    SelectedItem = null;
+                    return;
+                }
+
+                _slackTeamID = InputText.Trim();
+                
+                // Save to history
+                if (!string.IsNullOrWhiteSpace(_slackTeamID))
+                {
+                    _appSettings.SlackTeamIdHistory.Remove(_slackTeamID);
+                    _appSettings.SlackTeamIdHistory.Insert(0, _slackTeamID);
+                    if (_appSettings.SlackTeamIdHistory.Count > 10) 
+                        _appSettings.SlackTeamIdHistory.RemoveAt(10);
+                    _configService.SaveSettings(_appSettings);
+                }
+
+                InputText = _slackChannelID;
+                CurrentStep = InputStep.EnteringSlackChannelID;
+                InputPrompt = "チャンネルIDを入力してください (CXXXXXXXX):";
+                RequestControlFocus?.Invoke("InputTextBox");
+                RecordHistory();
+                return;
+            }
+
+            if (CurrentStep == InputStep.EnteringSlackChannelID)
+            {
+                _slackChannelID = InputText.Trim();
+                FinishInputFlow();
+                RecordHistory();
+                return;
+            }
         }
 
         private void FinishInputFlow()
         {
             string val = InputText.Trim();
-            if (_newEntryType == CommandType.URL && !string.IsNullOrEmpty(val) && !val.StartsWith("http") && !val.Contains("://"))
+            if (_newEntryType == CommandType.Slack)
+            {
+                val = $"slack://channel?team={_slackTeamID}&id={_slackChannelID}";
+                // 名前が未入力、またはデフォルトのままの場合はチームIDを名前にする
+                if (string.IsNullOrWhiteSpace(_newEntryName) || _newEntryName == "新しいボタン")
+                {
+                    _newEntryName = $"Slack: {_slackTeamID}";
+                }
+            }
+            else if (_newEntryType == CommandType.URL && !string.IsNullOrEmpty(val) && !val.StartsWith("http") && !val.Contains("://"))
             {
                 val = "https://" + val;
             }
@@ -860,6 +930,17 @@ namespace HotKeyCommandApp.ViewModels
             {
                 OnPropertyChanged(nameof(IsListBoxVisible));
             }
+        }
+
+        private void PopulateSlackTeamHistory(string query)
+        {
+            DisplayCommands.Clear();
+            var filtered = _appSettings.SlackTeamIdHistory
+                .Where(id => id.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .Select(id => new CommandEntry { Name = id, Value = "TYPE_TEMPLATE" });
+            
+            foreach (var item in filtered) DisplayCommands.Add(item);
+            OnPropertyChanged(nameof(IsListBoxVisible));
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

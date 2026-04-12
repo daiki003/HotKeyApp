@@ -20,6 +20,8 @@ namespace HotKeyCommandApp.ViewModels
         SelectingType,
         EnteringValue,
         EnteringAppPath,
+        EnteringSlackTeamID,
+        EnteringSlackChannelID,
         None
     }
 
@@ -62,6 +64,8 @@ namespace HotKeyCommandApp.ViewModels
             public CommandEntry? EditingCommand { get; init; }
             public string NewEntryName { get; init; } = "";
             public CommandType NewEntryType { get; init; }
+            public string SlackTeamID { get; init; } = "";
+            public string SlackChannelID { get; init; } = "";
         }
 
         private List<CommandEntry> _rootCommands = new();
@@ -178,6 +182,7 @@ namespace HotKeyCommandApp.ViewModels
                 OnPropertyChanged();
                 if (IsFileSearchMode) PerformFileSearch(value);
                 else if (IsInputMode && CurrentStep == InputStep.EnteringValue) PerformIncrementalSearch(value);
+                else if (IsInputMode && CurrentStep == InputStep.EnteringSlackTeamID) PopulateSlackTeamHistory(value);
             }
         }
 
@@ -186,6 +191,7 @@ namespace HotKeyCommandApp.ViewModels
         public List<CommandTypeOption> AvailableCommandTypes { get; } = new()
         {
             new CommandTypeOption { Name = "URLを開く", Type = CommandType.URL },
+            new CommandTypeOption { Name = "Slackを開く", Type = CommandType.Slack },
             new CommandTypeOption { Name = "フォルダを開く", Type = CommandType.Folder },
             new CommandTypeOption { Name = "バッチ実行", Type = CommandType.Batch },
             new CommandTypeOption { Name = "ファイルを開く", Type = CommandType.File },
@@ -243,6 +249,9 @@ namespace HotKeyCommandApp.ViewModels
         private string _newEntryName = string.Empty;
         private CommandType _newEntryType;
         private CommandEntry? _editingCommand; // null = 新規追加, not null = 既存編集
+
+        private string _slackTeamID = string.Empty;
+        private string _slackChannelID = string.Empty;
 
         private bool _isRequiresArgumentChecked;
         public bool IsRequiresArgumentChecked
@@ -791,7 +800,9 @@ namespace HotKeyCommandApp.ViewModels
                 InputPrompt = InputPrompt,
                 EditingCommand = _editingCommand,
                 NewEntryName = _newEntryName,
-                NewEntryType = _newEntryType
+                NewEntryType = _newEntryType,
+                SlackTeamID = _slackTeamID,
+                SlackChannelID = _slackChannelID
             };
 
             // 直前の履歴と同じ状態なら記録しない
@@ -1570,6 +1581,14 @@ namespace HotKeyCommandApp.ViewModels
                     InputText = string.Empty;
                     FinishInputFlow();
                 }
+                else if (_newEntryType == CommandType.Slack)
+                {
+                    _slackTeamID = _appSettings.SlackTeamIdHistory.FirstOrDefault() ?? "";
+                    InputText = _slackTeamID;
+                    CurrentStep = InputStep.EnteringSlackTeamID;
+                    InputPrompt = "チームIDを入力してください (TXXXXXXXX):";
+                    PopulateSlackTeamHistory(_slackTeamID);
+                }
                 else
                 {
                     // 編集中の場合は現在の値をデフォルトで入れる
@@ -1629,6 +1648,43 @@ namespace HotKeyCommandApp.ViewModels
                 return;
             }
 
+            if (CurrentStep == InputStep.EnteringSlackTeamID)
+            {
+                // If an item is selected from history, use it
+                if (SelectedItem != null)
+                {
+                    InputText = SelectedItem.Name;
+                    SelectedItem = null;
+                    return;
+                }
+
+                _slackTeamID = InputText.Trim();
+                
+                // Save to history
+                if (!string.IsNullOrWhiteSpace(_slackTeamID))
+                {
+                    _appSettings.SlackTeamIdHistory.Remove(_slackTeamID);
+                    _appSettings.SlackTeamIdHistory.Insert(0, _slackTeamID);
+                    if (_appSettings.SlackTeamIdHistory.Count > 10) 
+                        _appSettings.SlackTeamIdHistory.RemoveAt(10);
+                    _configService.SaveSettings(_appSettings);
+                }
+
+                InputText = _slackChannelID;
+                CurrentStep = InputStep.EnteringSlackChannelID;
+                InputPrompt = "チャンネルIDを入力してください (CXXXXXXXX):";
+                RecordHistory();
+                return;
+            }
+
+            if (CurrentStep == InputStep.EnteringSlackChannelID)
+            {
+                _slackChannelID = InputText.Trim();
+                FinishInputFlow();
+                RecordHistory();
+                return;
+            }
+
             if (IsInputMode && CurrentStep == InputStep.EnteringAppPath)
             {
                 // If a hint is selected, use its value
@@ -1679,6 +1735,16 @@ namespace HotKeyCommandApp.ViewModels
 
 
         }
+        private void PopulateSlackTeamHistory(string query)
+        {
+            DisplayCommands.Clear();
+            var filtered = _appSettings.SlackTeamIdHistory
+                .Where(id => id.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .Select(id => new CommandEntry { Name = id, Value = "TYPE_TEMPLATE" });
+            
+            foreach (var item in filtered) DisplayCommands.Add(item);
+            UpdateListBoxVisibility();
+        }
 
         private void RegisterAppFromPath(string? appPath)
         {
@@ -1707,8 +1773,16 @@ namespace HotKeyCommandApp.ViewModels
         private void FinishInputFlow()
         {
             string val = InputText.Trim();
-            // chrome:// などのカスタムプロトコルには https:// を付与しない
-            if (_newEntryType == CommandType.URL && !string.IsNullOrEmpty(val)
+            if (_newEntryType == CommandType.Slack)
+            {
+                val = $"slack://channel?team={_slackTeamID}&id={_slackChannelID}";
+                // 名前が未入力、またはデフォルトのままの場合はチームIDを名前にする
+                if (string.IsNullOrWhiteSpace(_newEntryName) || _newEntryName == "新しいボタン")
+                {
+                    _newEntryName = $"Slack: {_slackTeamID}";
+                }
+            }
+            else if (_newEntryType == CommandType.URL && !string.IsNullOrEmpty(val)
                 && !val.StartsWith("http") && !val.Contains("://"))
             {
                 val = "https://" + val;

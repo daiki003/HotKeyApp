@@ -23,5 +23,8 @@ namespace HotKeyCommandApp.Models
 
         /// <summary>アプリ選択画面に表示する登録済みアプリ一覧</summary>
         public List<RegisteredApp> RegisteredApps { get; set; } = new();
+
+        /// <summary>SlackのチームID履歴</summary>
+        public List<string> SlackTeamIdHistory { get; set; } = new();
     }
 }

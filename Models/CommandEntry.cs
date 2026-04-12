@@ -21,7 +21,8 @@ namespace HotKeyCommandApp.Models
         Command,
         Menu,
         File,
-        WindowSwitcher
+        WindowSwitcher,
+        Slack
     }
 
     public class CommandEntry : INotifyPropertyChanged
