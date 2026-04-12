@@ -169,7 +169,11 @@ namespace HotKeyCommandApp.Views
                             mainVm.SelectedWindowItem = null;
                         }
                     };
+                    // 1. まず画面外 (-20000) で実体化させる。これにより正確な ActualWidth が確定する。
                     switcher.Show();
+                    
+                    // 2. 確定したサイズを用いて、最右モニターの中央へ瞬時に移動（ワープ）させる。
+                    WindowHelper.CenterOnRightmostMonitor(switcher);
                 };
 
                 vm.RequestDeleteConfirmation += (command) =>

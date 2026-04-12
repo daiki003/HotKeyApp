@@ -3,11 +3,14 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:HotKeyCommandApp.Views"
         Title="Window Switcher" 
-        WindowStartupLocation="CenterScreen"
+        WindowStartupLocation="Manual"
+        Left="-20000"
+        Top="-20000"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
         ShowInTaskbar="False"
+        Opacity="1"
         Topmost="True"
         SizeToContent="WidthAndHeight"
         MaxWidth="1200"
@@ -24,7 +27,9 @@
                 <Border x:Name="ThumbBorder" Background="#2D2D2D" CornerRadius="12" BorderBrush="#444444" BorderThickness="1.5" ClipToBounds="True">
                     <Grid>
                         <!-- Thumbnail View -->
-                        <local:WindowThumbnailView SourceWindowHandle="{Binding WindowHandle}" Margin="0" />
+                        <local:WindowThumbnailView SourceWindowHandle="{Binding WindowHandle}" 
+                                                   IsThumbnailEnabled="{Binding IsThumbnailEnabled, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                   Margin="0" />
                         
                         <!-- Overlay Info -->
                         <Border VerticalAlignment="Bottom" Background="#CC1E1E1E" Padding="10,6">
@@ -56,6 +61,9 @@
             BorderBrush="#444444" 
             BorderThickness="1.5"
             Margin="20">
+        <Border.CacheMode>
+            <BitmapCache RenderAtScale="1" />
+        </Border.CacheMode>
         <Border.Effect>
             <DropShadowEffect BlurRadius="30" Opacity="0.7" ShadowDepth="0" />
         </Border.Effect>

@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Input;
 using HotKeyCommandApp.ViewModels;
 using HotKeyCommandApp.Models;
+using HotKeyCommandApp.Services;
 
 namespace HotKeyCommandApp.Views
 {
@@ -13,6 +14,16 @@ namespace HotKeyCommandApp.Views
 
         public CommandEntry? ActiveCommand { get; }
 
+        public static readonly DependencyProperty IsThumbnailEnabledProperty =
+            DependencyProperty.Register("IsThumbnailEnabled", typeof(bool), typeof(WindowSwitcherWindow),
+                new PropertyMetadata(false));
+
+        public bool IsThumbnailEnabled
+        {
+            get => (bool)GetValue(IsThumbnailEnabledProperty);
+            set => SetValue(IsThumbnailEnabledProperty, value);
+        }
+
         public WindowSwitcherWindow(MainViewModel viewModel, bool isPeekMode, CommandEntry? activeCommand)
         {
             InitializeComponent();
@@ -22,33 +33,51 @@ namespace HotKeyCommandApp.Views
 
             this.Closing += (s, e) => _isClosing = true;
 
-            this.Loaded += (s, e) => {
-                this.Activate();
-                this.Focus();
-                SwitcherListBox.Focus();
-                
-                // アイテムが選択されていない場合は初期アイテムを選択（Alt+Tab挙動）
-                if (viewModel.SelectedWindowItem == null && viewModel.WindowSwitcherItems.Count > 0)
-                {
-                    if (viewModel.WindowSwitcherItems.Count >= 2)
-                    {
-                        viewModel.SelectedWindowItem = viewModel.WindowSwitcherItems[1];
-                    }
-                    else
-                    {
-                        viewModel.SelectedWindowItem = viewModel.WindowSwitcherItems[0];
-                    }
-                }
+            this.SourceInitialized += (s, e) =>
+            {
+                // 表示前に位置を確定させているため、ここでは配置を行わない
             };
 
+            this.ContentRendered += (s, e) =>
+            {
+                // サムネイルを有効化（背景の描画更新のタイミングを待って実行）
+                // CompositionTarget.Rendering は次の描画フレームの直前に発生する
+                EventHandler? handler = null;
+                handler = (s2, e2) =>
+                {
+                    System.Windows.Media.CompositionTarget.Rendering -= handler;
+                    this.IsThumbnailEnabled = true;
+
+                    this.Activate();
+                    this.Focus();
+                    SwitcherListBox.Focus();
+                };
+                System.Windows.Media.CompositionTarget.Rendering += handler;
+            };
+
+            // アイテムが選択されていない場合は初期アイテムを選択（Alt+Tab挙動）
+            if (viewModel.SelectedWindowItem == null && viewModel.WindowSwitcherItems.Count > 0)
+            {
+                if (viewModel.WindowSwitcherItems.Count >= 2)
+                {
+                    viewModel.SelectedWindowItem = viewModel.WindowSwitcherItems[1];
+                }
+                else
+                {
+                    viewModel.SelectedWindowItem = viewModel.WindowSwitcherItems[0];
+                }
+            }
+
             // ウィンドウ外クリックで閉じる
-            this.Deactivated += (s, e) => {
+            this.Deactivated += (s, e) =>
+            {
                 if (!_isClosing && !this.IsOwnedByAnyDialog())
                 {
                     SafeClose();
                 }
             };
         }
+
 
         private void SafeClose()
         {

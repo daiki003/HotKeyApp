@@ -13,6 +13,24 @@ namespace HotKeyCommandApp.Views
     {
         private IntPtr _thumbnailHandle = IntPtr.Zero;
 
+        public static readonly DependencyProperty IsThumbnailEnabledProperty =
+            DependencyProperty.Register("IsThumbnailEnabled", typeof(bool), typeof(WindowThumbnailView),
+                new PropertyMetadata(false, OnIsThumbnailEnabledChanged));
+
+        public bool IsThumbnailEnabled
+        {
+            get => (bool)GetValue(IsThumbnailEnabledProperty);
+            set => SetValue(IsThumbnailEnabledProperty, value);
+        }
+
+        private static void OnIsThumbnailEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            if (d is WindowThumbnailView view)
+            {
+                view.UpdateThumbnail();
+            }
+        }
+
         public static readonly DependencyProperty SourceWindowHandleProperty =
             DependencyProperty.Register("SourceWindowHandle", typeof(IntPtr), typeof(WindowThumbnailView),
                 new PropertyMetadata(IntPtr.Zero, OnSourceWindowHandleChanged));
@@ -50,7 +68,7 @@ namespace HotKeyCommandApp.Views
 
         private void UpdateThumbnail()
         {
-            if (SourceWindowHandle == IntPtr.Zero || !this.IsVisible || this.ActualWidth <= 0 || this.ActualHeight <= 0)
+            if (!IsThumbnailEnabled || SourceWindowHandle == IntPtr.Zero || !this.IsVisible || this.ActualWidth <= 0 || this.ActualHeight <= 0)
             {
                 UnregisterThumbnail();
                 return;
