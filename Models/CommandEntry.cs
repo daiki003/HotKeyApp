@@ -21,7 +21,6 @@ namespace HotKeyCommandApp.Models
         Command,
         Menu,
         File,
-        Window,
         WindowSwitcher
     }
 

@@ -69,7 +69,7 @@ namespace HotKeyCommandApp.ViewModels
             {
                 _inputText = value;
                 OnPropertyChanged();
-                if (CurrentStep == InputStep.EnteringValue && (_newEntryType == CommandType.Folder || _newEntryType == CommandType.File || _newEntryType == CommandType.Batch || _newEntryType == CommandType.URL || _newEntryType == CommandType.Window || _newEntryType == CommandType.WindowSwitcher))
+                if (CurrentStep == InputStep.EnteringValue && (_newEntryType == CommandType.Folder || _newEntryType == CommandType.File || _newEntryType == CommandType.Batch || _newEntryType == CommandType.URL || _newEntryType == CommandType.WindowSwitcher))
                 {
                     PerformIncrementalSearch(value);
                 }
@@ -119,9 +119,9 @@ namespace HotKeyCommandApp.ViewModels
             set { _isFileSearchChecked = value; OnPropertyChanged(); }
         }
 
-        public bool ShowArgumentOption => CurrentStep == InputStep.EnteringValue && (_newEntryType == CommandType.URL || _newEntryType == CommandType.Folder || _newEntryType == CommandType.Batch || _newEntryType == CommandType.File || _newEntryType == CommandType.Window);
+        public bool ShowArgumentOption => CurrentStep == InputStep.EnteringValue && (_newEntryType == CommandType.URL || _newEntryType == CommandType.Folder || _newEntryType == CommandType.Batch || _newEntryType == CommandType.File);
         public bool ShowFileSearchOption => (CurrentStep == InputStep.EnteringValue || CurrentStep == InputStep.EnteringAppPath) && (_newEntryType == CommandType.Folder || _newEntryType == CommandType.File);
-        public bool ShowMainBrowseButton => CurrentStep == InputStep.EnteringValue && (_newEntryType == CommandType.Folder || _newEntryType == CommandType.File || _newEntryType == CommandType.Batch || _newEntryType == CommandType.Window);
+        public bool ShowMainBrowseButton => CurrentStep == InputStep.EnteringValue && (_newEntryType == CommandType.Folder || _newEntryType == CommandType.File || _newEntryType == CommandType.Batch);
         public bool ShowAppPathInput => CurrentStep == InputStep.EnteringAppPath;
 
         public List<CommandTypeOption> AvailableCommandTypes { get; } = new()
@@ -130,7 +130,6 @@ namespace HotKeyCommandApp.ViewModels
             new CommandTypeOption { Name = "フォルダを開く", Type = CommandType.Folder },
             new CommandTypeOption { Name = "バッチ実行", Type = CommandType.Batch },
             new CommandTypeOption { Name = "ファイルを開く", Type = CommandType.File },
-            new CommandTypeOption { Name = "ウィンドウを前面へ", Type = CommandType.Window },
             new CommandTypeOption { Name = "特定のウィンドウを切替", Type = CommandType.WindowSwitcher },
             new CommandTypeOption { Name = "階層の親", Type = CommandType.Menu }
         };
@@ -398,7 +397,7 @@ namespace HotKeyCommandApp.ViewModels
                 {
                     InputText = _editingCommand?.Value ?? "";
                     CurrentStep = InputStep.EnteringValue;
-                    InputPrompt = (_newEntryType == CommandType.Window || _newEntryType == CommandType.WindowSwitcher) ? "ウィンドウタイトルを入力してください:" : "URLまたはパスを入力してください:";
+                    InputPrompt = (_newEntryType == CommandType.WindowSwitcher) ? "ウィンドウタイトルを入力してください:" : "URLまたはパスを入力してください:";
                     DisplayCommands.Clear();
                     RequestControlFocus?.Invoke("InputTextBox");
                 }
@@ -524,7 +523,7 @@ namespace HotKeyCommandApp.ViewModels
         {
             try
             {
-                if (_newEntryType == CommandType.Window || _newEntryType == CommandType.WindowSwitcher)
+                if (_newEntryType == CommandType.WindowSwitcher)
                 {
                     // Show all windows when clicking browse button in window mode
                     PerformIncrementalSearch("");
@@ -708,7 +707,7 @@ namespace HotKeyCommandApp.ViewModels
 
             if (string.IsNullOrWhiteSpace(query))
             {
-                if (_newEntryType == CommandType.Window || _newEntryType == CommandType.WindowSwitcher)
+                if (_newEntryType == CommandType.WindowSwitcher)
                 {
                     // Show all windows if query is empty for Window type
                     var allTitles = _windowService.GetAllVisibleWindowTitles();
@@ -726,7 +725,7 @@ namespace HotKeyCommandApp.ViewModels
                 return;
             }
 
-            if (_newEntryType == CommandType.Window || _newEntryType == CommandType.WindowSwitcher)
+            if (_newEntryType == CommandType.WindowSwitcher)
             {
                 // Window search logic
                 var allTitles = _windowService.GetAllVisibleWindowTitles();

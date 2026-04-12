@@ -189,7 +189,6 @@ namespace HotKeyCommandApp.ViewModels
             new CommandTypeOption { Name = "フォルダを開く", Type = CommandType.Folder },
             new CommandTypeOption { Name = "バッチ実行", Type = CommandType.Batch },
             new CommandTypeOption { Name = "ファイルを開く", Type = CommandType.File },
-            new CommandTypeOption { Name = "ウィンドウを前面へ", Type = CommandType.Window },
             new CommandTypeOption { Name = "特定のウィンドウを切替", Type = CommandType.WindowSwitcher },
             new CommandTypeOption { Name = "階層の親", Type = CommandType.Menu }
         };
@@ -695,10 +694,6 @@ namespace HotKeyCommandApp.ViewModels
             foreach (var item in commands)
             {
                 DisplayCommands.Add(item);
-                if (item.Type == CommandType.Window && !string.IsNullOrEmpty(item.Value))
-                {
-                    windowCommands.Add(item);
-                }
             }
 
             // Ensure "Add Button" for hierarchy levels (if not in special input/search modes)
@@ -877,7 +872,7 @@ namespace HotKeyCommandApp.ViewModels
             }
 
             // 1.5 特定のウィンドウ切替（動的階層生成）
-            if (command.Type == CommandType.WindowSwitcher)
+            if (command.Type == CommandType.WindowSwitcher && command.WindowHandle == IntPtr.Zero)
             {
                 // すでにこのウィンドウ切替の一覧が表示されている場合は、選択を次に進める（連打対応）
                 if (ActiveWindowSwitcherCommand == command && WindowSwitcherItems.Any())
@@ -902,7 +897,7 @@ namespace HotKeyCommandApp.ViewModels
                     {
                         Name = w.Title,
                         Value = w.Title,
-                        Type = CommandType.Window,
+                        Type = CommandType.WindowSwitcher,
                         WindowHandle = w.Handle,
                         IconSource = w.Icon
                     }).ToList();
