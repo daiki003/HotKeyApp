@@ -67,6 +67,22 @@ namespace HotKeyCommandApp.ViewModels
         private List<CommandEntry> _rootCommands = new();
         public ObservableCollection<CommandEntry> DisplayCommands { get; } = new();
 
+        public ObservableCollection<CommandEntry> WindowSwitcherItems { get; } = new();
+
+        private CommandEntry? _selectedWindowItem;
+        public CommandEntry? SelectedWindowItem
+        {
+            get => _selectedWindowItem;
+            set { _selectedWindowItem = value; OnPropertyChanged(); }
+        }
+
+        private CommandEntry? _activeWindowSwitcherCommand;
+        public CommandEntry? ActiveWindowSwitcherCommand
+        {
+            get => _activeWindowSwitcherCommand;
+            set { _activeWindowSwitcherCommand = value; OnPropertyChanged(); }
+        }
+
         private string _title = "Quick Actions";
         public string Title
         {
@@ -99,8 +115,20 @@ namespace HotKeyCommandApp.ViewModels
         public CommandEntry? CurrentParent
         {
             get => _currentParent;
-            set { _currentParent = value; OnPropertyChanged(); }
+            set 
+            { 
+                _currentParent = value; 
+                OnPropertyChanged(); 
+                OnPropertyChanged(nameof(IsWindowSwitcherMode));
+                OnPropertyChanged(nameof(IsNormalListMode));
+            }
         }
+
+        /// <summary>ウィンドウ切替モード（サムネイル表示）かどうか</summary>
+        public bool IsWindowSwitcherMode => CurrentParent?.Type == CommandType.WindowSwitcher;
+
+        /// <summary>通常のリスト表示モードかどうか</summary>
+        public bool IsNormalListMode => !IsWindowSwitcherMode;
 
         private bool _isInputMode;
         public bool IsInputMode
@@ -162,6 +190,7 @@ namespace HotKeyCommandApp.ViewModels
             new CommandTypeOption { Name = "バッチ実行", Type = CommandType.Batch },
             new CommandTypeOption { Name = "ファイルを開く", Type = CommandType.File },
             new CommandTypeOption { Name = "ウィンドウを前面へ", Type = CommandType.Window },
+            new CommandTypeOption { Name = "特定のウィンドウを切替", Type = CommandType.WindowSwitcher },
             new CommandTypeOption { Name = "階層の親", Type = CommandType.Menu }
         };
 
@@ -210,6 +239,7 @@ namespace HotKeyCommandApp.ViewModels
         public event Action<CommandEntry>? RequestShortcutAssignment;
         public event Action<CommandEntry>? RequestDeleteConfirmation;
         public event Action<CommandEntry?, double, double>? RequestButtonCreation;
+        public event Action<MainViewModel, bool>? RequestWindowSwitcher;
 
         private string _newEntryName = string.Empty;
         private CommandType _newEntryType;
@@ -672,7 +702,9 @@ namespace HotKeyCommandApp.ViewModels
             }
 
             // Ensure "Add Button" for hierarchy levels (if not in special input/search modes)
-            if (!IsInputMode && !IsFileSearchMode)
+            // ウィンドウ切替モード時（動的階層）はボタン追加を表示しない
+            bool isWindowSwitcher = parent?.Type == CommandType.WindowSwitcher;
+            if (!IsInputMode && !IsFileSearchMode && !isWindowSwitcher)
             {
                 if (!DisplayCommands.Any(c => c.Type == CommandType.Command && (c.Value?.StartsWith("ADD_") ?? false)))
                 {
@@ -795,6 +827,17 @@ namespace HotKeyCommandApp.ViewModels
         {
             if (command == null) return;
 
+            try
+            {
+
+            // 0. 動的に生成されたウィンドウアイテムの処理
+            if (command.WindowHandle != IntPtr.Zero)
+            {
+                _windowService.FocusWindow(command.WindowHandle);
+                RequestHide?.Invoke();
+                return;
+            }
+
             // 1. Check for CommandType.Command (Menu items like "ADD_BUTTON", etc.)
             if (command.Type == CommandType.Command)
             {
@@ -831,6 +874,63 @@ namespace HotKeyCommandApp.ViewModels
                     return;
                 }
                 return;
+            }
+
+            // 1.5 特定のウィンドウ切替（動的階層生成）
+            if (command.Type == CommandType.WindowSwitcher)
+            {
+                // すでにこのウィンドウ切替の一覧が表示されている場合は、選択を次に進める（連打対応）
+                if (ActiveWindowSwitcherCommand == command && WindowSwitcherItems.Any())
+                {
+                    // ウィンドウ切替専用の次へ移動処理
+                    int idx = (SelectedWindowItem != null) ? WindowSwitcherItems.IndexOf(SelectedWindowItem) : -1;
+                    if (idx >= 0 && idx < WindowSwitcherItems.Count - 1)
+                    {
+                        SelectedWindowItem = WindowSwitcherItems[idx + 1];
+                    }
+                    else
+                    {
+                        SelectedWindowItem = WindowSwitcherItems.FirstOrDefault();
+                    }
+                    return;
+                }
+
+                var windows = _windowService.GetVisibleWindowsByTitle(command.Value);
+                if (windows.Any())
+                {
+                    var windowItems = windows.Select(w => new CommandEntry
+                    {
+                        Name = w.Title,
+                        Value = w.Title,
+                        Type = CommandType.Window,
+                        WindowHandle = w.Handle,
+                        IconSource = w.Icon
+                    }).ToList();
+
+                    // 切替専用プロパティを更新（通常プロパティは触らない）
+                    WindowSwitcherItems.Clear();
+                    foreach (var item in windowItems) WindowSwitcherItems.Add(item);
+                    ActiveWindowSwitcherCommand = command;
+                    
+                    // Alt+Tab挙動: 2つ以上ウィンドウがあれば最初は2番目を選択する
+                    if (WindowSwitcherItems.Count >= 2)
+                    {
+                        SelectedWindowItem = WindowSwitcherItems[1];
+                    }
+                    else
+                    {
+                        SelectedWindowItem = WindowSwitcherItems.FirstOrDefault();
+                    }
+
+                    // 専用ウィンドウの表示をリクエスト
+                    RequestWindowSwitcher?.Invoke(this, true); // true = Peek mode
+                    RequestSync?.Invoke();
+                    return;
+                }
+                else
+                {
+                    return;
+                }
             }
 
             // 2. Check for Menu and enter it
@@ -895,8 +995,13 @@ namespace HotKeyCommandApp.ViewModels
                 return;
             }
 
-            // 5. Run the actual action
-            RunActionAndHandleVisibility(command);
+                // 5. Run the actual action
+                RunActionAndHandleVisibility(command);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in Execute: {ex}");
+            }
         }
 
         private void RunActionAndHandleVisibility(CommandEntry command, string? argument = null)
@@ -1187,12 +1292,14 @@ namespace HotKeyCommandApp.ViewModels
         public event Action<int, string>? RequestRegisterGlobalHotkey;
         public event Action? RequestUnregisterCommandHotkeys;
 
-        public void ExecuteHotkeyById(int id)
+        public CommandEntry? ExecuteHotkeyById(int id)
         {
             if (_globalHotkeyMapping.TryGetValue(id, out var command))
             {
                 Execute(command);
+                return command;
             }
+            return null;
         }
 
         public void UpdateGlobalHotkeys()

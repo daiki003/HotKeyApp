@@ -22,6 +22,13 @@ namespace HotKeyCommandApp.Services
 
                 if (command.Type == CommandType.Window)
                 {
+                    // ハンドルが直接指定されている場合は、それを使用する（より正確で高速）
+                    if (command.WindowHandle != IntPtr.Zero)
+                    {
+                        _windowService.FocusWindow(command.WindowHandle);
+                        return true;
+                    }
+
                     int count = _windowService.ActivateWindowByTitle(value);
                     // 検索に引っかかるウィンドウが複数ある場合、ウィンドウを閉じずにそのままにしたい
                     return count <= 1;

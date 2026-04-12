@@ -21,7 +21,8 @@ namespace HotKeyCommandApp.Models
         Command,
         Menu,
         File,
-        Window
+        Window,
+        WindowSwitcher
     }
 
     public class CommandEntry : INotifyPropertyChanged
@@ -35,6 +36,8 @@ namespace HotKeyCommandApp.Models
         public bool RequiresArgument { get; set; }
         public bool IsFileSearchEnabled { get; set; }
         public string? AppPath { get; set; }
+        [JsonIgnore]
+        public System.IntPtr WindowHandle { get; set; }
 
         private ImageSource? _iconSource;
         [JsonIgnore]

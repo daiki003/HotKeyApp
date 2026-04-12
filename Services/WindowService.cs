@@ -139,7 +139,7 @@ namespace HotKeyCommandApp.Services
             return string.Empty;
         }
 
-        private void FocusWindow(IntPtr hWnd)
+        public void FocusWindow(IntPtr hWnd)
         {
             if (NativeMethods.IsIconic(hWnd))
             {
@@ -251,15 +251,34 @@ namespace HotKeyCommandApp.Services
             return titles;
         }
 
+        public class WindowInfo
+        {
+            public IntPtr Handle { get; set; }
+            public string Title { get; set; } = string.Empty;
+            public ImageSource? Icon { get; set; }
+        }
+
+        public List<WindowInfo> GetVisibleWindowsByTitle(string filter)
+        {
+            var results = new List<WindowInfo>();
+            EnumerateRealWindows((hWnd, title) =>
+            {
+                if (string.IsNullOrEmpty(filter) || title.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                {
+                    results.Add(new WindowInfo
+                    {
+                        Handle = hWnd,
+                        Title = title,
+                        Icon = GetWindowIconSource(hWnd, title)
+                    });
+                }
+            });
+            return results;
+        }
+
         public ImageSource? GetWindowIconSource(string title)
         {
             if (string.IsNullOrEmpty(title)) return null;
-
-            // Check cache first
-            lock (_iconCache)
-            {
-                if (_iconCache.TryGetValue(title, out var cached)) return cached;
-            }
 
             IntPtr hWnd = IntPtr.Zero;
             EnumerateRealWindows((h, t) =>
@@ -271,6 +290,16 @@ namespace HotKeyCommandApp.Services
             });
 
             if (hWnd == IntPtr.Zero) return null;
+            return GetWindowIconSource(hWnd, title);
+        }
+
+        private ImageSource? GetWindowIconSource(IntPtr hWnd, string title)
+        {
+            // Check cache first
+            lock (_iconCache)
+            {
+                if (_iconCache.TryGetValue(title, out var cached)) return cached;
+            }
 
             IntPtr hIcon = GetWindowIcon(hWnd);
             if (hIcon != IntPtr.Zero)

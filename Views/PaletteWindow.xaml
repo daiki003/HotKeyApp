@@ -13,7 +13,13 @@
         MouseLeftButtonDown="Window_MouseLeftButtonDown"
         PreviewKeyDown="Window_PreviewKeyDown"
         KeyUp="Window_KeyUp"
-        MinWidth="200" MinHeight="300">
+        MinWidth="200" MinHeight="300"
+        Width="450" Height="600">
+
+    <Window.Style>
+        <Style TargetType="Window">
+        </Style>
+    </Window.Style>
     
     <Window.InputBindings>
         <KeyBinding Modifiers="Alt" Key="Left" Command="{Binding NavigateBackCommand}" />
@@ -22,7 +28,6 @@
         <KeyBinding Modifiers="Control" Key="Add" Command="{Binding AddNewButtonCommand}" />
     </Window.InputBindings>
 
-    
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
         <local:MenuIndicatorConverter x:Key="MenuIndicatorConverter" />
@@ -87,11 +92,13 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
         <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
              <EventSetter Event="PreviewMouseLeftButtonDown" Handler="ListBoxItem_PreviewMouseLeftButtonDown"/>
              <EventSetter Event="MouseMove" Handler="ListBoxItem_MouseMove"/>
              <EventSetter Event="Drop" Handler="ListBoxItem_Drop"/>
         </Style>
+
 
     </Window.Resources>
 
@@ -137,72 +144,101 @@
             </Grid>
 
             <Grid Grid.Row="1">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
 
-                    <!-- Input Mode View (Top) -->
-                    <StackPanel Grid.Row="0" 
-                                Visibility="{Binding IsInputMode, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                VerticalAlignment="Top" Margin="15,0,15,10">
-                        <TextBlock Text="{Binding InputPrompt}" 
-                                   Foreground="#888888" FontSize="14" 
-                                   Margin="5,0,5,5" TextWrapping="Wrap"/>
+                <!-- Input Mode View (Top) -->
+                <StackPanel Grid.Row="0" 
+                            Visibility="{Binding IsInputMode, Converter={StaticResource BooleanToVisibilityConverter}}"
+                            VerticalAlignment="Top" Margin="15,0,15,10">
+                    <TextBlock Text="{Binding InputPrompt}" 
+                               Foreground="#888888" FontSize="14" 
+                               Margin="5,0,5,5" TextWrapping="Wrap"/>
 
-                        <!-- Value Input (URL/Path) -->
-                        <Grid Visibility="{Binding ShowValueInput, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <Border x:Name="InputTextBoxBorder" CornerRadius="4,0,0,4" Background="#2D2D2D">
-                                <Border.Style>
-                                    <Style TargetType="Border">
-                                        <Setter Property="BorderBrush" Value="Transparent" />
-                                        <Setter Property="BorderThickness" Value="1.5" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsItemSelected}" Value="False">
-                                                <Setter Property="BorderBrush" Value="#007ACC" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Border.Style>
-                                <TextBox x:Name="InputTextBox"
-                                         Text="{Binding InputText, UpdateSourceTrigger=PropertyChanged}"
-                                         Background="Transparent" Foreground="White"
-                                         BorderThickness="0"
-                                         Padding="10" FontSize="16"
-                                         CaretBrush="White"
-                                         VerticalContentAlignment="Center">
-                                    <TextBox.InputBindings>
-                                        <KeyBinding Key="Enter" Command="{Binding CommitInputCommand}" />
-                                        <KeyBinding Key="Escape" Command="{Binding CancelInputCommand}" />
-                                        <KeyBinding Modifiers="Control" Key="P" Command="{Binding BrowseFileCommand}" />
-                                        <KeyBinding Modifiers="Alt" Key="Left" Command="{Binding NavigateBackCommand}" />
-                                        <KeyBinding Modifiers="Alt" Key="Right" Command="{Binding NavigateForwardCommand}" />
-                                    </TextBox.InputBindings>
-                                </TextBox>
-                            </Border>
-                        </Grid>
+                    <!-- Value Input (URL/Path) -->
+                    <Grid Visibility="{Binding ShowValueInput, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Border x:Name="InputTextBoxBorder" CornerRadius="4,0,0,4" Background="#2D2D2D">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="BorderBrush" Value="Transparent" />
+                                    <Setter Property="BorderThickness" Value="1.5" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsItemSelected}" Value="False">
+                                            <Setter Property="BorderBrush" Value="#007ACC" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBox x:Name="InputTextBox"
+                                     Text="{Binding InputText, UpdateSourceTrigger=PropertyChanged}"
+                                     Background="Transparent" Foreground="White"
+                                     BorderThickness="0"
+                                     Padding="10" FontSize="16"
+                                     CaretBrush="White"
+                                     VerticalContentAlignment="Center">
+                                <TextBox.InputBindings>
+                                    <KeyBinding Key="Enter" Command="{Binding CommitInputCommand}" />
+                                    <KeyBinding Key="Escape" Command="{Binding CancelInputCommand}" />
+                                    <KeyBinding Modifiers="Control" Key="P" Command="{Binding BrowseFileCommand}" />
+                                    <KeyBinding Modifiers="Alt" Key="Left" Command="{Binding NavigateBackCommand}" />
+                                    <KeyBinding Modifiers="Alt" Key="Right" Command="{Binding NavigateForwardCommand}" />
+                                </TextBox.InputBindings>
+                            </TextBox>
+                        </Border>
+                    </Grid>
+                </StackPanel>
 
-
-                    </StackPanel>
-
-                    <ListBox x:Name="CommandListBox"
-                             Grid.Row="1"
-                             ItemsSource="{Binding DisplayCommands}"
-                             SelectedItem="{Binding SelectedItem}"
-                             Visibility="{Binding IsListBoxVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
-                             Background="Transparent"
-                             BorderThickness="0"
-                             Padding="0"
-                             ScrollViewer.VerticalScrollBarVisibility="Visible"
-                             ScrollViewer.HorizontalScrollBarVisibility="Hidden"
-                             HorizontalContentAlignment="Stretch">
+                <ListBox x:Name="CommandListBox"
+                         Grid.Row="1"
+                         ItemsSource="{Binding DisplayCommands}"
+                         SelectedItem="{Binding SelectedItem}"
+                         Visibility="{Binding IsListBoxVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Padding="10,0"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         HorizontalContentAlignment="Stretch">
+                    <ListBox.Style>
+                        <Style TargetType="ListBox">
+                            <Setter Property="ItemsPanel">
+                                <Setter.Value>
+                                    <ItemsPanelTemplate>
+                                        <VirtualizingStackPanel />
+                                    </ItemsPanelTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Setter Property="ItemTemplate">
+                                <Setter.Value>
+                                    <DataTemplate>
+                                        <Grid Background="Transparent">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Image Source="{Binding IconSource}" 
+                                                       Width="20" Height="20" 
+                                                       Margin="0,0,10,0" 
+                                                       VerticalAlignment="Center"
+                                                       Visibility="{Binding IconSource, Converter={StaticResource ImageSourceToVisibilityConverter}}"/>
+                                                <TextBlock Text="{Binding Name}" 
+                                                           FontSize="{Binding DataContext.FontSize, RelativeSource={RelativeSource AncestorType=ListBox}}" 
+                                                           Foreground="White" 
+                                                           VerticalAlignment="Center" 
+                                                           TextTrimming="CharacterEllipsis" 
+                                                           TextWrapping="Wrap" 
+                                                           MaxHeight="{Binding DataContext.ButtonHeight, RelativeSource={RelativeSource AncestorType=ListBox}}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.Style>
                     <ListBox.Resources>
-                        <!-- Ultra Thin ScrollBar applied locally to ListBox ScrollViewer -->
                         <Style TargetType="ScrollBar">
                             <Setter Property="Width" Value="3" />
                             <Setter Property="MinWidth" Value="2" />
@@ -270,7 +306,6 @@
                                                 <ContentPresenter Grid.Column="0" />
                                                 
                                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                                    <!-- Hotkey Display -->
                                                     <Border Background="{Binding HotkeyType, Converter={StaticResource HotkeyTypeToBrushConverter}}" 
                                                             CornerRadius="4" Padding="{Binding Hotkey, Converter={StaticResource HotkeyToPaddingConverter}}" 
                                                             MinWidth="20" Margin="0,0,10,0"
@@ -279,7 +314,6 @@
                                                         <TextBlock Text="{Binding Hotkey}" Foreground="White" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" TextAlignment="Center" />
                                                     </Border>
                                                     
-                                                    <!-- Folder/Menu Indicator -->
                                                     <TextBlock Text="›" Foreground="#666666" 
                                                                FontSize="20" VerticalAlignment="Center"
                                                                Visibility="{Binding Converter={StaticResource MenuIndicatorConverter}}"/>
@@ -361,26 +395,6 @@
                                       CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                         </ContextMenu>
                     </ListBox.ContextMenu>
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Background="Transparent">
-                                <StackPanel Orientation="Horizontal">
-                                    <Image Source="{Binding IconSource}" 
-                                           Width="20" Height="20" 
-                                           Margin="0,0,10,0" 
-                                           VerticalAlignment="Center"
-                                           Visibility="{Binding IconSource, Converter={StaticResource ImageSourceToVisibilityConverter}}"/>
-                                    <TextBlock Text="{Binding Name}" 
-                                               FontSize="{Binding DataContext.FontSize, RelativeSource={RelativeSource AncestorType=ListBox}}" 
-                                               Foreground="White" 
-                                               VerticalAlignment="Center" 
-                                               TextTrimming="CharacterEllipsis" 
-                                               TextWrapping="Wrap" 
-                                               MaxHeight="{Binding DataContext.ButtonHeight, RelativeSource={RelativeSource AncestorType=ListBox}}" />
-                                </StackPanel>
-                            </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
                     <ListBox.InputBindings>
                         <KeyBinding Key="Enter" 
                                     Command="{Binding DataContext.ExecuteCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
@@ -395,11 +409,6 @@
                     </ListBox.InputBindings>
                 </ListBox>
             </Grid>
-
-
-
-            </Grid>
         </Grid>
     </Border>
-
 </Window>

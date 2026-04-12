@@ -137,6 +137,44 @@ namespace HotKeyCommandApp.Services
         internal const int SW_RESTORE = 9;
         internal const int SW_SHOW = 5;
 
+        // --- dwmapi.dll ---
+
+        [DllImport("dwmapi.dll")]
+        internal static extern int DwmRegisterThumbnail(IntPtr dest, IntPtr src, out IntPtr thumb);
+
+        [DllImport("dwmapi.dll")]
+        internal static extern int DwmUnregisterThumbnail(IntPtr thumb);
+
+        [DllImport("dwmapi.dll")]
+        internal static extern int DwmUpdateThumbnailProperties(IntPtr thumb, ref DWM_THUMBNAIL_PROPERTIES props);
+
+        [DllImport("dwmapi.dll")]
+        internal static extern int DwmQueryThumbnailSourceSize(IntPtr thumb, out PSIZE size);
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct DWM_THUMBNAIL_PROPERTIES
+        {
+            public uint dwFlags;
+            public RECT rcDestination;
+            public RECT rcSource;
+            public byte opacity;
+            public bool fVisible;
+            public bool fSourceClientAreaOnly;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct PSIZE
+        {
+            public int x;
+            public int y;
+        }
+
+        internal const uint DWM_TNP_RECTDESTINATION = 0x00000001;
+        internal const uint DWM_TNP_RECTSOURCE = 0x00000002;
+        internal const uint DWM_TNP_OPACITY = 0x00000004;
+        internal const uint DWM_TNP_VISIBLE = 0x00000008;
+        internal const uint DWM_TNP_SOURCECLIENTAREAONLY = 0x00000010;
+
         internal const int WH_KEYBOARD_LL = 13;
         internal const int WM_KEYDOWN = 0x0100;
         internal const int WM_SYSKEYDOWN = 0x0104;

@@ -18,6 +18,8 @@ namespace HotKeyCommandApp.Views
         private readonly HashSet<Key> _pressedKeys = new HashSet<Key>();
         private TimeSpan _lastRenderingTime = TimeSpan.Zero;
         private Point _dragStartPoint;
+        private bool _isWaitingForAltRelease = false;
+        private WindowSwitcherWindow? _activeSwitcherWindow;
 
         public PaletteWindow()
         {
@@ -132,6 +134,42 @@ namespace HotKeyCommandApp.Views
                     {
                         vm.IsDialogActive = false;
                     }
+                };
+
+                vm.RequestWindowSwitcher += (mainVm, isPeekMode) =>
+                {
+                    // 現在開いている切替ウィンドウがあるか確認
+                    if (_activeSwitcherWindow != null && _activeSwitcherWindow.IsLoaded)
+                    {
+                        // 同じ種類の切替（同じコマンド）なら、既存ウィンドウのデータ更新を期待して何もしない
+                        // (MainViewModel側でコレクションが更新されているため、Bindingにより表示は変わる)
+                        if (_activeSwitcherWindow.ActiveCommand == mainVm.ActiveWindowSwitcherCommand)
+                        {
+                            return;
+                        }
+
+                        // 別の種類の切替なら、今のウィンドウを閉じる
+                        _activeSwitcherWindow.Close();
+                    }
+
+                    this.Hide();
+                    var switcher = new WindowSwitcherWindow(mainVm, isPeekMode, mainVm.ActiveWindowSwitcherCommand);
+                    _activeSwitcherWindow = switcher;
+
+                    switcher.Closed += (s, e) =>
+                    {
+                        if (_activeSwitcherWindow == switcher) _activeSwitcherWindow = null;
+
+                        // 他のウィンドウが既に別のコマンドで上書きしている可能性があるため、
+                        // 自身が担当していたコマンドが今もアクティブである場合のみクリアする。
+                        if (mainVm.ActiveWindowSwitcherCommand == switcher.ActiveCommand)
+                        {
+                            mainVm.ActiveWindowSwitcherCommand = null;
+                            mainVm.WindowSwitcherItems.Clear();
+                            mainVm.SelectedWindowItem = null;
+                        }
+                    };
+                    switcher.Show();
                 };
 
                 vm.RequestDeleteConfirmation += (command) =>
@@ -287,12 +325,28 @@ namespace HotKeyCommandApp.Views
                 // 個別コマンドのグローバルショートカット実行
                 if (DataContext is MainViewModel vm)
                 {
-                    // ウィンドウが非表示の場合は、ジャンプ前に状態をリセットする
-                    if (!this.IsVisible)
+                    // ウィンドウが非表示、かつ切替ウィンドウも開いていない場合は、ジャンプ前に状態をリセットする
+                    if (!this.IsVisible && _activeSwitcherWindow == null)
                     {
                         vm.LoadCommands();
                     }
-                    vm.ExecuteHotkeyById(id);
+                    var command = vm.ExecuteHotkeyById(id);
+                    if (command != null && command.Type == CommandType.WindowSwitcher)
+                    {
+                        // 専用ウィンドウ化されたため、パレットを表示する必要はない
+                        // (vm.ExecuteHotkeyById 内で専用ウィンドウの起動イベントが発火する)
+                        return;
+                    }
+
+                    // 通常コマンド（実行後にパレットを表示し続ける必要がある場合など）
+                    if (command != null)
+                    {
+                        OnRequestShow();
+                        if (command.Hotkey?.Contains("Alt") ?? false)
+                        {
+                            _isWaitingForAltRelease = true;
+                        }
+                    }
                 }
             }
         }
@@ -455,6 +509,8 @@ namespace HotKeyCommandApp.Views
                     return;
                 }
 
+                // Alt+矢印キーなどの操作を行っても連動（Peekモード）を維持するように修正
+
                 if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
                 {
                     if (key == Key.Left) { vm.NavigateBackCommand.Execute(null); e.Handled = true; return; }
@@ -616,7 +672,7 @@ namespace HotKeyCommandApp.Views
                 }
 
                 // グローバルロジック：表示中のコマンドで、このキーに一致するホットキーがあるか確認する
-                if (!isAnyDialogOpen && e.KeyboardDevice.Modifiers == ModifierKeys.None)
+                if (!isAnyDialogOpen && (e.KeyboardDevice.Modifiers == ModifierKeys.None || e.KeyboardDevice.Modifiers == ModifierKeys.Alt))
                 {
                     // ナビゲーションと実行キーを直接処理（フォーカス関係の不具合回避）
                     if (key == Key.Up)
@@ -762,6 +818,24 @@ namespace HotKeyCommandApp.Views
                 {
                     vm.EnterHierarchyWithSelectedItem();
                 }
+
+                // Altキーが離された場合、待機中であればウィンドウを閉じる
+                if (key == Key.LeftAlt || key == Key.RightAlt)
+                {
+                    if (_isWaitingForAltRelease)
+                    {
+                        _isWaitingForAltRelease = false;
+                        // Altを離した際に、現在選択されているアイテムを実行（確定）する
+                        if (vm.SelectedItem != null)
+                        {
+                            vm.Execute(vm.SelectedItem);
+                        }
+                        else
+                        {
+                            OnRequestHide();
+                        }
+                    }
+                }
             }
         }
 
@@ -798,41 +872,38 @@ namespace HotKeyCommandApp.Views
                 double distance = speed * deltaTime;
 
                 // Ctrl+矢印で移動（既存）
-                if (_pressedKeys.Contains(Key.Left)) { this.Left -= distance; }
-                if (_pressedKeys.Contains(Key.Right)) { this.Left += distance; }
-                if (_pressedKeys.Contains(Key.Up)) { this.Top -= distance; }
-                if (_pressedKeys.Contains(Key.Down)) { this.Top += distance; }
+                if (_pressedKeys.Contains(Key.Left)) this.Left -= distance;
+                if (_pressedKeys.Contains(Key.Right)) this.Left += distance;
+                if (_pressedKeys.Contains(Key.Up)) this.Top -= distance;
+                if (_pressedKeys.Contains(Key.Down)) this.Top += distance;
             }
         }
 
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
-            e.Cancel = true;
+            base.OnClosing(e);
             this.Hide();
         }
 
         private void ListBoxItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (sender is ListBoxItem item)
-            {
-                _dragStartPoint = e.GetPosition(null);
-            }
+            _dragStartPoint = e.GetPosition(null);
         }
 
         private void ListBoxItem_MouseMove(object sender, MouseEventArgs e)
         {
             if (e.LeftButton == MouseButtonState.Pressed)
             {
-                Point currentPosition = e.GetPosition(null);
-                if (Math.Abs(currentPosition.X - _dragStartPoint.X) > SystemParameters.MinimumHorizontalDragDistance ||
-                    Math.Abs(currentPosition.Y - _dragStartPoint.Y) > SystemParameters.MinimumVerticalDragDistance)
+                Point currentPoint = e.GetPosition(null);
+                if (Math.Abs(currentPoint.X - _dragStartPoint.X) > SystemParameters.MinimumHorizontalDragDistance ||
+                    Math.Abs(currentPoint.Y - _dragStartPoint.Y) > SystemParameters.MinimumVerticalDragDistance)
                 {
-                    if (sender is ListBoxItem item && item.DataContext is CommandEntry entry)
+                    if (sender is ListBoxItem listBoxItem && listBoxItem.DataContext is CommandEntry command)
                     {
-                        // システムコマンドはドラッグしない
-                        if (entry.Type == CommandType.Command) return;
+                        // システムボタンはドラッグ不可
+                        if (command.Type == CommandType.Command && (command.Value?.StartsWith("ADD_") ?? false)) return;
 
-                        DragDrop.DoDragDrop(item, entry, DragDropEffects.Move);
+                        DragDrop.DoDragDrop(listBoxItem, command, DragDropEffects.Move);
                     }
                 }
             }
@@ -840,39 +911,29 @@ namespace HotKeyCommandApp.Views
 
         private void ListBoxItem_Drop(object sender, DragEventArgs e)
         {
-            if (e.Data.GetData(typeof(CommandEntry)) is CommandEntry droppedEntry)
+            if (e.Data.GetData(typeof(CommandEntry)) is CommandEntry droppedCommand)
             {
-                if (sender is ListBoxItem targetItem && targetItem.DataContext is CommandEntry targetEntry)
+                if (sender is ListBoxItem listBoxItem && listBoxItem.DataContext is CommandEntry targetCommand)
                 {
                     if (DataContext is MainViewModel vm)
                     {
-                        // アイテムを新しい位置へ移動
-                        int oldIndex = vm.DisplayCommands.IndexOf(droppedEntry);
-                        int newIndex = vm.DisplayCommands.IndexOf(targetEntry);
+                        int oldIndex = vm.DisplayCommands.IndexOf(droppedCommand);
+                        int newIndex = vm.DisplayCommands.IndexOf(targetCommand);
 
                         if (oldIndex >= 0 && newIndex >= 0 && oldIndex != newIndex)
                         {
-                            vm.MoveItem(droppedEntry, newIndex - oldIndex);
+                            vm.MoveItem(droppedCommand, newIndex - oldIndex);
                         }
                     }
                 }
             }
         }
 
-
         private void TextBox_GotFocus(object sender, RoutedEventArgs e)
         {
             if (sender is TextBox textBox)
             {
-                // すぐに末尾へ移動させる
-                textBox.CaretIndex = textBox.Text.Length;
-
-                // Tabキー押下時のスムーズな動作のため、Background優先度を使用する
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    if (textBox.IsFocused)
-                        textBox.CaretIndex = textBox.Text.Length;
-                }), System.Windows.Threading.DispatcherPriority.Background);
+                Dispatcher.BeginInvoke(new Action(() => textBox.SelectAll()));
             }
         }
 
@@ -880,24 +941,11 @@ namespace HotKeyCommandApp.Views
         {
             if (DataContext is MainViewModel vm)
             {
-                if (!double.IsNaN(this.Width)) vm.WindowWidth = this.Width;
-                if (!double.IsNaN(this.Height)) vm.WindowHeight = this.Height;
+                vm.WindowWidth = this.Width;
+                vm.WindowHeight = this.Height;
                 vm.WindowTop = this.Top;
                 vm.WindowLeft = this.Left;
-                vm.SaveWindowBounds();
             }
-        }
-    }
-
-    public class ImageSourceToVisibilityConverter : System.Windows.Data.IValueConverter
-    {
-        public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
-        {
-            return value != null ? Visibility.Visible : Visibility.Collapsed;
-        }
-        public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
-        {
-            throw new NotImplementedException();
         }
     }
 }
