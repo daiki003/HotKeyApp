@@ -127,8 +127,65 @@ namespace HotKeyCommandApp.Views
                     return;
                 }
 
-                // 十字キーでの移動を WrapPanel に合わせて直感的にする
-                // ListBox の標準挙動に任せる（WrapPanel の場合は自動で上下左右が判定される）
+                // Alt押下中の移動をサポートするために Key.System もチェックする
+                Key key = (e.Key == Key.System) ? e.SystemKey : e.Key;
+
+                if (key == Key.Left || key == Key.Right || key == Key.Up || key == Key.Down)
+                {
+                    int count = SwitcherListBox.Items.Count;
+                    if (count > 0)
+                    {
+                        int currentIndex = SwitcherListBox.SelectedIndex;
+                        int nextIndex = currentIndex;
+
+                        if (key == Key.Left)
+                        {
+                            nextIndex = (currentIndex - 1 + count) % count;
+                        }
+                        else if (key == Key.Right)
+                        {
+                            nextIndex = (currentIndex + 1) % count;
+                        }
+                        else
+                        {
+                            // 上下移動：現在の幅から1行あたりのアイテム数（列数）を推定
+                            // アイテム幅 200 + マージン 5*2 = 210
+                            double itemWidth = 210;
+                            int columns = Math.Max(1, (int)(SwitcherListBox.ActualWidth / itemWidth));
+                            int totalRows = (count + columns - 1) / columns;
+                            int currentRow = currentIndex / columns;
+                            int currentColumn = currentIndex % columns;
+
+                            int nextRow;
+                            if (key == Key.Up)
+                            {
+                                nextRow = currentRow - 1;
+                                if (nextRow < 0) nextRow = totalRows - 1; // 最上段なら最下段へループ
+                            }
+                            else // Key.Down
+                            {
+                                nextRow = currentRow + 1;
+                                if (nextRow >= totalRows) nextRow = 0; // 最下段なら最上段へループ
+                            }
+
+                            nextIndex = nextRow * columns + currentColumn;
+
+                            // 移動先の位置にアイテムがない場合（末尾の行が欠けている場合）
+                            if (nextIndex >= count)
+                            {
+                                nextIndex = count - 1; // その行内（＝全体の末尾）に吸着
+                            }
+                        }
+
+                        if (nextIndex != currentIndex)
+                        {
+                            SwitcherListBox.SelectedIndex = nextIndex;
+                            SwitcherListBox.ScrollIntoView(SwitcherListBox.SelectedItem);
+                        }
+                    }
+                    e.Handled = true;
+                    return;
+                }
             }
         }
 
