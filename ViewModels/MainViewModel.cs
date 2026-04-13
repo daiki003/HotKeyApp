@@ -918,8 +918,33 @@ namespace HotKeyCommandApp.ViewModels
                     foreach (var item in windowItems) WindowSwitcherItems.Add(item);
                     ActiveWindowSwitcherCommand = command;
                     
-                    // Alt+Tab挙動: 2つ以上ウィンドウがあれば最初は2番目を選択する
-                    if (WindowSwitcherItems.Count >= 2)
+                    // 現在のフォーカスウィンドウを取得（パレット自身がフォーカスされている場合はその後ろのウィンドウ）
+                    IntPtr foregroundHWnd = NativeMethods.GetForegroundWindow();
+                    uint foregroundPid;
+                    NativeMethods.GetWindowThreadProcessId(foregroundHWnd, out foregroundPid);
+                    uint myPid = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+
+                    if (foregroundPid == myPid)
+                    {
+                        IntPtr prevWindow = foregroundHWnd;
+                        while ((prevWindow = NativeMethods.GetWindow(prevWindow, NativeMethods.GW_HWNDNEXT)) != IntPtr.Zero)
+                        {
+                            if (!NativeMethods.IsWindowVisible(prevWindow)) continue;
+                            uint pid;
+                            NativeMethods.GetWindowThreadProcessId(prevWindow, out pid);
+                            if (pid == myPid) continue;
+                            
+                            foregroundHWnd = NativeMethods.GetAncestor(prevWindow, NativeMethods.GA_ROOT);
+                            break;
+                        }
+                    }
+
+                    // 最初に対象の1つ目を選択するか判定（1つ目が現在のフォーカスでなければ1つ目、そうでなければ2つ目を選択）
+                    if (windowItems.Any() && windowItems[0].WindowHandle != foregroundHWnd)
+                    {
+                        SelectedWindowItem = WindowSwitcherItems[0];
+                    }
+                    else if (WindowSwitcherItems.Count >= 2)
                     {
                         SelectedWindowItem = WindowSwitcherItems[1];
                     }
@@ -1408,6 +1433,27 @@ namespace HotKeyCommandApp.ViewModels
             int index = currentList.IndexOf(command);
             if (index < 0) return;
 
+            // Hierarchy stop logic
+            bool stateJustCleared = false;
+            if (IsOnHierarchyButton)
+            {
+                if (direction == LastMoveDirection)
+                {
+                    // Second press in same direction: move past it
+                    if (TargetHierarchyItem != null) TargetHierarchyItem.IsTargetedForMove = false;
+                    IsOnHierarchyButton = false;
+                    stateJustCleared = true;
+                }
+                else
+                {
+                    // Moved away from the stop point
+                    if (TargetHierarchyItem != null) TargetHierarchyItem.IsTargetedForMove = false;
+                    IsOnHierarchyButton = false;
+                    UpdateDisplay(currentList, Title, command, CurrentParent);
+                    return;
+                }
+            }
+
             int newIndex = index + direction;
             if (newIndex < 0 || newIndex >= currentList.Count) return;
 
@@ -1419,24 +1465,7 @@ namespace HotKeyCommandApp.ViewModels
                 if (currentList[index].Type == CommandType.Command) return;
             }
 
-            // Hierarchy stop logic
-            if (IsOnHierarchyButton)
-            {
-                if (direction == LastMoveDirection)
-                {
-                    // Second press in same direction: move past it
-                    if (TargetHierarchyItem != null) TargetHierarchyItem.IsTargetedForMove = false;
-                    IsOnHierarchyButton = false;
-                }
-                else
-                {
-                    // Moved away from the stop point
-                    if (TargetHierarchyItem != null) TargetHierarchyItem.IsTargetedForMove = false;
-                    IsOnHierarchyButton = false;
-                    return;
-                }
-            }
-            else
+            if (!stateJustCleared && !IsOnHierarchyButton)
             {
                 // Check if target is a menu
                 if (currentList[newIndex].Type == CommandType.Menu)
@@ -1445,6 +1474,7 @@ namespace HotKeyCommandApp.ViewModels
                     TargetHierarchyItem = currentList[newIndex];
                     TargetHierarchyItem.IsTargetedForMove = true;
                     LastMoveDirection = direction;
+                    UpdateDisplay(currentList, Title, command, CurrentParent);
                     return; // Stop here
                 }
             }

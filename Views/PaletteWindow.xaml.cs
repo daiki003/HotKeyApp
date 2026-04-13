@@ -153,7 +153,7 @@ namespace HotKeyCommandApp.Views
                     }
 
                     this.Hide();
-                    var switcher = new WindowSwitcherWindow(mainVm, isPeekMode, mainVm.ActiveWindowSwitcherCommand);
+                    var switcher = new WindowSwitcherWindow(mainVm, isPeekMode, mainVm.ActiveWindowSwitcherCommand) { Owner = this };
                     _activeSwitcherWindow = switcher;
 
                     switcher.Closed += (s, e) =>
@@ -272,6 +272,7 @@ namespace HotKeyCommandApp.Views
 
             // Altキーによるシステムメニュー（移動、サイズ変更など）を抑制
             WindowHelper.DisableSystemMenu(this);
+            WindowHelper.EnableWindowMoveShortcut(this, () => DataContext is MainViewModel vm && !vm.IsInputMode && !vm.IsDialogActive);
 
             string hotkey = "Win+Alt+Z";
             if (DataContext is MainViewModel vm)
@@ -761,7 +762,7 @@ namespace HotKeyCommandApp.Views
                 }
                 else if (e.Key == Key.Right)
                 {
-                    this.Width += step;
+                    this.Width = Math.Min(1600, this.Width + step);
                     e.Handled = true;
                     return;
                 }
@@ -773,7 +774,7 @@ namespace HotKeyCommandApp.Views
                 }
                 else if (e.Key == Key.Down)
                 {
-                    this.Height += step;
+                    this.Height = Math.Min(1200, this.Height + step);
                     e.Handled = true;
                     return;
                 }
@@ -802,9 +803,10 @@ namespace HotKeyCommandApp.Views
                     }
                 }
 
-                if (e.Key == Key.Left || e.Key == Key.Right || e.Key == Key.Up || e.Key == Key.Down)
+                if ((e.Key == Key.Left || e.Key == Key.Right || e.Key == Key.Up || e.Key == Key.Down) && 
+                    Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
                 {
-                    // Ctrl+矢印で移動は Rendering で処理
+                    // Ctrl+矢印で移動は WindowHelper で処理
                     e.Handled = true;
                 }
             }
@@ -845,41 +847,11 @@ namespace HotKeyCommandApp.Views
 
         private void OnRendering(object? sender, EventArgs e)
         {
+            // 移動処理は WindowHelper で行われるため、現在は最小限の更新のみ
             if (!this.IsVisible)
             {
                 _lastRenderingTime = TimeSpan.Zero;
                 return;
-            }
-
-            var args = (RenderingEventArgs)e;
-            if (_lastRenderingTime == args.RenderingTime) return;
-
-            if (_lastRenderingTime == TimeSpan.Zero)
-            {
-                _lastRenderingTime = args.RenderingTime;
-                return;
-            }
-
-            double deltaTime = (args.RenderingTime - _lastRenderingTime).TotalSeconds;
-            _lastRenderingTime = args.RenderingTime;
-
-            // アプリがフリーズした場合に膨大なジャンプを防ぐためにデルタタイムを制限する
-            if (deltaTime > 0.1) deltaTime = 0.1;
-
-            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && !Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
-            {
-                double speed = 1200.0;
-                if (DataContext is MainViewModel vm)
-                {
-                    speed = vm.MovementSpeed;
-                }
-                double distance = speed * deltaTime;
-
-                // Ctrl+矢印で移動（既存）
-                if (_pressedKeys.Contains(Key.Left)) this.Left -= distance;
-                if (_pressedKeys.Contains(Key.Right)) this.Left += distance;
-                if (_pressedKeys.Contains(Key.Up)) this.Top -= distance;
-                if (_pressedKeys.Contains(Key.Down)) this.Top += distance;
             }
         }
 

@@ -76,6 +76,15 @@ namespace HotKeyCommandApp.Views
                     SafeClose();
                 }
             };
+
+            // ウィンドウ移動ショートカットを有効化
+            WindowHelper.EnableWindowMoveShortcut(this);
+        }
+
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            WindowHelper.DisableSystemMenu(this);
         }
 
 

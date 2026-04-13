@@ -5,6 +5,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Media;
+using System.Windows.Input;
+using System.Reflection;
 
 namespace HotKeyCommandApp.Services
 {
@@ -151,6 +153,70 @@ namespace HotKeyCommandApp.Services
                 monitorDipLeft + (monitorDipWidth - dipWidth) / 2,
                 monitorDipTop + (monitorDipHeight - dipHeight) / 2
             );
+        }
+
+        /// <summary>
+        /// Ctrl+矢印によるウィンドウの移動機能を有効化します。
+        /// ダイアログから呼び出す場合、Ownerウィンドウも連動して移動します。
+        /// </summary>
+        /// <param name="window">対象のウィンドウ</param>
+        /// <param name="predicate">移動を許可するかどうかの判定関数（オプション）</param>
+        public static void EnableWindowMoveShortcut(Window window, Func<bool>? predicate = null)
+        {
+            TimeSpan lastRenderingTime = TimeSpan.Zero;
+
+            CompositionTarget.Rendering += (s, e) =>
+            {
+                if (!window.IsVisible || !window.IsActive) return;
+                if (predicate != null && !predicate()) return;
+
+                var args = (RenderingEventArgs)e;
+                if (lastRenderingTime == args.RenderingTime) return;
+
+                if (lastRenderingTime == TimeSpan.Zero)
+                {
+                    lastRenderingTime = args.RenderingTime;
+                    return;
+                }
+
+                double deltaTime = (args.RenderingTime - lastRenderingTime).TotalSeconds;
+                lastRenderingTime = args.RenderingTime;
+
+                if (deltaTime > 0.1) deltaTime = 0.1;
+
+                if (Keyboard.Modifiers == ModifierKeys.Control)
+                {
+                    double speed = 1200.0;
+                    // ViewModelから速度を取得（存在する場合をリフレクションで判定）
+                    object? vm = window.DataContext;
+                    if (vm == null && window.Owner != null) vm = window.Owner.DataContext;
+
+                    if (vm != null)
+                    {
+                        var prop = vm.GetType().GetProperty("MovementSpeed");
+                        if (prop != null)
+                        {
+                            speed = (double)prop.GetValue(vm)!;
+                        }
+                    }
+
+                    double distance = speed * deltaTime;
+                    Window target = window.Owner ?? window;
+
+                    bool moved = false;
+                    if (Keyboard.IsKeyDown(Key.Left)) { target.Left -= distance; moved = true; }
+                    if (Keyboard.IsKeyDown(Key.Right)) { target.Left += distance; moved = true; }
+                    if (Keyboard.IsKeyDown(Key.Up)) { target.Top -= distance; moved = true; }
+                    if (Keyboard.IsKeyDown(Key.Down)) { target.Top += distance; moved = true; }
+
+                    if (moved && window.Owner != null)
+                    {
+                        // ダイアログをOwnerの中央に維持する
+                        window.Left = target.Left + (target.ActualWidth - window.ActualWidth) / 2;
+                        window.Top = target.Top + (target.ActualHeight - window.ActualHeight) / 2;
+                    }
+                }
+            };
         }
 
         private static void AddHook(Window window)

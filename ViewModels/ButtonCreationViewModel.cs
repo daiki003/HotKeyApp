@@ -410,16 +410,16 @@ namespace HotKeyCommandApp.ViewModels
                 else if (_newEntryType == CommandType.Slack)
                 {
                     _slackTeamID = _appSettings.SlackTeamIdHistory.FirstOrDefault() ?? "";
-                    InputText = _slackTeamID;
                     CurrentStep = InputStep.EnteringSlackTeamID;
+                    InputText = _slackTeamID;
                     InputPrompt = "チームIDを入力してください (TXXXXXXXX):";
                     PopulateSlackTeamHistory(_slackTeamID);
                     RequestControlFocus?.Invoke("InputTextBox");
                 }
                 else
                 {
-                    InputText = _editingCommand?.Value ?? "";
                     CurrentStep = InputStep.EnteringValue;
+                    InputText = _editingCommand?.Value ?? "";
                     InputPrompt = (_newEntryType == CommandType.WindowSwitcher) ? "ウィンドウタイトルを入力してください:" : "URLまたはパスを入力してください:";
                     DisplayCommands.Clear();
                     RequestControlFocus?.Invoke("InputTextBox");
@@ -516,8 +516,8 @@ namespace HotKeyCommandApp.ViewModels
                     _configService.SaveSettings(_appSettings);
                 }
 
-                InputText = _slackChannelID;
                 CurrentStep = InputStep.EnteringSlackChannelID;
+                InputText = _slackChannelID;
                 InputPrompt = "チャンネルIDを入力してください (CXXXXXXXX):";
                 RequestControlFocus?.Invoke("InputTextBox");
                 RecordHistory();
@@ -868,37 +868,40 @@ namespace HotKeyCommandApp.ViewModels
 
                     var blacklist = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                     {
-                        "Windows", "$Recycle.Bin", "System Volume Information", "ProgramData"
+                        "Windows", "$Recycle.Bin", "System Volume Information", "ProgramData",
+                        "AppData", "Local Settings", "Application Data", "node_modules", ".git", ".vs"
                     };
 
-                    while (queue.Count > 0 && found.Count < 30 && dirCount < 1000)
+                    while (queue.Count > 0 && found.Count < 30 && dirCount < 300)
                     {
                         if (ct.IsCancellationRequested) return found;
-                        var currentDir = queue.Dequeue();
+                        var currentDirPath = queue.Dequeue();
                         dirCount++;
 
                         try
                         {
-                            foreach (var entry in Directory.EnumerateFileSystemEntries(currentDir))
+                            var di = new DirectoryInfo(currentDirPath);
+                            foreach (var info in di.EnumerateFileSystemInfos())
                             {
                                 if (ct.IsCancellationRequested) return found;
-                                string name = Path.GetFileName(entry);
+                                string name = info.Name;
 
-                                if (blacklist.Contains(name)) continue;
+                                // ブラックリストまたは隠し属性はスキップ
+                                if (blacklist.Contains(name) || (info.Attributes & FileAttributes.Hidden) != 0) continue;
 
                                 if (name.Contains(filter, StringComparison.OrdinalIgnoreCase))
                                 {
-                                    found.Add(new CommandEntry { Name = entry, Value = "TYPE_TEMPLATE", Type = CommandType.Command });
+                                    found.Add(new CommandEntry { Name = info.FullName, Value = "TYPE_TEMPLATE", Type = CommandType.Command });
                                     if (found.Count >= 30) return found;
                                 }
 
-                                if (Directory.Exists(entry))
+                                if (info is DirectoryInfo subDir)
                                 {
-                                    queue.Enqueue(entry);
+                                    queue.Enqueue(subDir.FullName);
                                 }
                             }
                         }
-                        catch { /* Access denied */ }
+                        catch { /* Access denied or directory disappeared */ }
                     }
                     return found;
                 }, ct);
