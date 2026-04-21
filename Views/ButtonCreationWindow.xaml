@@ -29,15 +29,56 @@
         <Grid Margin="15">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <!-- Title -->
-            <TextBlock Text="{Binding Title}" 
-                       FontSize="20" FontWeight="Light" Foreground="White"
-                       HorizontalAlignment="Center" Margin="0,0,0,15"/>
+            <!-- Title and Action -->
+            <Grid Grid.Row="0" Margin="0,0,0,15">
+                <TextBlock Text="{Binding Title}" 
+                           FontSize="20" FontWeight="Light" Foreground="White"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                
+                <Button Command="{Binding CommitInputCommand}"
+                        HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Background="Transparent" BorderThickness="0"
+                        Padding="5" Cursor="Hand" ToolTip="保存 (Ctrl+Enter)">
+                    <TextBlock Text="確定" Foreground="#007ACC" FontWeight="Bold" FontSize="14"/>
+                </Button>
+            </Grid>
 
-            <Grid Grid.Row="1">
+            <!-- Page Indicators (Dots) with Guides -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,15">
+                <TextBlock Text="PageUp" Foreground="#666666" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0"/>
+
+                <ItemsControl ItemsSource="{Binding Steps}" VerticalAlignment="Center">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Ellipse Width="8" Height="8" Margin="5,0">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="#444444" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                                <Setter Property="Fill" Value="#007ACC" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Text="PageDown" Foreground="#666666" FontSize="11" VerticalAlignment="Center" Margin="10,0,0,0"/>
+            </StackPanel>
+
+            <Grid Grid.Row="2">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -77,10 +118,11 @@
                                      VerticalContentAlignment="Center">
                                 <TextBox.InputBindings>
                                     <KeyBinding Key="Enter" Command="{Binding CommitInputCommand}" />
+                                    <KeyBinding Modifiers="Control" Key="Enter" Command="{Binding CommitInputCommand}" />
                                     <KeyBinding Key="Escape" Command="{Binding CancelInputCommand}" />
                                     <KeyBinding Modifiers="Control" Key="P" Command="{Binding BrowseFileCommand}" />
-                                    <KeyBinding Modifiers="Alt" Key="Left" Command="{Binding NavigateBackCommand}" />
-                                    <KeyBinding Modifiers="Alt" Key="Right" Command="{Binding NavigateForwardCommand}" />
+                                    <KeyBinding Key="PageUp" Command="{Binding MoveToPreviousStepCommand}" />
+                                    <KeyBinding Key="PageDown" Command="{Binding MoveToNextStepCommand}" />
                                 </TextBox.InputBindings>
                             </TextBox>
                         </Border>
@@ -232,8 +274,12 @@
                     <KeyBinding Key="Enter" 
                                 Command="{Binding DataContext.ExecuteCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                 CommandParameter="{Binding SelectedItem, RelativeSource={RelativeSource AncestorType=ListBox}}" />
+                    <KeyBinding Modifiers="Control" Key="Enter" 
+                                Command="{Binding DataContext.CommitInputCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" />
                     <KeyBinding Key="Down" Command="{Binding DataContext.MoveDownCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" />
                     <KeyBinding Key="Up" Command="{Binding DataContext.MoveUpCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" />
+                    <KeyBinding Key="PageUp" Command="{Binding DataContext.MoveToPreviousStepCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" />
+                    <KeyBinding Key="PageDown" Command="{Binding DataContext.MoveToNextStepCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" />
                 </ListBox.InputBindings>
             </ListBox>
             </Grid>

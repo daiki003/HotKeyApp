@@ -13,30 +13,35 @@ using HotKeyCommandApp.Services;
 
 namespace HotKeyCommandApp.ViewModels
 {
+    public class StepViewModel : INotifyPropertyChanged
+    {
+        private bool _isCurrent;
+        public InputStep Step { get; init; }
+        public bool IsCurrent
+        {
+            get => _isCurrent;
+            set { _isCurrent = value; OnPropertyChanged(); }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string? name = null) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+
     public class ButtonCreationViewModel : INotifyPropertyChanged
     {
         private readonly ConfigService _configService;
         private readonly WindowService _windowService;
         private AppSettings _appSettings;
-        
+
         // Output result
         public CommandEntry? ResultCommand { get; private set; }
 
-        private readonly List<CreationState> _history = new();
-        private int _historyIndex = -1;
-        private bool _isNavigatingHistory = false;
+        // Step management
+        public ObservableCollection<StepViewModel> Steps { get; } = new();
 
-        private class CreationState
-        {
-            public InputStep CurrentStep { get; init; }
-            public string InputText { get; init; } = "";
-            public string InputPrompt { get; init; } = "";
-            public string NewEntryName { get; init; } = "";
-            public CommandType NewEntryType { get; init; }
-            public CommandType? SelectedType { get; init; }
-            public string SlackTeamID { get; init; } = "";
-            public string SlackChannelID { get; init; } = "";
-        }
+        public int CurrentStepIndex => Steps.Select(s => s.Step).ToList().IndexOf(CurrentStep);
+        public int TotalSteps => Steps.Count;
 
         private InputStep _currentStep = InputStep.EnteringName;
         public InputStep CurrentStep
@@ -46,11 +51,18 @@ namespace HotKeyCommandApp.ViewModels
             {
                 _currentStep = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(CurrentStepIndex));
                 OnPropertyChanged(nameof(ShowArgumentOption));
                 OnPropertyChanged(nameof(ShowFileSearchOption));
                 OnPropertyChanged(nameof(ShowMainBrowseButton));
                 OnPropertyChanged(nameof(IsListBoxVisible));
                 OnPropertyChanged(nameof(ShowAppPathInput));
+
+                // Update IsCurrent flags
+                foreach (var stepVm in Steps)
+                {
+                    stepVm.IsCurrent = (stepVm.Step == value);
+                }
             }
         }
 
@@ -100,6 +112,13 @@ namespace HotKeyCommandApp.ViewModels
                 _selectedItem = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(IsItemSelected));
+
+                // 第一段階（名前入力）の場合、項目が選択されただけで機能を反映する
+                if (CurrentStep == InputStep.EnteringName && value != null && value.Value == "FEATURE_SELECTION")
+                {
+                    _newEntryType = value.Type;
+                    UpdateStepSequence();
+                }
             }
         }
 
@@ -110,6 +129,7 @@ namespace HotKeyCommandApp.ViewModels
         private string _newEntryName = "";
         private CommandType _newEntryType;
         private CommandEntry? _editingCommand;
+        private string _currentValue = "";
 
         private string _slackTeamID = "";
         private string _slackChannelID = "";
@@ -143,7 +163,7 @@ namespace HotKeyCommandApp.ViewModels
             new CommandTypeOption { Name = "特定のウィンドウを切替", Type = CommandType.WindowSwitcher },
             new CommandTypeOption { Name = "階層の親", Type = CommandType.Menu }
         };
-        
+
         public double ButtonWidth => _appSettings?.ButtonWidth ?? 350;
         public double ButtonHeight => _appSettings?.ButtonHeight ?? 50;
         public double FontSize => _appSettings?.FontSize ?? 15;
@@ -153,8 +173,8 @@ namespace HotKeyCommandApp.ViewModels
 
         public ICommand CommitInputCommand => new RelayCommand<object>(_ => CommitInput());
         public ICommand CancelInputCommand => new RelayCommand<object>(_ => CancelInput());
-        public ICommand NavigateBackCommand => new RelayCommand<object>(_ => NavigateBack());
-        public ICommand NavigateForwardCommand => new RelayCommand<object>(_ => NavigateForward());
+        public ICommand MoveToPreviousStepCommand => new RelayCommand<object>(_ => MoveToPreviousStep());
+        public ICommand MoveToNextStepCommand => new RelayCommand<object>(_ => MoveToNextStep());
         public ICommand BrowseFileCommand => new RelayCommand<object>(_ => BrowseFile());
         public ICommand BrowseAppCommand => new RelayCommand<object>(_ => BrowseApp());
         public ICommand ExecuteCommand => new RelayCommand<CommandEntry>(Execute);
@@ -184,7 +204,7 @@ namespace HotKeyCommandApp.ViewModels
                 IsFileSearchChecked = false;
 
                 CurrentStep = InputStep.EnteringName;
-                InputPrompt = "名前を入力し、機能を選んでください:";
+                InputPrompt = "ボタン名を入力し、機能を選んでください:";
 
                 SetupTypeSelectionDisplay();
                 SelectedItem = DisplayCommands.FirstOrDefault();
@@ -205,8 +225,39 @@ namespace HotKeyCommandApp.ViewModels
                 SelectedItem = DisplayCommands.FirstOrDefault(c => c.Type == _editingCommand.Type) ?? DisplayCommands.FirstOrDefault();
             }
 
-            RecordHistory();
+            UpdateStepSequence();
             RequestControlFocus?.Invoke("InputTextBox");
+        }
+
+        private void UpdateStepSequence()
+        {
+            Steps.Clear();
+            AddStepToSequence(InputStep.EnteringName);
+
+            if (_newEntryType == CommandType.Slack)
+            {
+                AddStepToSequence(InputStep.EnteringSlackTeamID);
+                AddStepToSequence(InputStep.EnteringSlackChannelID);
+            }
+            else if (_newEntryType == CommandType.Menu)
+            {
+                // No more steps
+            }
+            else
+            {
+                AddStepToSequence(InputStep.EnteringValue);
+                if (_newEntryType == CommandType.Folder || _newEntryType == CommandType.File || _newEntryType == CommandType.Batch)
+                {
+                    AddStepToSequence(InputStep.EnteringAppPath);
+                }
+            }
+            OnPropertyChanged(nameof(TotalSteps));
+            OnPropertyChanged(nameof(CurrentStepIndex));
+        }
+
+        private void AddStepToSequence(InputStep step)
+        {
+            Steps.Add(new StepViewModel { Step = step, IsCurrent = (step == CurrentStep) });
         }
 
         private void SetupTypeSelectionDisplay()
@@ -218,95 +269,78 @@ namespace HotKeyCommandApp.ViewModels
             }
         }
 
-        private void RecordHistory()
+        private void MoveToPreviousStep()
         {
-            if (_isNavigatingHistory) return;
-
-            if (_historyIndex >= 0 && _historyIndex < _history.Count - 1)
+            int currentIndex = CurrentStepIndex;
+            if (currentIndex > 0)
             {
-                _history.RemoveRange(_historyIndex + 1, _history.Count - (_historyIndex + 1));
-            }
-
-            var state = new CreationState
-            {
-                CurrentStep = CurrentStep,
-                InputText = InputText,
-                InputPrompt = InputPrompt,
-                NewEntryName = _newEntryName,
-                NewEntryType = _newEntryType,
-                SelectedType = SelectedItem?.Type,
-                SlackTeamID = _slackTeamID,
-                SlackChannelID = _slackChannelID
-            };
-
-            if (_history.Count > 0)
-            {
-                var last = _history.Last();
-                if (last.CurrentStep == state.CurrentStep &&
-                    last.InputText == state.InputText &&
-                    last.SelectedType == state.SelectedType)
-                {
-                    return;
-                }
-            }
-
-            _history.Add(state);
-            _historyIndex++;
-        }
-
-        private void NavigateBack()
-        {
-            if (_historyIndex > 0)
-            {
-                _isNavigatingHistory = true;
-                _historyIndex--;
-                RestoreState(_history[_historyIndex]);
-                _isNavigatingHistory = false;
+                NavigateToStep(Steps[currentIndex - 1].Step);
             }
         }
 
-        private void NavigateForward()
+        private void MoveToNextStep()
         {
-            if (_historyIndex >= 0 && _historyIndex < _history.Count - 1)
+            int currentIndex = CurrentStepIndex;
+            if (currentIndex >= 0 && currentIndex < Steps.Count - 1)
             {
-                _isNavigatingHistory = true;
-                _historyIndex++;
-                RestoreState(_history[_historyIndex]);
-                _isNavigatingHistory = false;
+                NavigateToStep(Steps[currentIndex + 1].Step);
             }
+            // 最後のページでのCommitInput（確定）呼び出しを削除
         }
 
-        private void RestoreState(CreationState state)
+        private void NavigateToStep(InputStep step)
         {
-            CurrentStep = state.CurrentStep;
-            InputText = state.InputText;
-            InputPrompt = state.InputPrompt;
-            _newEntryName = state.NewEntryName;
-            _newEntryType = state.NewEntryType;
-            _slackTeamID = state.SlackTeamID;
-            _slackChannelID = state.SlackChannelID;
+            // まず現在のステップの入力を保存
+            SaveCurrentStepInput();
+
+            CurrentStep = step;
 
             if (CurrentStep == InputStep.EnteringName)
             {
+                InputPrompt = (_editingCommand == null) ? "ボタン名を入力し、機能を選んでください:" : "ボタン名を編集し、機能を選んでください:";
+                InputText = _newEntryName;
                 SetupTypeSelectionDisplay();
-                if (state.SelectedType.HasValue)
-                {
-                    SelectedItem = DisplayCommands.FirstOrDefault(c => c.Type == state.SelectedType.Value);
-                }
+                SelectedItem = DisplayCommands.FirstOrDefault(c => c.Type == _newEntryType);
+            }
+            else if (CurrentStep == InputStep.EnteringValue)
+            {
+                InputPrompt = (_newEntryType == CommandType.WindowSwitcher) ? "ウィンドウタイトルを入力してください:" : "URLまたはパスを入力してください:";
+                InputText = string.IsNullOrEmpty(_currentValue) ? (_editingCommand?.Value ?? "") : _currentValue;
+                DisplayCommands.Clear();
+            }
+            else if (CurrentStep == InputStep.EnteringSlackTeamID)
+            {
+                InputText = _slackTeamID;
+                InputPrompt = "チームIDを入力してください (TXXXXXXXX):";
+                PopulateSlackTeamHistory(_slackTeamID);
+            }
+            else if (CurrentStep == InputStep.EnteringSlackChannelID)
+            {
+                InputText = _slackChannelID;
+                InputPrompt = "チャンネルIDを入力してください (CXXXXXXXX):";
             }
             else if (CurrentStep == InputStep.EnteringAppPath)
             {
+                InputPrompt = "開く際に使用するソフトを選択してください (任意):";
                 PopulateRegisteredApps();
-            }
-            else
-            {
-                DisplayCommands.Clear();
+                if (!string.IsNullOrEmpty(AppPath))
+                {
+                    SelectedItem = DisplayCommands.FirstOrDefault(c => c.Value == AppPath);
+                }
             }
 
             if (CurrentStep == InputStep.EnteringAppPath)
-                RequestControlFocus?.Invoke("AppPathTextBox");
+                RequestControlFocus?.Invoke("CommandListBox");
             else
                 RequestControlFocus?.Invoke("InputTextBox");
+        }
+
+        private void SaveCurrentStepInput()
+        {
+            if (CurrentStep == InputStep.EnteringName) _newEntryName = InputText.Trim();
+            else if (CurrentStep == InputStep.EnteringValue) _currentValue = InputText.Trim();
+            else if (CurrentStep == InputStep.EnteringSlackTeamID) _slackTeamID = InputText.Trim();
+            else if (CurrentStep == InputStep.EnteringSlackChannelID) _slackChannelID = InputText.Trim();
         }
 
         private void MoveSelection(int direction)
@@ -391,10 +425,11 @@ namespace HotKeyCommandApp.ViewModels
 
         private void CommitInput()
         {
+            SaveCurrentStepInput();
             if (CurrentStep == InputStep.EnteringName)
             {
                 if (string.IsNullOrWhiteSpace(InputText)) return;
-                
+
                 // For name entry, a feature MUST be selected. 
                 // If focus is in TextBox and nothing selected, pick the first one by default if available.
                 if (SelectedItem == null && DisplayCommands.Count > 0) SelectedItem = DisplayCommands[0];
@@ -402,6 +437,7 @@ namespace HotKeyCommandApp.ViewModels
 
                 _newEntryName = InputText.Trim();
                 _newEntryType = SelectedItem.Type;
+                UpdateStepSequence();
 
                 if (_newEntryType == CommandType.Menu)
                 {
@@ -410,21 +446,12 @@ namespace HotKeyCommandApp.ViewModels
                 else if (_newEntryType == CommandType.Slack)
                 {
                     _slackTeamID = _appSettings.SlackTeamIdHistory.FirstOrDefault() ?? "";
-                    CurrentStep = InputStep.EnteringSlackTeamID;
-                    InputText = _slackTeamID;
-                    InputPrompt = "チームIDを入力してください (TXXXXXXXX):";
-                    PopulateSlackTeamHistory(_slackTeamID);
-                    RequestControlFocus?.Invoke("InputTextBox");
+                    NavigateToStep(InputStep.EnteringSlackTeamID);
                 }
                 else
                 {
-                    CurrentStep = InputStep.EnteringValue;
-                    InputText = _editingCommand?.Value ?? "";
-                    InputPrompt = (_newEntryType == CommandType.WindowSwitcher) ? "ウィンドウタイトルを入力してください:" : "URLまたはパスを入力してください:";
-                    DisplayCommands.Clear();
-                    RequestControlFocus?.Invoke("InputTextBox");
+                    NavigateToStep(InputStep.EnteringValue);
                 }
-                RecordHistory();
                 return;
             }
 
@@ -461,7 +488,6 @@ namespace HotKeyCommandApp.ViewModels
                     InputText = path;
                     FinishInputFlow();
                 }
-                RecordHistory();
                 return;
             }
 
@@ -505,22 +531,18 @@ namespace HotKeyCommandApp.ViewModels
                 }
 
                 _slackTeamID = InputText.Trim();
-                
+
                 // Save to history
                 if (!string.IsNullOrWhiteSpace(_slackTeamID))
                 {
                     _appSettings.SlackTeamIdHistory.Remove(_slackTeamID);
                     _appSettings.SlackTeamIdHistory.Insert(0, _slackTeamID);
-                    if (_appSettings.SlackTeamIdHistory.Count > 10) 
+                    if (_appSettings.SlackTeamIdHistory.Count > 10)
                         _appSettings.SlackTeamIdHistory.RemoveAt(10);
                     _configService.SaveSettings(_appSettings);
                 }
 
-                CurrentStep = InputStep.EnteringSlackChannelID;
-                InputText = _slackChannelID;
-                InputPrompt = "チャンネルIDを入力してください (CXXXXXXXX):";
-                RequestControlFocus?.Invoke("InputTextBox");
-                RecordHistory();
+                NavigateToStep(InputStep.EnteringSlackChannelID);
                 return;
             }
 
@@ -528,7 +550,6 @@ namespace HotKeyCommandApp.ViewModels
             {
                 _slackChannelID = InputText.Trim();
                 FinishInputFlow();
-                RecordHistory();
                 return;
             }
         }
@@ -629,7 +650,7 @@ namespace HotKeyCommandApp.ViewModels
                 var dialog = new Microsoft.Win32.OpenFileDialog();
                 dialog.Filter = "Executable Files (*.exe)|*.exe|All Files (*.*)|*.*";
                 if (!string.IsNullOrEmpty(initialDirectory)) dialog.InitialDirectory = initialDirectory;
-                
+
                 if (dialog.ShowDialog() == true)
                 {
                     AppPath = dialog.FileName;
@@ -709,10 +730,13 @@ namespace HotKeyCommandApp.ViewModels
                     if (appToEdit != null)
                     {
                         appToEdit.Path = dialog.FileName;
-                        try {
+                        try
+                        {
                             var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(dialog.FileName);
                             appToEdit.Name = !string.IsNullOrWhiteSpace(info.ProductName) ? info.ProductName : System.IO.Path.GetFileNameWithoutExtension(dialog.FileName);
-                        } catch {
+                        }
+                        catch
+                        {
                             appToEdit.Name = System.IO.Path.GetFileNameWithoutExtension(dialog.FileName);
                         }
                         _configService.SaveSettings(_appSettings);
@@ -800,7 +824,7 @@ namespace HotKeyCommandApp.ViewModels
                 // Window search logic
                 var allTitles = _windowService.GetAllVisibleWindowTitles();
                 var filtered = allTitles.Where(t => t.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
-                
+
                 DisplayCommands.Clear();
                 foreach (var t in filtered)
                 {
@@ -941,7 +965,7 @@ namespace HotKeyCommandApp.ViewModels
             var filtered = _appSettings.SlackTeamIdHistory
                 .Where(id => id.Contains(query, StringComparison.OrdinalIgnoreCase))
                 .Select(id => new CommandEntry { Name = id, Value = "TYPE_TEMPLATE" });
-            
+
             foreach (var item in filtered) DisplayCommands.Add(item);
             OnPropertyChanged(nameof(IsListBoxVisible));
         }

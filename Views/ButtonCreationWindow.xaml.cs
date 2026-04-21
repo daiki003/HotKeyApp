@@ -12,8 +12,6 @@ namespace HotKeyCommandApp.Views
     {
         private readonly ButtonCreationViewModel _viewModel;
 
-        // 一度でもステップを進めたか（最初のAlt+Leftで意図せず閉じないようにする）を追跡します
-        private bool _canNavigateBack = false;
 
         public ButtonCreationWindow(ButtonCreationViewModel viewModel)
         {
@@ -53,7 +51,7 @@ namespace HotKeyCommandApp.Views
             {
                 if (e.PropertyName == nameof(ButtonCreationViewModel.CurrentStep))
                 {
-                    _canNavigateBack = true;
+                    // No extra logic needed for step tracking here anymore
                 }
 
                 // キーボードやコマンドで選択が変更された際に自動スクロールする
@@ -106,23 +104,24 @@ namespace HotKeyCommandApp.Views
                 return;
             }
 
-            if (e.KeyboardDevice.Modifiers == ModifierKeys.Alt)
+            if (e.Key == Key.PageUp)
             {
-                if (e.SystemKey == Key.Left)
+                if (_viewModel.MoveToPreviousStepCommand.CanExecute(null))
                 {
-                    if (_canNavigateBack)
-                    {
-                        _viewModel.NavigateBackCommand.Execute(null);
-                    }
-                    e.Handled = true;
-                    return;
+                    _viewModel.MoveToPreviousStepCommand.Execute(null);
                 }
-                if (e.SystemKey == Key.Right)
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.PageDown)
+            {
+                if (_viewModel.MoveToNextStepCommand.CanExecute(null))
                 {
-                    _viewModel.NavigateForwardCommand.Execute(null);
-                    e.Handled = true;
-                    return;
+                    _viewModel.MoveToNextStepCommand.Execute(null);
                 }
+                e.Handled = true;
+                return;
             }
 
             if (e.Key == Key.F1)
@@ -196,6 +195,7 @@ namespace HotKeyCommandApp.Views
             base.OnSourceInitialized(e);
             WindowHelper.DisableSystemMenu(this);
             WindowHelper.EnableWindowMoveShortcut(this);
+            WindowHelper.EnableWindowDragMove(this);
         }
     }
 }

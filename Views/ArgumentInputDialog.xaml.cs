@@ -109,6 +109,7 @@ namespace HotKeyCommandApp.Views
             base.OnSourceInitialized(e);
             WindowHelper.DisableSystemMenu(this);
             WindowHelper.EnableWindowMoveShortcut(this);
+            WindowHelper.EnableWindowDragMove(this);
         }
     }
 }

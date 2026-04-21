@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Settings" 
-        SizeToContent="WidthAndHeight" Width="420"
+        SizeToContent="WidthAndHeight" Width="450"
         WindowStartupLocation="CenterOwner"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -13,15 +13,59 @@
     <Window.Resources>
         <Style x:Key="HotkeyButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="#3D3D3D"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="4" Padding="10,5">
+                        <Border Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4" Padding="10,5">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#505050"/>
+                </Trigger>
+                <Trigger Property="IsFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="#007ACC"/>
+                    <Setter Property="Background" Value="#454545"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TabItemStyle" TargetType="TabItem">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="Border" Padding="15,6" Margin="0,0,5,5" Background="Transparent" CornerRadius="4">
+                            <ContentPresenter x:Name="ContentSite" VerticalAlignment="Center" HorizontalAlignment="Center" ContentSource="Header" RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#007ACC" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#3D3D3D" />
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsSelected" Value="True"/>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Border" Property="Background" Value="#0090FF"/>
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
     </Window.Resources>
     
@@ -36,46 +80,80 @@
         <StackPanel Margin="20">
             <TextBlock Text="設定" Foreground="White" FontSize="18" FontWeight="Bold" Margin="0,0,0,15" HorizontalAlignment="Center"/>
             
-            <Grid Margin="0,0,0,10">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" Margin="0,0,5,0">
-                    <TextBlock Text="フォントサイズ" Foreground="#888888" FontSize="11" Margin="0,0,0,3"/>
-                    <TextBox x:Name="FontSizeTextBox" Text="{Binding EditingFontSize, UpdateSourceTrigger=PropertyChanged}" Background="#3D3D3D" Foreground="White" BorderThickness="0" Padding="5" GotFocus="TextBox_GotFocus" MinHeight="32" VerticalContentAlignment="Center"/>
-                </StackPanel>
-                <StackPanel Grid.Column="1" Margin="5,0,0,0">
-                    <TextBlock Text="起動ショートカット" Foreground="#888888" FontSize="11" Margin="0,0,0,3"/>
-                    <Button x:Name="HotkeyCaptureButton"
-                            Style="{StaticResource HotkeyButtonStyle}"
-                            Click="HotkeyCaptureButton_Click">
-                        <TextBlock x:Name="HotkeyCaptureText"
-                                   Foreground="White" FontSize="14"
-                                   Text="{Binding EditingGlobalHotkey}"/>
-                    </Button>
-                </StackPanel>
-            </Grid>
+            <TabControl x:Name="SettingsTabControl" Background="Transparent" BorderThickness="0" Margin="0,0,0,15" MinHeight="130">
+                <TabControl.Resources>
+                    <Style TargetType="TabPanel">
+                        <Setter Property="HorizontalAlignment" Value="Center"/>
+                    </Style>
+                </TabControl.Resources>
+                
+                <TabItem Header="サイズ調整" Style="{StaticResource TabItemStyle}">
+                    <StackPanel Margin="0,10,0,0">
+                        <StackPanel Margin="0,0,0,10">
+                            <TextBlock Text="フォントサイズ" Foreground="#888888" FontSize="11" Margin="0,0,0,3"/>
+                            <TextBox x:Name="FontSizeTextBox" Text="{Binding EditingFontSize, UpdateSourceTrigger=PropertyChanged}" Background="#3D3D3D" Foreground="White" BorderThickness="0" Padding="5" GotFocus="TextBox_GotFocus" MinHeight="32" VerticalContentAlignment="Center"/>
+                        </StackPanel>
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,5,0">
+                                <TextBlock Text="ボタン幅" Foreground="#888888" FontSize="11" Margin="0,0,0,3"/>
+                                <TextBox Text="{Binding EditingButtonWidth, UpdateSourceTrigger=PropertyChanged}" Background="#3D3D3D" Foreground="White" BorderThickness="0" Padding="5" GotFocus="TextBox_GotFocus" MinHeight="32" VerticalContentAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="5,0,0,0">
+                                <TextBlock Text="ボタン高" Foreground="#888888" FontSize="11" Margin="0,0,0,3"/>
+                                <TextBox Text="{Binding EditingButtonHeight, UpdateSourceTrigger=PropertyChanged}" Background="#3D3D3D" Foreground="White" BorderThickness="0" Padding="5" GotFocus="TextBox_GotFocus" MinHeight="32" VerticalContentAlignment="Center"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </TabItem>
+                
+                <TabItem Header="ショートカット" Style="{StaticResource TabItemStyle}">
+                    <StackPanel Margin="0,10,0,0">
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,5,0">
+                                <TextBlock Text="起動ショートカット" Foreground="#888888" FontSize="11" Margin="0,0,0,3"/>
+                                <Button x:Name="GlobalHotkeyButton" Style="{StaticResource HotkeyButtonStyle}" Click="GlobalHotkeyButton_Click">
+                                    <TextBlock Foreground="White" FontSize="12" Text="{Binding EditingGlobalHotkey}"/>
+                                </Button>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="5,0,0,0">
+                                <TextBlock Text="設定を開く" Foreground="#888888" FontSize="11" Margin="0,0,0,3"/>
+                                <Button x:Name="SettingsHotkeyButton" Style="{StaticResource HotkeyButtonStyle}" Click="SettingsHotkeyButton_Click">
+                                    <TextBlock Foreground="White" FontSize="12" Text="{Binding EditingSettingsShortcut}"/>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,5,0">
+                                <TextBlock Text="ボタン作成" Foreground="#888888" FontSize="11" Margin="0,0,0,3"/>
+                                <Button x:Name="CreateButtonHotkeyButton" Style="{StaticResource HotkeyButtonStyle}" Click="CreateButtonHotkeyButton_Click">
+                                    <TextBlock Foreground="White" FontSize="12" Text="{Binding EditingCreateButtonShortcut}"/>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </TabItem>
 
-            <Grid Margin="0,0,0,10">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" Margin="0,0,5,0">
-                    <TextBlock Text="ボタン幅" Foreground="#888888" FontSize="11" Margin="0,0,0,3"/>
-                    <TextBox Text="{Binding EditingButtonWidth, UpdateSourceTrigger=PropertyChanged}" Background="#3D3D3D" Foreground="White" BorderThickness="0" Padding="5" GotFocus="TextBox_GotFocus" MinHeight="32" VerticalContentAlignment="Center"/>
-                </StackPanel>
-                <StackPanel Grid.Column="1" Margin="5,0,0,0">
-                    <TextBlock Text="ボタン高" Foreground="#888888" FontSize="11" Margin="0,0,0,3"/>
-                    <TextBox Text="{Binding EditingButtonHeight, UpdateSourceTrigger=PropertyChanged}" Background="#3D3D3D" Foreground="White" BorderThickness="0" Padding="5" GotFocus="TextBox_GotFocus" MinHeight="32" VerticalContentAlignment="Center"/>
-                </StackPanel>
-            </Grid>
-
-            <StackPanel Margin="0,0,0,20">
-                <TextBlock Text="移動速度 (Ctrl+矢印)" Foreground="#888888" FontSize="11" Margin="0,0,0,3"/>
-                <TextBox Text="{Binding EditingMovementSpeed, UpdateSourceTrigger=PropertyChanged}" Background="#3D3D3D" Foreground="White" BorderThickness="0" Padding="5" GotFocus="TextBox_GotFocus" MinHeight="32" VerticalContentAlignment="Center"/>
-            </StackPanel>
+                <TabItem Header="その他" Style="{StaticResource TabItemStyle}">
+                    <StackPanel Margin="0,10,0,0">
+                        <StackPanel Margin="0,0,0,20">
+                            <TextBlock Text="移動速度 (Ctrl+矢印)" Foreground="#888888" FontSize="11" Margin="0,0,0,3"/>
+                            <TextBox Text="{Binding EditingMovementSpeed, UpdateSourceTrigger=PropertyChanged}" Background="#3D3D3D" Foreground="White" BorderThickness="0" Padding="5" GotFocus="TextBox_GotFocus" MinHeight="32" VerticalContentAlignment="Center"/>
+                        </StackPanel>
+                    </StackPanel>
+                </TabItem>
+            </TabControl>
 
             <Button Content="保存して閉じる" Click="SaveButton_Click" 
                     Background="#007ACC" Foreground="White" Padding="25,10" 

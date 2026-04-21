@@ -10,7 +10,6 @@
         Background="Transparent"
         ShowInTaskbar="False"
         Topmost="True"
-        MouseLeftButtonDown="Window_MouseLeftButtonDown"
         PreviewKeyDown="Window_PreviewKeyDown"
         KeyUp="Window_KeyUp"
         MinWidth="200" MinHeight="300"
@@ -24,8 +23,6 @@
     <Window.InputBindings>
         <KeyBinding Modifiers="Alt" Key="Left" Command="{Binding NavigateBackCommand}" />
         <KeyBinding Modifiers="Alt" Key="Right" Command="{Binding NavigateForwardCommand}" />
-        <KeyBinding Modifiers="Control" Key="OemPlus" Command="{Binding AddNewButtonCommand}" />
-        <KeyBinding Modifiers="Control" Key="Add" Command="{Binding AddNewButtonCommand}" />
     </Window.InputBindings>
 
     <Window.Resources>

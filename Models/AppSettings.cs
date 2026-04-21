@@ -20,6 +20,8 @@ namespace HotKeyCommandApp.Models
         public double MovementSpeed { get; set; } = 1200.0;
         public double FontSize { get; set; } = 15.0;
         public string GlobalHotkey { get; set; } = "Win+Alt+Z";
+        public string SettingsShortcut { get; set; } = "Ctrl+Comma";
+        public string CreateButtonShortcut { get; set; } = "Ctrl+Plus";
 
         /// <summary>アプリ選択画面に表示する登録済みアプリ一覧</summary>
         public List<RegisteredApp> RegisteredApps { get; set; } = new();

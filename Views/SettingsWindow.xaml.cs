@@ -31,16 +31,11 @@ namespace HotKeyCommandApp.Views
             {
                 if (e.Key == Key.Escape)
                 {
-                    _viewModel.IsCapturingHotkey = false;
-                    _viewModel.EditingGlobalHotkey = _viewModel.GlobalHotkey;
+                    CancelCapture();
                     e.Handled = true;
                     return;
                 }
 
-                // ホットキーのキャプチャロジックはPaletteWindowのPreviewKeyDownで処理されますが、
-                // これはモーダルウィンドウであるため、ここでも処理するかViewModelに移動する必要があります。
-                // 簡略化のため、ここではキャプチャを処理します。
-                
                 Key key = (e.Key == Key.ImeProcessed) ? e.ImeProcessedKey : e.Key;
                 if (key == Key.System) key = e.SystemKey;
 
@@ -63,10 +58,33 @@ namespace HotKeyCommandApp.Views
                 if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt)) parts.Add("Alt");
                 if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) parts.Add("Shift");
 
-                parts.Add(key.ToString());
+                string keyStr = key.ToString();
+                
+                // Key.OemPlus, Key.OemCommaなどをわかりやすく変換
+                if (key == Key.OemPlus) keyStr = "Plus";
+                else if (key == Key.OemComma) keyStr = "Comma";
+                else if (key == Key.OemMinus) keyStr = "Minus";
+                else if (key == Key.OemPeriod) keyStr = "Period";
 
-                _viewModel.EditingGlobalHotkey = string.Join("+", parts);
+                parts.Add(keyStr);
+
+                string finalHotkey = string.Join("+", parts);
+
+                switch (_viewModel.CaptureTarget)
+                {
+                    case "Global":
+                        _viewModel.EditingGlobalHotkey = finalHotkey;
+                        break;
+                    case "Settings":
+                        _viewModel.EditingSettingsShortcut = finalHotkey;
+                        break;
+                    case "Create":
+                        _viewModel.EditingCreateButtonShortcut = finalHotkey;
+                        break;
+                }
+
                 _viewModel.IsCapturingHotkey = false;
+                _viewModel.CaptureTarget = string.Empty;
                 e.Handled = true;
                 return;
             }
@@ -82,12 +100,69 @@ namespace HotKeyCommandApp.Views
                 CancelAndClose();
                 e.Handled = true;
             }
+            else if (e.Key == Key.PageDown)
+            {
+                if (SettingsTabControl.SelectedIndex < SettingsTabControl.Items.Count - 1)
+                {
+                    SettingsTabControl.SelectedIndex++;
+                }
+                else
+                {
+                    SettingsTabControl.SelectedIndex = 0; // ループさせる場合
+                }
+                e.Handled = true;
+            }
+            else if (e.Key == Key.PageUp)
+            {
+                if (SettingsTabControl.SelectedIndex > 0)
+                {
+                    SettingsTabControl.SelectedIndex--;
+                }
+                else
+                {
+                    SettingsTabControl.SelectedIndex = SettingsTabControl.Items.Count - 1; // ループさせる場合
+                }
+                e.Handled = true;
+            }
         }
 
-        private void HotkeyCaptureButton_Click(object sender, RoutedEventArgs e)
+        private void CancelCapture()
+        {
+            _viewModel.IsCapturingHotkey = false;
+            switch (_viewModel.CaptureTarget)
+            {
+                case "Global":
+                    _viewModel.EditingGlobalHotkey = _viewModel.GlobalHotkey;
+                    break;
+                case "Settings":
+                    _viewModel.EditingSettingsShortcut = _viewModel.SettingsShortcut;
+                    break;
+                case "Create":
+                    _viewModel.EditingCreateButtonShortcut = _viewModel.CreateButtonShortcut;
+                    break;
+            }
+            _viewModel.CaptureTarget = string.Empty;
+        }
+
+        private void GlobalHotkeyButton_Click(object sender, RoutedEventArgs e)
         {
             _viewModel.IsCapturingHotkey = true;
+            _viewModel.CaptureTarget = "Global";
             _viewModel.EditingGlobalHotkey = "キーを押してください...";
+        }
+
+        private void SettingsHotkeyButton_Click(object sender, RoutedEventArgs e)
+        {
+            _viewModel.IsCapturingHotkey = true;
+            _viewModel.CaptureTarget = "Settings";
+            _viewModel.EditingSettingsShortcut = "キーを押してください...";
+        }
+
+        private void CreateButtonHotkeyButton_Click(object sender, RoutedEventArgs e)
+        {
+            _viewModel.IsCapturingHotkey = true;
+            _viewModel.CaptureTarget = "Create";
+            _viewModel.EditingCreateButtonShortcut = "キーを押してください...";
         }
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
@@ -129,6 +204,7 @@ namespace HotKeyCommandApp.Views
             base.OnSourceInitialized(e);
             WindowHelper.DisableSystemMenu(this);
             WindowHelper.EnableWindowMoveShortcut(this, () => !_viewModel.IsCapturingHotkey);
+            WindowHelper.EnableWindowDragMove(this);
         }
     }
 }

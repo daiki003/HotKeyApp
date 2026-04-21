@@ -354,6 +354,18 @@ namespace HotKeyCommandApp.ViewModels
             set { _appSettings.GlobalHotkey = value; OnPropertyChanged(); }
         }
 
+        public string SettingsShortcut
+        {
+            get => _appSettings.SettingsShortcut;
+            set { _appSettings.SettingsShortcut = value; OnPropertyChanged(); }
+        }
+
+        public string CreateButtonShortcut
+        {
+            get => _appSettings.CreateButtonShortcut;
+            set { _appSettings.CreateButtonShortcut = value; OnPropertyChanged(); }
+        }
+
         private double _editingMovementSpeed;
         public double EditingMovementSpeed
         {
@@ -375,11 +387,32 @@ namespace HotKeyCommandApp.ViewModels
             set { _editingGlobalHotkey = value; OnPropertyChanged(); }
         }
 
+        private string _editingSettingsShortcut = string.Empty;
+        public string EditingSettingsShortcut
+        {
+            get => _editingSettingsShortcut;
+            set { _editingSettingsShortcut = value; OnPropertyChanged(); }
+        }
+
+        private string _editingCreateButtonShortcut = string.Empty;
+        public string EditingCreateButtonShortcut
+        {
+            get => _editingCreateButtonShortcut;
+            set { _editingCreateButtonShortcut = value; OnPropertyChanged(); }
+        }
+
         private bool _isCapturingHotkey;
         public bool IsCapturingHotkey
         {
             get => _isCapturingHotkey;
             set { _isCapturingHotkey = value; OnPropertyChanged(); }
+        }
+
+        private string _captureTarget = string.Empty;
+        public string CaptureTarget
+        {
+            get => _captureTarget;
+            set { _captureTarget = value; OnPropertyChanged(); }
         }
 
         private double _editingButtonWidth;
@@ -2219,7 +2252,10 @@ namespace HotKeyCommandApp.ViewModels
             EditingMovementSpeed = MovementSpeed;
             EditingFontSize = FontSize;
             EditingGlobalHotkey = GlobalHotkey;
+            EditingSettingsShortcut = SettingsShortcut;
+            EditingCreateButtonShortcut = CreateButtonShortcut;
             IsCapturingHotkey = false;
+            CaptureTarget = string.Empty;
             RequestSettings?.Invoke();
         }
 
@@ -2232,6 +2268,8 @@ namespace HotKeyCommandApp.ViewModels
             MovementSpeed = EditingMovementSpeed;
             FontSize = EditingFontSize;
             GlobalHotkey = EditingGlobalHotkey;
+            SettingsShortcut = EditingSettingsShortcut;
+            CreateButtonShortcut = EditingCreateButtonShortcut;
 
             _configService.SaveSettings(_appSettings);
             RequestSync?.Invoke();

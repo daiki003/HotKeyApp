@@ -273,6 +273,7 @@ namespace HotKeyCommandApp.Views
             // Altキーによるシステムメニュー（移動、サイズ変更など）を抑制
             WindowHelper.DisableSystemMenu(this);
             WindowHelper.EnableWindowMoveShortcut(this, () => DataContext is MainViewModel vm && !vm.IsInputMode && !vm.IsDialogActive);
+            WindowHelper.EnableWindowDragMove(this);
 
             string hotkey = "Win+Alt+Z";
             if (DataContext is MainViewModel vm)
@@ -312,12 +313,28 @@ namespace HotKeyCommandApp.Views
                     else
                     {
                         // 表示されているがフォーカスがない場合は再度フォーカスを当てる
-                        this.Activate();
-                        this.Focus();
-                        Dispatcher.BeginInvoke(new Action(() =>
+                        // もし所有ダイアログがあれば、そちらをアクティブにする
+                        bool dialogActivated = false;
+                        foreach (Window owned in this.OwnedWindows)
                         {
-                            FocusListBox();
-                        }), System.Windows.Threading.DispatcherPriority.Render);
+                            if (owned.IsVisible)
+                            {
+                                owned.Activate();
+                                owned.Focus();
+                                dialogActivated = true;
+                                break;
+                            }
+                        }
+
+                        if (!dialogActivated)
+                        {
+                            this.Activate();
+                            this.Focus();
+                            Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                FocusListBox();
+                            }), System.Windows.Threading.DispatcherPriority.Render);
+                        }
                     }
                 }
                 else
@@ -455,13 +472,7 @@ namespace HotKeyCommandApp.Views
             }
         }
 
-        private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            if (e.LeftButton == MouseButtonState.Pressed)
-            {
-                this.DragMove();
-            }
-        }
+
 
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
@@ -779,13 +790,53 @@ namespace HotKeyCommandApp.Views
                     return;
                 }
             }
-            // Ctrl+Arrows（移動および設定のショートカット）
-            else if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+
+            // 動的ショートカット文字列の生成
+            string checkKeyStr = key.ToString();
+            if (key == Key.OemPlus) checkKeyStr = "Plus";
+            else if (key == Key.OemComma) checkKeyStr = "Comma";
+            else if (key == Key.OemMinus) checkKeyStr = "Minus";
+            else if (key == Key.OemPeriod) checkKeyStr = "Period";
+
+            var hotkeyParts = new System.Collections.Generic.List<string>();
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Windows) || Keyboard.IsKeyDown(Key.LWin) || Keyboard.IsKeyDown(Key.RWin)) hotkeyParts.Add("Win");
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) hotkeyParts.Add("Ctrl");
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt)) hotkeyParts.Add("Alt");
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) hotkeyParts.Add("Shift");
+            hotkeyParts.Add(checkKeyStr);
+
+            string currentHotkeyStr = string.Join("+", hotkeyParts);
+
+            // Settings Shortcut
+            if (!string.IsNullOrEmpty(mainVm.SettingsShortcut) && currentHotkeyStr == mainVm.SettingsShortcut)
+            {
+                if (mainVm.OpenSettingsCommand.CanExecute(null))
+                {
+                    mainVm.OpenSettingsCommand.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            // Create Button Shortcut
+            if (!string.IsNullOrEmpty(mainVm.CreateButtonShortcut) && currentHotkeyStr == mainVm.CreateButtonShortcut)
+            {
+                if (mainVm.AddNewButtonCommand.CanExecute(null))
+                {
+                    mainVm.AddNewButtonCommand.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            bool isAnyDialogOpenNow = mainVm.IsInputMode || mainVm.IsDialogActive;
+
+            // Ctrl+D（複製）
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
             {
                 if (e.Key == Key.D)
                 {
-                    bool isAnyDialogOpen = mainVm.IsInputMode || mainVm.IsDialogActive;
-                    if (!isAnyDialogOpen && mainVm.DuplicateCommand.CanExecute(mainVm.SelectedItem))
+                    if (!isAnyDialogOpenNow && mainVm.DuplicateCommand.CanExecute(mainVm.SelectedItem))
                     {
                         mainVm.DuplicateCommand.Execute(mainVm.SelectedItem);
                         e.Handled = true;
@@ -793,18 +844,7 @@ namespace HotKeyCommandApp.Views
                     }
                 }
 
-                if (e.Key == Key.OemComma)
-                {
-                    if (mainVm.OpenSettingsCommand.CanExecute(null))
-                    {
-                        mainVm.OpenSettingsCommand.Execute(null);
-                        e.Handled = true;
-                        return;
-                    }
-                }
-
-                if ((e.Key == Key.Left || e.Key == Key.Right || e.Key == Key.Up || e.Key == Key.Down) && 
-                    Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+                if (e.Key == Key.Left || e.Key == Key.Right || e.Key == Key.Up || e.Key == Key.Down)
                 {
                     // Ctrl+矢印で移動は WindowHelper で処理
                     e.Handled = true;

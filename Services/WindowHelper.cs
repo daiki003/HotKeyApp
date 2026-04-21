@@ -6,6 +6,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Media;
 using System.Windows.Input;
+using System.Windows.Controls;
 using System.Reflection;
 
 namespace HotKeyCommandApp.Services
@@ -168,6 +169,7 @@ namespace HotKeyCommandApp.Services
             CompositionTarget.Rendering += (s, e) =>
             {
                 if (!window.IsVisible || !window.IsActive) return;
+                if (IsTextInputFocused(window)) return;
                 if (predicate != null && !predicate()) return;
 
                 var args = (RenderingEventArgs)e;
@@ -212,11 +214,71 @@ namespace HotKeyCommandApp.Services
                     if (moved && window.Owner != null)
                     {
                         // ダイアログをOwnerの中央に維持する
-                        window.Left = target.Left + (target.ActualWidth - window.ActualWidth) / 2;
-                        window.Top = target.Top + (target.ActualHeight - window.ActualHeight) / 2;
+                        SyncWindowWithOwner(window);
                     }
                 }
             };
+        }
+
+        /// <summary>
+        /// マウスドラッグによるウィンドウ移動を有効化します。
+        /// Ownerが存在する場合、Ownerウィンドウを連動させてドラッグ移動させます。
+        /// </summary>
+        public static void EnableWindowDragMove(Window window)
+        {
+            Point? offset = null;
+            bool isSyncing = false;
+
+            window.MouseLeftButtonDown += (s, e) =>
+            {
+                if (e.LeftButton == MouseButtonState.Pressed)
+                {
+                    if (window.Owner != null)
+                    {
+                        // ドラッグ開始時のダイアログとOwnerのオフセットを記録
+                        offset = new Point(window.Left - window.Owner.Left, window.Top - window.Owner.Top);
+                    }
+                    
+                    try
+                    {
+                        // ダイアログ自身をドラッグ移動させる
+                        window.DragMove();
+                    }
+                    catch (InvalidOperationException)
+                    {
+                    }
+                }
+            };
+
+            window.LocationChanged += (s, e) =>
+            {
+                // ドラッグ中、ダイアログの位置が変わるたびにOwnerを追従させる
+                if (isSyncing || window.Owner == null || offset == null) return;
+
+                isSyncing = true;
+                try
+                {
+                    window.Owner.Left = window.Left - offset.Value.X;
+                    window.Owner.Top = window.Top - offset.Value.Y;
+                }
+                finally
+                {
+                    isSyncing = false;
+                }
+            };
+        }
+
+        private static bool IsTextInputFocused(Window window)
+        {
+            var focused = Keyboard.FocusedElement;
+            return focused is System.Windows.Controls.Primitives.TextBoxBase || focused is PasswordBox;
+        }
+
+        private static void SyncWindowWithOwner(Window window)
+        {
+            if (window.Owner == null) return;
+            window.Left = window.Owner.Left + (window.Owner.ActualWidth - window.ActualWidth) / 2;
+            window.Top = window.Owner.Top + (window.Owner.ActualHeight - window.ActualHeight) / 2;
         }
 
         private static void AddHook(Window window)
