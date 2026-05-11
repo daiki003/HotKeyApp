@@ -128,5 +128,5 @@ sequenceDiagram
 
 現在の構成における主な結合度は以下のようになっており、プロジェクトの進化に伴う影響範囲は局所化されています。
 
-- **新しい機能 (CommandType) の追加**: `MainViewModel` 内の分岐と、`ActionRunner.Run` の `switch` に新しい実行ロジックを追加するだけで動作します。
+- **新しい機能 (テンプレート) の追加**: `presets.json` に新しいプリセットを定義し、必要に応じて `ActionRunner.Run` や `MainViewModel` にロジックを追加するだけで動作します。
 - **UIの大規模変更**: デザインの変更やアニメーションの追加があっても、ロジック自体は `MainViewModel` に閉じているため、XAML側の修正を中心に進めることが可能です。

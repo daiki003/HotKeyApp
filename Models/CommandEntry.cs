@@ -13,29 +13,55 @@ namespace HotKeyCommandApp.Models
         Global
     }
 
-    public enum CommandType
+    public enum CommandCategory
     {
-        URL,
-        Folder,
-        Batch,
-        Command,
-        Menu,
-        File,
-        WindowSwitcher,
-        Slack
+        None,           // 未指定
+        Open,           // 「開く」
+        WindowSwitcher, // 「ウィンドウ切替」
+        Hierarchy       // 「階層」
+    }
+
+    /// <summary>
+    /// ボタンの動作フラグを集約するクラス
+    /// </summary>
+    public class CommandBehavior
+    {
+        public bool RequiresArgument { get; set; }
+        public bool IsFileSearchEnabled { get; set; }
+        public bool IsBatchMode { get; set; }
+        public bool UseWindowFocusLogic { get; set; } = true;
     }
 
     public class CommandEntry : INotifyPropertyChanged
     {
         public string Name { get; set; } = string.Empty;
-        public CommandType Type { get; set; }
+        
+        // TemplateId は作成時のみ使用するため、モデルからは削除
+        
+        public CommandCategory Category { get; set; }
         public string Value { get; set; } = string.Empty;
+
+        /// <summary>
+        /// システム側で生成されたボタン（保存対象外）かどうか
+        /// </summary>
+        public bool IsSystem { get; set; }
+
+        public bool IsSystemButton => IsSystem || (Value?.StartsWith("ADD_") ?? false);
+
         public string? Icon { get; set; }
         public string? Hotkey { get; set; }
         public HotkeyType HotkeyType { get; set; } = HotkeyType.WindowGlobal;
-        public bool RequiresArgument { get; set; }
-        public bool IsFileSearchEnabled { get; set; }
+
+        /// <summary>
+        /// 動作に関わる各種フラグ
+        /// </summary>
+        public CommandBehavior Behavior { get; set; } = new CommandBehavior();
+
         public string? AppPath { get; set; }
+
+        [JsonIgnore]
+        public object? Tag { get; set; }
+
         [JsonIgnore]
         public System.IntPtr WindowHandle { get; set; }
 

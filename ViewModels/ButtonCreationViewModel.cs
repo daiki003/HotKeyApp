@@ -4,169 +4,86 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using HotKeyCommandApp.Models;
 using HotKeyCommandApp.Services;
+using HotKeyCommandApp.ViewModels.ButtonCreationSteps;
+using R3;
 
 namespace HotKeyCommandApp.ViewModels
 {
-    public class StepViewModel : INotifyPropertyChanged
+    public class StepViewModel : IDisposable
     {
-        private bool _isCurrent;
-        public InputStep Step { get; init; }
-        public bool IsCurrent
+        public BindableReactiveProperty<ICreationStep> Step { get; } = new();
+        public BindableReactiveProperty<bool> IsCurrent { get; } = new(false);
+        public BindableReactiveProperty<string> Title { get; }
+        private readonly DisposableBag _disposables = new();
+
+        public StepViewModel()
         {
-            get => _isCurrent;
-            set { _isCurrent = value; OnPropertyChanged(); }
+            Title = Step.Select(s => s?.Title ?? "").ToBindableReactiveProperty("");
+
+            Step.AddTo(ref _disposables);
+            IsCurrent.AddTo(ref _disposables);
+            Title.AddTo(ref _disposables);
         }
 
-        public event PropertyChangedEventHandler? PropertyChanged;
-        protected void OnPropertyChanged([CallerMemberName] string? name = null) =>
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        public void Dispose() => _disposables.Dispose();
     }
 
-    public class ButtonCreationViewModel : INotifyPropertyChanged
+    public class ButtonCreationViewModel : IDisposable
     {
         private readonly ConfigService _configService;
         private readonly WindowService _windowService;
-        private AppSettings _appSettings;
+        private readonly AppSettings _appSettings;
+        private readonly DisposableBag _disposables = new();
 
-        // Output result
         public CommandEntry? ResultCommand { get; private set; }
 
-        // Step management
-        public ObservableCollection<StepViewModel> Steps { get; } = new();
+        private readonly ObservableCollection<StepViewModel> _steps = new();
+        public ObservableCollection<StepViewModel> Steps => _steps;
+        public ObservableCollection<StepViewModel> PageIndicatorSteps { get; } = new();
 
-        public int CurrentStepIndex => Steps.Select(s => s.Step).ToList().IndexOf(CurrentStep);
-        public int TotalSteps => Steps.Count;
+        public Dictionary<string, CreationStepResultBase> StepResults { get; } = new();
 
-        private InputStep _currentStep = InputStep.EnteringName;
-        public InputStep CurrentStep
+        private readonly BindableReactiveProperty<int> _currentStepIndex = new(0);
+        public int CurrentStepIndex
         {
-            get => _currentStep;
-            set
-            {
-                _currentStep = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(CurrentStepIndex));
-                OnPropertyChanged(nameof(ShowArgumentOption));
-                OnPropertyChanged(nameof(ShowFileSearchOption));
-                OnPropertyChanged(nameof(ShowMainBrowseButton));
-                OnPropertyChanged(nameof(IsListBoxVisible));
-                OnPropertyChanged(nameof(ShowAppPathInput));
-
-                // Update IsCurrent flags
-                foreach (var stepVm in Steps)
-                {
-                    stepVm.IsCurrent = (stepVm.Step == value);
-                }
-            }
+            get => _currentStepIndex.Value;
+            private set => _currentStepIndex.Value = value;
         }
 
-        public string Title => _editingCommand == null ? "新しいボタンの作成" : "ボタンの編集";
+        public BindableReactiveProperty<ICreationStep?> CurrentStepObject { get; }
+        private readonly BindableReactiveProperty<CommandPreset?> _currentPreset = new(null);
 
-        private string _inputPrompt = "";
-        public string InputPrompt
-        {
-            get => _inputPrompt;
-            set { _inputPrompt = value; OnPropertyChanged(); }
-        }
+        public BindableReactiveProperty<string> Title { get; }
+        public BindableReactiveProperty<string> InputPrompt { get; }
+        public BindableReactiveProperty<bool> IsListBoxVisible { get; }
+        public BindableReactiveProperty<bool> IsTextInputVisible { get; }
+        public BindableReactiveProperty<string> InputText { get; } = new("");
+        public BindableReactiveProperty<ObservableCollection<CommandEntry>> DisplayCommands { get; }
+        public BindableReactiveProperty<CommandEntry?> SelectedItem { get; private set; } = new(null);
+        public BindableReactiveProperty<bool> IsSearching { get; }
+        private IDisposable? _stepSubscription;
+        public BindableReactiveProperty<bool> IsItemSelected { get; }
+        public BindableReactiveProperty<bool> ShowStepIndicators { get; }
+        public BindableReactiveProperty<bool> ShowMainBrowseButton { get; }
 
-        private string _inputText = "";
-        public string InputText
-        {
-            get => _inputText;
-            set
-            {
-                _inputText = value;
-                OnPropertyChanged();
-                if (CurrentStep == InputStep.EnteringValue && (_newEntryType == CommandType.Folder || _newEntryType == CommandType.File || _newEntryType == CommandType.Batch || _newEntryType == CommandType.URL || _newEntryType == CommandType.WindowSwitcher))
-                {
-                    PerformIncrementalSearch(value);
-                }
-                else if (CurrentStep == InputStep.EnteringSlackTeamID)
-                {
-                    PopulateSlackTeamHistory(value);
-                }
-            }
-        }
+        // 詳細オプションの表示制御
+        public BindableReactiveProperty<bool> ShowArgumentOption { get; }
+        public BindableReactiveProperty<bool> ShowFileSearchOption { get; }
+        public BindableReactiveProperty<bool> ShowBatchModeOption { get; }
+        public BindableReactiveProperty<bool> ShowFocusLogicOption { get; }
 
-        private string _appPath = "";
-        public string AppPath
-        {
-            get => _appPath;
-            set { _appPath = value; OnPropertyChanged(); }
-        }
-
-        public ObservableCollection<CommandEntry> DisplayCommands { get; } = new();
-
-        private CommandEntry? _selectedItem;
-        public CommandEntry? SelectedItem
-        {
-            get => _selectedItem;
-            set
-            {
-                _selectedItem = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(IsItemSelected));
-
-                // 第一段階（名前入力）の場合、項目が選択されただけで機能を反映する
-                if (CurrentStep == InputStep.EnteringName && value != null && value.Value == "FEATURE_SELECTION")
-                {
-                    _newEntryType = value.Type;
-                    UpdateStepSequence();
-                }
-            }
-        }
-
-        public bool IsItemSelected => SelectedItem != null;
-
-        public bool IsListBoxVisible => CurrentStep == InputStep.EnteringName || CurrentStep == InputStep.EnteringAppPath || DisplayCommands.Count > 0;
-
-        private string _newEntryName = "";
-        private CommandType _newEntryType;
         private CommandEntry? _editingCommand;
-        private string _currentValue = "";
+        public CommandEntry? EditingCommand => _editingCommand;
 
-        private string _slackTeamID = "";
-        private string _slackChannelID = "";
+        public CommandCategory NewEntryCategory { get; set; } = CommandCategory.Open;
+        public string? NewEntryTemplateId { get; set; }
 
-        private bool _isRequiresArgumentChecked;
-        public bool IsRequiresArgumentChecked
-        {
-            get => _isRequiresArgumentChecked;
-            set { _isRequiresArgumentChecked = value; OnPropertyChanged(); }
-        }
-
-        private bool _isFileSearchChecked;
-        public bool IsFileSearchChecked
-        {
-            get => _isFileSearchChecked;
-            set { _isFileSearchChecked = value; OnPropertyChanged(); }
-        }
-
-        public bool ShowArgumentOption => CurrentStep == InputStep.EnteringValue && (_newEntryType == CommandType.URL || _newEntryType == CommandType.Folder || _newEntryType == CommandType.Batch || _newEntryType == CommandType.File);
-        public bool ShowFileSearchOption => (CurrentStep == InputStep.EnteringValue || CurrentStep == InputStep.EnteringAppPath) && (_newEntryType == CommandType.Folder || _newEntryType == CommandType.File);
-        public bool ShowMainBrowseButton => CurrentStep == InputStep.EnteringValue && (_newEntryType == CommandType.Folder || _newEntryType == CommandType.File || _newEntryType == CommandType.Batch);
-        public bool ShowAppPathInput => CurrentStep == InputStep.EnteringAppPath;
-
-        public List<CommandTypeOption> AvailableCommandTypes { get; } = new()
-        {
-            new CommandTypeOption { Name = "URLを開く", Type = CommandType.URL },
-            new CommandTypeOption { Name = "Slackを開く", Type = CommandType.Slack },
-            new CommandTypeOption { Name = "フォルダを開く", Type = CommandType.Folder },
-            new CommandTypeOption { Name = "バッチ実行", Type = CommandType.Batch },
-            new CommandTypeOption { Name = "ファイルを開く", Type = CommandType.File },
-            new CommandTypeOption { Name = "特定のウィンドウを切替", Type = CommandType.WindowSwitcher },
-            new CommandTypeOption { Name = "階層の親", Type = CommandType.Menu }
-        };
-
-        public double ButtonWidth => _appSettings?.ButtonWidth ?? 350;
-        public double ButtonHeight => _appSettings?.ButtonHeight ?? 50;
-        public double FontSize => _appSettings?.FontSize ?? 15;
+        public double ButtonWidth => _appSettings.ButtonWidth;
+        public double ButtonHeight => _appSettings.ButtonHeight;
+        public double FontSize => _appSettings.FontSize;
 
         public event Action<string>? RequestControlFocus;
         public event Action? RequestClose;
@@ -176,12 +93,14 @@ namespace HotKeyCommandApp.ViewModels
         public ICommand MoveToPreviousStepCommand => new RelayCommand<object>(_ => MoveToPreviousStep());
         public ICommand MoveToNextStepCommand => new RelayCommand<object>(_ => MoveToNextStep());
         public ICommand BrowseFileCommand => new RelayCommand<object>(_ => BrowseFile());
-        public ICommand BrowseAppCommand => new RelayCommand<object>(_ => BrowseApp());
         public ICommand ExecuteCommand => new RelayCommand<CommandEntry>(Execute);
         public ICommand MoveUpCommand => new RelayCommand<object>(_ => MoveSelection(-1));
         public ICommand MoveDownCommand => new RelayCommand<object>(_ => MoveSelection(1));
+        public ICommand MoveLeftCommand => new RelayCommand<object>(_ => CurrentStepObject.Value?.HandleHorizontalNavigation(-1));
+        public ICommand MoveRightCommand => new RelayCommand<object>(_ => CurrentStepObject.Value?.HandleHorizontalNavigation(1));
         public ICommand DeleteRegisteredAppCommand => new RelayCommand<CommandEntry>(DeleteRegisteredApp);
         public ICommand EditRegisteredAppCommand => new RelayCommand<CommandEntry>(EditRegisteredApp);
+        public ICommand AddRegisteredAppCommand => new RelayCommand<object>(_ => AddRegisteredApp());
 
         public ButtonCreationViewModel(AppSettings appSettings, CommandEntry? editingCommand = null)
         {
@@ -190,790 +109,469 @@ namespace HotKeyCommandApp.ViewModels
             _appSettings = appSettings;
             _editingCommand = editingCommand;
 
+            CurrentStepObject = new BindableReactiveProperty<ICreationStep?>(null);
+            _currentPreset.AddTo(ref _disposables);
+
+            Title = CurrentStepObject.CombineLatest(_currentPreset, (step, preset) =>
+            {
+                if (step == null) return "ボタン作成";
+                if (preset == null || step is PresetSelectionStep) return step.Title;
+                return preset.Name;
+            }).ToBindableReactiveProperty("ボタン作成");
+            InputPrompt = CurrentStepObject.Select(s => s?.Prompt ?? "").ToBindableReactiveProperty("");
+
+            IsListBoxVisible = CurrentStepObject
+                .Select(s => s == null ? Observable.Return(false) : (Observable<bool>)s.IsListBoxVisible)
+                .Switch()
+                .ToBindableReactiveProperty(false);
+
+            IsTextInputVisible = CurrentStepObject.Select(s => s?.IsTextInputVisible ?? true).ToBindableReactiveProperty(true);
+
+            DisplayCommands = CurrentStepObject.Select(s => s?.DisplayCommands ?? new ObservableCollection<CommandEntry>()).ToBindableReactiveProperty(new ObservableCollection<CommandEntry>());
+
+            IsSearching = CurrentStepObject
+                .Select(s => s == null ? Observable.Return(false) : (Observable<bool>)s.IsSearching)
+                .Switch()
+                .ToBindableReactiveProperty(false);
+
+            IsItemSelected = SelectedItem.Select(i => i != null).ToBindableReactiveProperty(false);
+
+            ShowStepIndicators = CurrentStepObject.Select(s => 
+                s != null && s.ShowInPageIndicator && PageIndicatorSteps.Count > 1
+            ).ToBindableReactiveProperty(false);
+            ShowMainBrowseButton = CurrentStepObject.Select(s => s?.ShowBrowseButton ?? false).ToBindableReactiveProperty(false);
+
+            // カテゴリやテンプレートに応じてオプションを表示
+            ShowArgumentOption = CurrentStepObject.Select(s =>
+            {
+                if (s is OptionsCreationStep os)
+                {
+                    return os.IsRequiresArgumentVisible.CombineLatest(os.IsBatchModeChecked, (visible, isBatch) => visible && isBatch);
+                }
+                return Observable.Return(false);
+            }).Switch().ToBindableReactiveProperty(false);
+
+            ShowFileSearchOption = CurrentStepObject.Select(s =>
+            {
+                if (s is OptionsCreationStep os) return (Observable<bool>)os.IsFileSearchVisible;
+                return Observable.Return(false);
+            }).Switch().ToBindableReactiveProperty(false);
+
+            ShowBatchModeOption = CurrentStepObject.Select(s =>
+            {
+                if (s is OptionsCreationStep os) return (Observable<bool>)os.IsBatchModeVisible;
+                return Observable.Return(false);
+            }).Switch().ToBindableReactiveProperty(false);
+
+            ShowFocusLogicOption = CurrentStepObject.Select(s =>
+            {
+                if (s is OptionsCreationStep os) return (Observable<bool>)os.IsFocusLogicVisible;
+                return Observable.Return(false);
+            }).Switch().ToBindableReactiveProperty(false);
+
+            CurrentStepObject.Subscribe(step =>
+            {
+                if (step == null) return;
+
+                _stepSubscription?.Dispose();
+                var bag = new DisposableBag();
+
+                step.InputText.Subscribe(v => InputText.Value = v).AddTo(ref bag);
+                InputText.Subscribe(v => step.InputText.Value = v).AddTo(ref bag);
+
+                step.SelectedItem.Subscribe(v => SelectedItem.Value = v).AddTo(ref bag);
+                SelectedItem.Subscribe(v => step.SelectedItem.Value = v).AddTo(ref bag);
+
+                step.Initialize(StepResults);
+                step.RequestControlFocus += OnStepRequestControlFocus;
+
+                _stepSubscription = bag;
+            }).AddTo(ref _disposables);
+
             StartFlow();
+            _currentStepIndex.Subscribe(index => NavigateToStep(index)).AddTo(ref _disposables);
+        }
+
+        public void Dispose()
+        {
+            foreach (var step in _steps) step.Dispose();
+            _disposables.Dispose();
         }
 
         private void StartFlow()
         {
-            if (_editingCommand == null)
+            StepResults.Clear();
+            if (EditingCommand is { } command)
             {
-                _newEntryName = "";
-                InputText = "";
-                AppPath = "";
-                IsRequiresArgumentChecked = false;
-                IsFileSearchChecked = false;
+                NewEntryCategory = command.Category;
 
-                CurrentStep = InputStep.EnteringName;
-                InputPrompt = "ボタン名を入力し、機能を選んでください:";
+                // プリセットを推測する
+                var allPresets = _configService.LoadPresets();
+                
+                // 特定の ID でマッチさせるロジックがないため、挙動から推測
+                // Category が一致し、かつ Behavior が矛盾しないプリセットを探す
+                var matchedPreset = allPresets
+                    .Where(p => p.Category == command.Category && p.Id != "custom")
+                    .FirstOrDefault(p => p.ActionOptions == null || p.ActionOptions.IsCompatible(command.Behavior));
 
-                SetupTypeSelectionDisplay();
-                SelectedItem = DisplayCommands.FirstOrDefault();
+                // 一致するものがあればそのプリセットを使用、なければ custom にフォールバック
+                NewEntryTemplateId = matchedPreset?.Id ?? "custom";
+
+                StepResults["name"] = new TextInputResult { DataKey = "name", Text = command.Name };
+                StepResults["value"] = new TextInputResult { DataKey = "value", Text = command.Value };
+                StepResults["app_path"] = new TextInputResult { DataKey = "app_path", Text = command.AppPath ?? string.Empty };
+                StepResults["behaviors"] = new OptionsResult
+                {
+                    DataKey = "behaviors",
+                    RequiresArgument = command.Behavior.RequiresArgument,
+                    IsFileSearchEnabled = command.Behavior.IsFileSearchEnabled,
+                    IsBatchMode = command.Behavior.IsBatchMode,
+                    UseWindowFocusLogic = command.Behavior.UseWindowFocusLogic
+                };
             }
-            else
-            {
-                _newEntryName = _editingCommand.Name;
-                _newEntryType = _editingCommand.Type;
-                IsRequiresArgumentChecked = _editingCommand.RequiresArgument;
-                IsFileSearchChecked = _editingCommand.IsFileSearchEnabled;
-
-                CurrentStep = InputStep.EnteringName;
-                InputPrompt = "名前を編集し、機能を選んでください:";
-                InputText = _editingCommand.Name;
-                AppPath = _editingCommand.AppPath ?? "";
-
-                SetupTypeSelectionDisplay();
-                SelectedItem = DisplayCommands.FirstOrDefault(c => c.Type == _editingCommand.Type) ?? DisplayCommands.FirstOrDefault();
-            }
-
             UpdateStepSequence();
-            RequestControlFocus?.Invoke("InputTextBox");
         }
 
         private void UpdateStepSequence()
         {
-            Steps.Clear();
-            AddStepToSequence(InputStep.EnteringName);
+            var baseSteps = new List<ICreationStep>();
+            var allPresets = _configService.LoadPresets();
 
-            if (_newEntryType == CommandType.Slack)
+            // 新規作成時（またはテンプレート選択前）は、常に機能選択を最初のステップとして保持する
+            if (EditingCommand == null)
             {
-                AddStepToSequence(InputStep.EnteringSlackTeamID);
-                AddStepToSequence(InputStep.EnteringSlackChannelID);
+                var presetStep = new PresetStepDefinition
+                {
+                    Title = "プリセット選択",
+                    Prompt = "機能を選択してください",
+                    StepType = StepType.PresetSelection,
+                    DataKey = "preset"
+                };
+                baseSteps.Add(new PresetSelectionStep(presetStep, _configService));
             }
-            else if (_newEntryType == CommandType.Menu)
+
+            // プリセットが選択されている、または編集モードの場合は後続のステップを追加
+            if (NewEntryTemplateId != null || EditingCommand != null)
             {
-                // No more steps
+                var preset = allPresets.FirstOrDefault(p => p.Id == NewEntryTemplateId)
+                             ?? allPresets.FirstOrDefault(p => p.Category == NewEntryCategory)
+                             ?? allPresets[0];
+
+                _currentPreset.Value = preset;
+
+                foreach (var stepDef in preset.Steps)
+                {
+                    switch (stepDef.StepType)
+                    {
+                        case StepType.TextInput:
+                            baseSteps.Add(new TextInputCreationStep(stepDef, _windowService, NewEntryCategory));
+                            break;
+                        case StepType.ListSelection:
+                            baseSteps.Add(new ListSelectionCreationStep(stepDef, _configService, _windowService, _appSettings));
+                            break;
+                        case StepType.Options:
+                            baseSteps.Add(new OptionsCreationStep(stepDef, preset));
+                            break;
+                        case StepType.PresetSelection:
+                            baseSteps.Add(new PresetSelectionStep(stepDef, _configService));
+                            break;
+                    }
+                }
+
+                // オプション画面の動的追加
+                if (preset.ActionOptions != null &&
+                    (preset.ActionOptions.RequiresArgument == OptionDisplayMode.Custom ||
+                     preset.ActionOptions.IsFileSearchEnabled == OptionDisplayMode.Custom ||
+                     preset.ActionOptions.IsBatchMode == OptionDisplayMode.Custom ||
+                     preset.ActionOptions.UseWindowFocusLogic == OptionDisplayMode.Custom))
+                {
+                    // 既にStepsにOptionsが含まれている場合は二重に追加しない
+                    if (!preset.Steps.Any(s => s.StepType == StepType.Options))
+                    {
+                        var optionsStepDef = new PresetStepDefinition
+                        {
+                            StepType = StepType.Options,
+                            Title = "動作詳細",
+                            Prompt = "動作オプションを設定してください:",
+                            DataKey = "behaviors"
+                        };
+                        baseSteps.Add(new OptionsCreationStep(optionsStepDef, preset));
+                    }
+                }
             }
             else
             {
-                AddStepToSequence(InputStep.EnteringValue);
-                if (_newEntryType == CommandType.Folder || _newEntryType == CommandType.File || _newEntryType == CommandType.Batch)
+                _currentPreset.Value = null;
+            }
+
+            foreach (var step in _steps) step.Dispose();
+            _steps.Clear();
+            PageIndicatorSteps.Clear();
+            foreach (var step in baseSteps)
+            {
+                var vm = new StepViewModel { Step = { Value = step } };
+                _steps.Add(vm);
+                if (step.ShowInPageIndicator)
                 {
-                    AddStepToSequence(InputStep.EnteringAppPath);
+                    PageIndicatorSteps.Add(vm);
                 }
             }
-            OnPropertyChanged(nameof(TotalSteps));
-            OnPropertyChanged(nameof(CurrentStepIndex));
         }
 
-        private void AddStepToSequence(InputStep step)
+        private void NavigateToStep(int index)
         {
-            Steps.Add(new StepViewModel { Step = step, IsCurrent = (step == CurrentStep) });
+            if (index < 0 || index >= _steps.Count) return;
+
+            foreach (var s in _steps) s.IsCurrent.Value = false;
+            _steps[index].IsCurrent.Value = true;
+            CurrentStepObject.Value = _steps[index].Step.Value;
+
+            // TextInputCreationStep の場合は、リストが表示されていても入力を優先するため TextBox にフォーカスを当てる
+            bool preferTextBox = IsListBoxVisible.Value == false || (CurrentStepObject.Value is TextInputCreationStep);
+            RequestControlFocus?.Invoke(preferTextBox ? "InputTextBox" : "CommandListBox");
         }
 
-        private void SetupTypeSelectionDisplay()
-        {
-            DisplayCommands.Clear();
-            foreach (var t in AvailableCommandTypes)
-            {
-                DisplayCommands.Add(new CommandEntry { Name = t.Name, Type = t.Type, Value = "FEATURE_SELECTION" });
-            }
-        }
+        private void OnStepRequestControlFocus(string controlName) => RequestControlFocus?.Invoke(controlName);
 
         private void MoveToPreviousStep()
         {
-            int currentIndex = CurrentStepIndex;
-            if (currentIndex > 0)
-            {
-                NavigateToStep(Steps[currentIndex - 1].Step);
-            }
+            SaveCurrentStepResult();
+            if (CurrentStepIndex > 0) CurrentStepIndex--;
         }
 
         private void MoveToNextStep()
         {
-            int currentIndex = CurrentStepIndex;
-            if (currentIndex >= 0 && currentIndex < Steps.Count - 1)
-            {
-                NavigateToStep(Steps[currentIndex + 1].Step);
-            }
-            // 最後のページでのCommitInput（確定）呼び出しを削除
+            if (CurrentStepObject.Value is PresetSelectionStep) return;
+            if (SaveCurrentStepResult() && CurrentStepIndex < _steps.Count - 1)
+                CurrentStepIndex++;
         }
 
-        private void NavigateToStep(InputStep step)
+        private bool SaveCurrentStepResult()
         {
-            // まず現在のステップの入力を保存
-            SaveCurrentStepInput();
+            if (CurrentStepObject.Value == null) return false;
+            var result = CurrentStepObject.Value.OnCommitted();
 
-            CurrentStep = step;
-
-            if (CurrentStep == InputStep.EnteringName)
+            if (result != null)
             {
-                InputPrompt = (_editingCommand == null) ? "ボタン名を入力し、機能を選んでください:" : "ボタン名を編集し、機能を選んでください:";
-                InputText = _newEntryName;
-                SetupTypeSelectionDisplay();
-                SelectedItem = DisplayCommands.FirstOrDefault(c => c.Type == _newEntryType);
-            }
-            else if (CurrentStep == InputStep.EnteringValue)
-            {
-                InputPrompt = (_newEntryType == CommandType.WindowSwitcher) ? "ウィンドウタイトルを入力してください:" : "URLまたはパスを入力してください:";
-                InputText = string.IsNullOrEmpty(_currentValue) ? (_editingCommand?.Value ?? "") : _currentValue;
-                DisplayCommands.Clear();
-            }
-            else if (CurrentStep == InputStep.EnteringSlackTeamID)
-            {
-                InputText = _slackTeamID;
-                InputPrompt = "チームIDを入力してください (TXXXXXXXX):";
-                PopulateSlackTeamHistory(_slackTeamID);
-            }
-            else if (CurrentStep == InputStep.EnteringSlackChannelID)
-            {
-                InputText = _slackChannelID;
-                InputPrompt = "チャンネルIDを入力してください (CXXXXXXXX):";
-            }
-            else if (CurrentStep == InputStep.EnteringAppPath)
-            {
-                InputPrompt = "開く際に使用するソフトを選択してください (任意):";
-                PopulateRegisteredApps();
-                if (!string.IsNullOrEmpty(AppPath))
+                StepResults[result.DataKey] = result;
+                if (result is PresetSelectionResult psr)
                 {
-                    SelectedItem = DisplayCommands.FirstOrDefault(c => c.Value == AppPath);
-                }
-            }
-
-            if (CurrentStep == InputStep.EnteringAppPath)
-                RequestControlFocus?.Invoke("CommandListBox");
-            else
-                RequestControlFocus?.Invoke("InputTextBox");
-        }
-
-        private void SaveCurrentStepInput()
-        {
-            if (CurrentStep == InputStep.EnteringName) _newEntryName = InputText.Trim();
-            else if (CurrentStep == InputStep.EnteringValue) _currentValue = InputText.Trim();
-            else if (CurrentStep == InputStep.EnteringSlackTeamID) _slackTeamID = InputText.Trim();
-            else if (CurrentStep == InputStep.EnteringSlackChannelID) _slackChannelID = InputText.Trim();
-        }
-
-        private void MoveSelection(int direction)
-        {
-            if (DisplayCommands.Count == 0) return;
-            int currentIndex = SelectedItem != null ? DisplayCommands.IndexOf(SelectedItem) : -1;
-
-            bool isFileSearchScreen = CurrentStep == InputStep.EnteringValue || CurrentStep == InputStep.EnteringAppPath;
-
-            if (direction < 0) // Up
-            {
-                if (currentIndex == 0)
-                {
-                    if (isFileSearchScreen)
+                    // プリセットが変更された場合のみ、後続のステップを再構築し、既存の入力をクリアする
+                    if (NewEntryTemplateId != psr.SelectedPreset.Id)
                     {
-                        // ファイル検索画面では一番上で「上」を押すと、入力ボックスにフォーカスを戻す
-                        SelectedItem = null;
-                        RequestControlFocus?.Invoke("InputTextBox");
-                        return;
-                    }
-                    else
-                    {
-                        // 機能選択画面等では、通常通りループする
-                        SelectedItem = DisplayCommands.Last();
-                        return;
+                        // 機能選択以外の入力結果をクリア
+                        var otherKeys = StepResults.Keys.Where(k => k != result.DataKey).ToList();
+                        foreach (var key in otherKeys) StepResults.Remove(key);
+
+                        NewEntryTemplateId = psr.SelectedPreset.Id;
+                        NewEntryCategory = psr.SelectedPreset.Category;
+                        UpdateStepSequence();
                     }
                 }
-                else if (currentIndex == -1)
-                {
-                    SelectedItem = DisplayCommands.Last();
-                    return;
-                }
+                return true;
             }
-            else // Down
-            {
-                if (currentIndex == DisplayCommands.Count - 1)
-                {
-                    if (isFileSearchScreen)
-                    {
-                        // ファイル検索画面では、一番下で「下」を押すと、入力ボックスへ移動する
-                        SelectedItem = null;
-                        RequestControlFocus?.Invoke("InputTextBox");
-                        return;
-                    }
-                    else
-                    {
-                        // 通常通りループする
-                        SelectedItem = DisplayCommands[0];
-                        return;
-                    }
-                }
-                else if (currentIndex == -1)
-                {
-                    SelectedItem = DisplayCommands[0];
-                    return;
-                }
-            }
-
-            int newIndex = currentIndex + direction;
-            if (newIndex >= 0 && newIndex < DisplayCommands.Count)
-            {
-                SelectedItem = DisplayCommands[newIndex];
-            }
-        }
-
-        public void Execute(CommandEntry? command)
-        {
-            if (command != null)
-            {
-                if (command.Value == "TYPE_TEMPLATE")
-                {
-                    // "Pick" the suggestion into the text box and stay in this step
-                    InputText = command.Name;
-                    SelectedItem = null;
-                    RequestControlFocus?.Invoke("InputTextBox");
-                    return;
-                }
-                SelectedItem = command;
-                CommitInput();
-            }
+            return false;
         }
 
         private void CommitInput()
         {
-            SaveCurrentStepInput();
-            if (CurrentStep == InputStep.EnteringName)
+            if (CurrentStepObject.Value != null && CurrentStepObject.Value.ShouldInterceptCommit())
             {
-                if (string.IsNullOrWhiteSpace(InputText)) return;
+                CurrentStepObject.Value.InterceptCommit();
+                return;
+            }
 
-                // For name entry, a feature MUST be selected. 
-                // If focus is in TextBox and nothing selected, pick the first one by default if available.
-                if (SelectedItem == null && DisplayCommands.Count > 0) SelectedItem = DisplayCommands[0];
-                if (SelectedItem == null) return;
-
-                _newEntryName = InputText.Trim();
-                _newEntryType = SelectedItem.Type;
-                UpdateStepSequence();
-
-                if (_newEntryType == CommandType.Menu)
+            // まず現在のステップを確定・保存する
+            if (SaveCurrentStepResult())
+            {
+                // 保存後に動的にステップが増えている可能性があるため、改めて index と count を比較
+                if (CurrentStepIndex < _steps.Count - 1)
                 {
-                    FinishInputFlow();
-                }
-                else if (_newEntryType == CommandType.Slack)
-                {
-                    _slackTeamID = _appSettings.SlackTeamIdHistory.FirstOrDefault() ?? "";
-                    NavigateToStep(InputStep.EnteringSlackTeamID);
+                    CurrentStepIndex++;
                 }
                 else
                 {
-                    NavigateToStep(InputStep.EnteringValue);
+                    FinishFlow();
                 }
-                return;
             }
+        }
 
-            if (CurrentStep == InputStep.EnteringValue)
+        private void FinishFlow()
+        {
+            var name = (StepResults.GetValueOrDefault("name") as TextInputResult)?.Text;
+            var value = (StepResults.GetValueOrDefault("value") as TextInputResult)?.Text;
+            var behaviors = StepResults.GetValueOrDefault("behaviors") as OptionsResult;
+
+            // value が無い場合、他のテキスト入力を探す（プリセット独自のキー対応）
+            if (string.IsNullOrEmpty(value))
             {
-                // If an item is selected, this is equivalent to "Picking" it
-                if (SelectedItem != null)
+                // Slack などの特殊対応
+                if (NewEntryTemplateId == "slack")
                 {
-                    Execute(SelectedItem);
-                    return;
-                }
-
-                string path = InputText.Trim();
-                if (string.IsNullOrEmpty(path)) return;
-
-                if (_newEntryType == CommandType.Folder)
-                {
-                    CurrentStep = InputStep.EnteringAppPath;
-                    InputText = path;
-                    InputPrompt = "開く際に使用するソフトを選択してください (任意):";
-                    PopulateRegisteredApps();
-                    RequestControlFocus?.Invoke("CommandListBox");
-                }
-                else if (_newEntryType == CommandType.Batch || _newEntryType == CommandType.File)
-                {
-                    CurrentStep = InputStep.EnteringAppPath;
-                    InputText = path;
-                    InputPrompt = "開く際に使用するソフトを選択してください (任意):";
-                    PopulateRegisteredApps();
-                    RequestControlFocus?.Invoke("CommandListBox");
+                    var team = (StepResults.GetValueOrDefault("slack_team") as TextInputResult)?.Text;
+                    var channel = (StepResults.GetValueOrDefault("slack_channel") as TextInputResult)?.Text;
+                    if (!string.IsNullOrEmpty(team) && !string.IsNullOrEmpty(channel))
+                    {
+                        value = $"slack://channel?team={team}&id={channel}";
+                    }
                 }
                 else
                 {
-                    InputText = path;
-                    FinishInputFlow();
-                }
-                return;
-            }
-
-            if (CurrentStep == InputStep.EnteringAppPath)
-            {
-                if (SelectedItem != null)
-                {
-                    if (SelectedItem.Value == "NONE")
-                    {
-                        AppPath = "";
-                        FinishInputFlow();
-                        return;
-                    }
-
-                    if (SelectedItem.Value == "ADD_REGISTERED_APP")
-                    {
-                        AddRegisteredApp();
-                        return;
-                    }
-
-                    // それ以外の値はアプリのパスとして扱う（PopulateRegisteredAppsでValueにPathが入っている）
-                    AppPath = SelectedItem.Value;
-                    FinishInputFlow();
-                    return;
-                }
-
-                // For App Selection, ensure focus is on the ListBox if we committed via Enter in the TextBox
-                RequestControlFocus?.Invoke("CommandListBox");
-                FinishInputFlow();
-                return;
-            }
-
-            if (CurrentStep == InputStep.EnteringSlackTeamID)
-            {
-                // If an item is selected from history, use it
-                if (SelectedItem != null)
-                {
-                    InputText = SelectedItem.Name;
-                    SelectedItem = null;
-                    return;
-                }
-
-                _slackTeamID = InputText.Trim();
-
-                // Save to history
-                if (!string.IsNullOrWhiteSpace(_slackTeamID))
-                {
-                    _appSettings.SlackTeamIdHistory.Remove(_slackTeamID);
-                    _appSettings.SlackTeamIdHistory.Insert(0, _slackTeamID);
-                    if (_appSettings.SlackTeamIdHistory.Count > 10)
-                        _appSettings.SlackTeamIdHistory.RemoveAt(10);
-                    _configService.SaveSettings(_appSettings);
-                }
-
-                NavigateToStep(InputStep.EnteringSlackChannelID);
-                return;
-            }
-
-            if (CurrentStep == InputStep.EnteringSlackChannelID)
-            {
-                _slackChannelID = InputText.Trim();
-                FinishInputFlow();
-                return;
-            }
-        }
-
-        private void FinishInputFlow()
-        {
-            string val = InputText.Trim();
-            if (_newEntryType == CommandType.Slack)
-            {
-                val = $"slack://channel?team={_slackTeamID}&id={_slackChannelID}";
-                // 名前が未入力、またはデフォルトのままの場合はチームIDを名前にする
-                if (string.IsNullOrWhiteSpace(_newEntryName) || _newEntryName == "新しいボタン")
-                {
-                    _newEntryName = $"Slack: {_slackTeamID}";
+                    value = StepResults.Values.OfType<TextInputResult>()
+                        .FirstOrDefault(r => r.DataKey != "name")?.Text;
                 }
             }
-            else if (_newEntryType == CommandType.URL && !string.IsNullOrEmpty(val) && !val.StartsWith("http") && !val.Contains("://"))
-            {
-                val = "https://" + val;
-            }
 
-            if (_editingCommand != null)
-            {
-                _editingCommand.Name = _newEntryName;
-                _editingCommand.Type = _newEntryType;
-                _editingCommand.Value = val;
-                _editingCommand.AppPath = (_newEntryType == CommandType.File || _newEntryType == CommandType.Folder || _newEntryType == CommandType.Batch) ? AppPath.Trim() : null;
-                _editingCommand.RequiresArgument = IsRequiresArgumentChecked;
-                _editingCommand.IsFileSearchEnabled = IsFileSearchChecked;
+            var appPath = (StepResults.GetValueOrDefault("app_path") as TextInputResult)?.Text;
 
-                if (_editingCommand.Type == CommandType.Menu && _editingCommand.Children == null)
-                    _editingCommand.Children = new List<CommandEntry>();
-                else if (_editingCommand.Type != CommandType.Menu)
-                    _editingCommand.Children = null;
+            if (string.IsNullOrWhiteSpace(name)) return;
+            
+            // 階層（Hierarchy）カテゴリ以外は value が必須
+            if (NewEntryCategory != CommandCategory.Hierarchy && string.IsNullOrWhiteSpace(value)) return;
 
-                ResultCommand = _editingCommand;
-            }
-            else
+            // プリセットからデフォルト動作を取得
+            var allPresets = _configService.LoadPresets();
+            var preset = allPresets.FirstOrDefault(p => p.Id == NewEntryTemplateId);
+
+            ResultCommand = new CommandEntry
             {
-                ResultCommand = new CommandEntry
+                Name = name,
+                Value = value ?? string.Empty,
+                AppPath = appPath,
+                Category = NewEntryCategory,
+                Hotkey = EditingCommand?.Hotkey, // ショートカットを継承
+                HotkeyType = EditingCommand?.HotkeyType ?? HotkeyType.WindowGlobal,
+                Icon = EditingCommand?.Icon, // アイコンを継承
+                Behavior = new CommandBehavior
                 {
-                    Name = _newEntryName,
-                    Type = _newEntryType,
-                    Value = val,
-                    AppPath = (_newEntryType == CommandType.File || _newEntryType == CommandType.Folder || _newEntryType == CommandType.Batch) ? AppPath.Trim() : null,
-                    RequiresArgument = IsRequiresArgumentChecked,
-                    IsFileSearchEnabled = IsFileSearchChecked,
-                    Children = _newEntryType == CommandType.Menu ? new List<CommandEntry>() : null
-                };
-            }
-
+                    RequiresArgument = (behaviors?.IsBatchMode ?? (preset?.ActionOptions?.IsBatchMode == OptionDisplayMode.AlwaysOn)) 
+                        ? (behaviors?.RequiresArgument ?? (preset?.ActionOptions?.RequiresArgument == OptionDisplayMode.AlwaysOn)) 
+                        : (value?.Contains("{0}") ?? false),
+                    IsFileSearchEnabled = behaviors?.IsFileSearchEnabled ?? (preset?.ActionOptions?.IsFileSearchEnabled == OptionDisplayMode.AlwaysOn),
+                    IsBatchMode = behaviors?.IsBatchMode ?? (preset?.ActionOptions?.IsBatchMode == OptionDisplayMode.AlwaysOn),
+                    UseWindowFocusLogic = behaviors?.UseWindowFocusLogic ?? (preset?.ActionOptions?.UseWindowFocusLogic == OptionDisplayMode.AlwaysOn)
+                },
+                Children = NewEntryCategory == CommandCategory.Hierarchy 
+                    ? (EditingCommand?.Children ?? new List<CommandEntry>()) 
+                    : null,
+                ArgumentsHistory = EditingCommand?.ArgumentsHistory ?? new List<string>()
+            };
             RequestClose?.Invoke();
         }
 
-        private void CancelInput()
-        {
-            ResultCommand = null;
-            RequestClose?.Invoke();
-        }
+        private void CancelInput() => RequestClose?.Invoke();
 
         private void BrowseFile()
         {
-            try
+            if (CurrentStepObject.Value == null) return;
+            var filter = CurrentStepObject.Value.BrowseFileType == BrowseFileType.Folder ? "Folders|*.none" : "All Files (*.*)|*.*";
+            var path = _windowService.ShowBrowseDialog(CurrentStepObject.Value.BrowseFileType == BrowseFileType.Folder, filter, InputText.Value);
+            if (!string.IsNullOrEmpty(path))
             {
-                if (_newEntryType == CommandType.WindowSwitcher)
-                {
-                    // Show all windows when clicking browse button in window mode
-                    PerformIncrementalSearch("");
-                    return;
-                }
-
-                string? initialDirectory = GetContextDirectory();
-                if (_newEntryType == CommandType.Folder)
-                {
-                    var dialog = new Microsoft.Win32.OpenFolderDialog();
-                    if (!string.IsNullOrEmpty(initialDirectory)) dialog.InitialDirectory = initialDirectory;
-                    if (dialog.ShowDialog() == true) InputText = dialog.FolderName;
-                }
-                else
-                {
-                    var dialog = new Microsoft.Win32.OpenFileDialog();
-                    if (!string.IsNullOrEmpty(initialDirectory)) dialog.InitialDirectory = initialDirectory;
-                    if (dialog.ShowDialog() == true) InputText = dialog.FileName;
-                }
-            }
-            finally
-            {
-                if (CurrentStep == InputStep.EnteringValue) RequestControlFocus?.Invoke("InputTextBox");
-                else if (CurrentStep == InputStep.EnteringAppPath) RequestControlFocus?.Invoke("AppPathTextBox");
+                InputText.Value = path;
+                _ = CurrentStepObject.Value.PerformSearchAsync(path);
             }
         }
 
-        private void BrowseApp()
+        private void Execute(CommandEntry? command)
         {
-            try
-            {
-                string? initialDirectory = GetContextDirectory();
-                var dialog = new Microsoft.Win32.OpenFileDialog();
-                dialog.Filter = "Executable Files (*.exe)|*.exe|All Files (*.*)|*.*";
-                if (!string.IsNullOrEmpty(initialDirectory)) dialog.InitialDirectory = initialDirectory;
+            if (command == null) return;
+            if (command.Value == "ADD_REGISTERED_APP") { AddRegisteredApp(); return; }
+            InputText.Value = command.Value;
 
-                if (dialog.ShowDialog() == true)
-                {
-                    AppPath = dialog.FileName;
-                }
-            }
-            finally
+            if (CurrentStepObject.Value is TextInputCreationStep)
             {
-                RequestControlFocus?.Invoke("AppPathTextBox");
+                // インクリメンタルサーチの場合は確定せず、テキストを入力してフォーカスを戻す
+                SelectedItem.Value = null;
+                RequestControlFocus?.Invoke("InputTextBox");
+            }
+            else
+            {
+                CommitInput();
             }
         }
 
-        private void PopulateRegisteredApps()
+        private void MoveSelection(int direction)
         {
-            DisplayCommands.Clear();
-            DisplayCommands.Add(new CommandEntry { Name = "選択なし", Value = "NONE", Type = CommandType.Command });
-            foreach (var app in _appSettings.RegisteredApps)
+            if (DisplayCommands.Value.Count == 0) return;
+
+            // テキスト入力ボックスが非表示の場合（リスト選択のみのステップなど）は、常にリスト内でラップさせる
+            if (!IsTextInputVisible.Value)
             {
-                DisplayCommands.Add(new CommandEntry { Name = app.Name, Value = app.Path, Type = CommandType.Command });
+                int idx = SelectedItem.Value == null ? 0 : DisplayCommands.Value.IndexOf(SelectedItem.Value);
+                idx += direction;
+                if (idx < 0) idx = DisplayCommands.Value.Count - 1;
+                else if (idx >= DisplayCommands.Value.Count) idx = 0;
+                SelectedItem.Value = DisplayCommands.Value[idx];
+                return;
             }
-            DisplayCommands.Add(new CommandEntry { Name = "+ アプリを追加...", Value = "ADD_REGISTERED_APP", Type = CommandType.Command });
-            SelectedItem = DisplayCommands.FirstOrDefault();
+
+            if (SelectedItem.Value == null)
+            {
+                // 入力ボックスが選択されている状態（SelectedItem == null）
+                if (direction > 0)
+                {
+                    // 下キー: 一番上に移動
+                    SelectedItem.Value = DisplayCommands.Value[0];
+                }
+                else if (direction < 0)
+                {
+                    // 上キー: 一番下に移動 (一周)
+                    SelectedItem.Value = DisplayCommands.Value[DisplayCommands.Value.Count - 1];
+                }
+                RequestControlFocus?.Invoke("InputTextBox");
+                return;
+            }
+
+            int index = DisplayCommands.Value.IndexOf(SelectedItem.Value);
+            int nextIndex = index + direction;
+
+            if (nextIndex < 0 || nextIndex >= DisplayCommands.Value.Count)
+            {
+                // 選択肢の一番上で上キー、または一番下で下キー -> 入力ボックスに戻る (nullにする)
+                SelectedItem.Value = null;
+                RequestControlFocus?.Invoke("InputTextBox");
+            }
+            else
+            {
+                SelectedItem.Value = DisplayCommands.Value[nextIndex];
+            }
         }
+
+        private void DeleteRegisteredApp(CommandEntry? app)
+        {
+            if (app == null) return;
+            var target = _appSettings.RegisteredApps.FirstOrDefault(a => a.Path == app.Value);
+            if (target != null)
+            {
+                _appSettings.RegisteredApps.Remove(target);
+                _configService.SaveSettings(_appSettings);
+                CurrentStepObject.Value?.Initialize(StepResults);
+            }
+        }
+
+        private void EditRegisteredApp(CommandEntry? app) { }
 
         private void AddRegisteredApp()
         {
-            try
+            var dialog = new Microsoft.Win32.OpenFileDialog { Title = "登録するアプリを選択してください", Filter = "Applications (*.exe)|*.exe|All files (*.*)|*.*" };
+            string pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            if (Directory.Exists(pf)) dialog.InitialDirectory = pf;
+
+            if (dialog.ShowDialog() == true)
             {
-                var dialog = new Microsoft.Win32.OpenFileDialog();
-                dialog.Title = "登録するアプリを選択してください";
-                dialog.Filter = "Executable Files (*.exe)|*.exe|All Files (*.*)|*.*";
+                string path = dialog.FileName, name;
+                try { var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(path); name = !string.IsNullOrWhiteSpace(info.ProductName) ? info.ProductName : Path.GetFileNameWithoutExtension(path); }
+                catch { name = Path.GetFileNameWithoutExtension(path); }
 
-                string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-                if (Directory.Exists(programFiles)) dialog.InitialDirectory = programFiles;
-
-                if (dialog.ShowDialog() == true)
+                if (!_appSettings.RegisteredApps.Any(a => a.Path.Equals(path, StringComparison.OrdinalIgnoreCase)))
                 {
-                    RegisterAppFromPath(dialog.FileName);
-                    AppPath = dialog.FileName;
-                    // アプリ追加後、即座に決定せずリストを更新して選択状態にする
-                    PopulateRegisteredApps();
-                    SelectedItem = DisplayCommands.FirstOrDefault(c => c.Value == dialog.FileName);
+                    _appSettings.RegisteredApps.Add(new RegisteredApp { Name = name, Path = path });
+                    _configService.SaveSettings(_appSettings);
                 }
+                CurrentStepObject.Value?.Initialize(StepResults);
+                SelectedItem.Value = DisplayCommands.Value.FirstOrDefault(c => c.Value == path);
             }
-            finally
-            {
-                RequestControlFocus?.Invoke("AppPathTextBox");
-            }
-        }
-
-        private void DeleteRegisteredApp(CommandEntry? command)
-        {
-            if (command == null || command.Value == "NONE" || command.Value == "ADD_REGISTERED_APP") return;
-
-            var appToRemove = _appSettings.RegisteredApps.FirstOrDefault(a => a.Path == command.Value);
-            if (appToRemove != null)
-            {
-                _appSettings.RegisteredApps.Remove(appToRemove);
-                _configService.SaveSettings(_appSettings);
-                PopulateRegisteredApps();
-            }
-        }
-
-        private void EditRegisteredApp(CommandEntry? command)
-        {
-            if (command == null || command.Value == "NONE" || command.Value == "ADD_REGISTERED_APP") return;
-
-            try
-            {
-                var dialog = new Microsoft.Win32.OpenFileDialog();
-                dialog.Title = $"{command.Name} の実行ファイルを選び直してください";
-                dialog.Filter = "Executable Files (*.exe)|*.exe|All Files (*.*)|*.*";
-                dialog.FileName = command.Value;
-
-                if (dialog.ShowDialog() == true)
-                {
-                    var appToEdit = _appSettings.RegisteredApps.FirstOrDefault(a => a.Path == command.Value);
-                    if (appToEdit != null)
-                    {
-                        appToEdit.Path = dialog.FileName;
-                        try
-                        {
-                            var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(dialog.FileName);
-                            appToEdit.Name = !string.IsNullOrWhiteSpace(info.ProductName) ? info.ProductName : System.IO.Path.GetFileNameWithoutExtension(dialog.FileName);
-                        }
-                        catch
-                        {
-                            appToEdit.Name = System.IO.Path.GetFileNameWithoutExtension(dialog.FileName);
-                        }
-                        _configService.SaveSettings(_appSettings);
-                        PopulateRegisteredApps();
-                        SelectedItem = DisplayCommands.FirstOrDefault(c => c.Value == dialog.FileName);
-                    }
-                }
-            }
-            finally
-            {
-                RequestControlFocus?.Invoke("AppPathTextBox");
-            }
-        }
-
-        private void RegisterAppFromPath(string? appPath)
-        {
-            if (string.IsNullOrWhiteSpace(appPath)) return;
-
-            string displayName;
-            try
-            {
-                var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(appPath);
-                displayName = !string.IsNullOrWhiteSpace(info.ProductName)
-                    ? info.ProductName
-                    : System.IO.Path.GetFileNameWithoutExtension(appPath);
-            }
-            catch
-            {
-                displayName = System.IO.Path.GetFileNameWithoutExtension(appPath);
-            }
-
-            if (!_appSettings.RegisteredApps.Any(a => a.Path.Equals(appPath, StringComparison.OrdinalIgnoreCase)))
-            {
-                _appSettings.RegisteredApps.Add(new RegisteredApp { Name = displayName, Path = appPath });
-                _configService.SaveSettings(_appSettings);
-            }
-        }
-
-        private string? GetContextDirectory()
-        {
-            string path = (CurrentStep == InputStep.EnteringAppPath) ? AppPath : InputText;
-            if (string.IsNullOrWhiteSpace(path)) return null;
-
-            try
-            {
-                if (Directory.Exists(path)) return path;
-                if (File.Exists(path)) return Path.GetDirectoryName(path);
-
-                string? dir = Path.GetDirectoryName(path);
-                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir)) return dir;
-            }
-            catch { }
-            return null;
-        }
-
-        private CancellationTokenSource? _searchCts;
-        private async void PerformIncrementalSearch(string query)
-        {
-            _searchCts?.Cancel();
-            _searchCts = new CancellationTokenSource();
-            var ct = _searchCts.Token;
-
-            if (string.IsNullOrWhiteSpace(query))
-            {
-                if (_newEntryType == CommandType.WindowSwitcher)
-                {
-                    // Show all windows if query is empty for Window type
-                    var allTitles = _windowService.GetAllVisibleWindowTitles();
-                    DisplayCommands.Clear();
-                    foreach (var t in allTitles)
-                    {
-                        DisplayCommands.Add(new CommandEntry { Name = t, Value = "TYPE_TEMPLATE", Type = CommandType.Command });
-                    }
-                }
-                else
-                {
-                    DisplayCommands.Clear();
-                }
-                OnPropertyChanged(nameof(IsListBoxVisible));
-                return;
-            }
-
-            if (_newEntryType == CommandType.WindowSwitcher)
-            {
-                // Window search logic
-                var allTitles = _windowService.GetAllVisibleWindowTitles();
-                var filtered = allTitles.Where(t => t.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
-
-                DisplayCommands.Clear();
-                foreach (var t in filtered)
-                {
-                    DisplayCommands.Add(new CommandEntry { Name = t, Value = "TYPE_TEMPLATE", Type = CommandType.Command });
-                }
-                OnPropertyChanged(nameof(IsListBoxVisible));
-                return;
-            }
-
-            try
-            {
-                await Task.Delay(150, ct);
-
-                var rootsToSearch = new List<string>();
-                string filter;
-
-                if (Path.IsPathRooted(query))
-                {
-                    string root;
-                    if (query.EndsWith(Path.DirectorySeparatorChar) || query.EndsWith(Path.AltDirectorySeparatorChar))
-                    {
-                        root = query;
-                        filter = string.Empty;
-                    }
-                    else
-                    {
-                        root = Path.GetDirectoryName(query) ?? (query.Length >= 2 ? query.Substring(0, 3) : "C:\\");
-                        filter = Path.GetFileName(query) ?? string.Empty;
-                    }
-                    if (Directory.Exists(root)) rootsToSearch.Add(root);
-                }
-                else
-                {
-                    string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                    if (Directory.Exists(userProfile)) rootsToSearch.Add(userProfile);
-
-                    rootsToSearch.Add(AppDomain.CurrentDomain.BaseDirectory);
-                    rootsToSearch.Add(Environment.GetFolderPath(Environment.SpecialFolder.Desktop));
-                    rootsToSearch.Add(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
-
-                    string currentDir = Directory.GetCurrentDirectory();
-                    if (!rootsToSearch.Contains(currentDir)) rootsToSearch.Add(currentDir);
-
-                    filter = query;
-                }
-
-                if (rootsToSearch.Count == 0)
-                {
-                    var drives = DriveInfo.GetDrives().Where(d => d.IsReady).ToList();
-                    DisplayCommands.Clear();
-                    foreach (var d in drives) DisplayCommands.Add(new CommandEntry { Name = d.Name, Value = "TYPE_TEMPLATE", Type = CommandType.Command });
-                    OnPropertyChanged(nameof(IsListBoxVisible));
-                    return;
-                }
-
-                var results = await Task.Run(() =>
-                {
-                    var found = new List<CommandEntry>();
-                    var queue = new Queue<string>();
-                    foreach (var root in rootsToSearch)
-                    {
-                        if (Directory.Exists(root)) queue.Enqueue(root);
-                    }
-                    int dirCount = 0;
-
-                    var blacklist = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        "Windows", "$Recycle.Bin", "System Volume Information", "ProgramData",
-                        "AppData", "Local Settings", "Application Data", "node_modules", ".git", ".vs"
-                    };
-
-                    while (queue.Count > 0 && found.Count < 30 && dirCount < 300)
-                    {
-                        if (ct.IsCancellationRequested) return found;
-                        var currentDirPath = queue.Dequeue();
-                        dirCount++;
-
-                        try
-                        {
-                            var di = new DirectoryInfo(currentDirPath);
-                            foreach (var info in di.EnumerateFileSystemInfos())
-                            {
-                                if (ct.IsCancellationRequested) return found;
-                                string name = info.Name;
-
-                                // ブラックリストまたは隠し属性はスキップ
-                                if (blacklist.Contains(name) || (info.Attributes & FileAttributes.Hidden) != 0) continue;
-
-                                if (name.Contains(filter, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    found.Add(new CommandEntry { Name = info.FullName, Value = "TYPE_TEMPLATE", Type = CommandType.Command });
-                                    if (found.Count >= 30) return found;
-                                }
-
-                                if (info is DirectoryInfo subDir)
-                                {
-                                    queue.Enqueue(subDir.FullName);
-                                }
-                            }
-                        }
-                        catch { /* Access denied or directory disappeared */ }
-                    }
-                    return found;
-                }, ct);
-
-                if (ct.IsCancellationRequested) return;
-
-                if (CurrentStep != InputStep.EnteringValue) return;
-
-                int? previousIndex = SelectedItem != null ? DisplayCommands.IndexOf(SelectedItem) : (int?)null;
-                DisplayCommands.Clear();
-                foreach (var res in results) DisplayCommands.Add(res);
-
-                if (previousIndex.HasValue)
-                {
-                    if (previousIndex.Value < DisplayCommands.Count && previousIndex.Value >= 0)
-                        SelectedItem = DisplayCommands[previousIndex.Value];
-                    else if (DisplayCommands.Count > 0)
-                        SelectedItem = DisplayCommands.Last();
-                    else
-                        SelectedItem = null;
-                }
-                else
-                {
-                    SelectedItem = null;
-                }
-            }
-            catch (Exception) { /* Ignored */ }
-            finally
-            {
-                OnPropertyChanged(nameof(IsListBoxVisible));
-            }
-        }
-
-        private void PopulateSlackTeamHistory(string query)
-        {
-            DisplayCommands.Clear();
-            var filtered = _appSettings.SlackTeamIdHistory
-                .Where(id => id.Contains(query, StringComparison.OrdinalIgnoreCase))
-                .Select(id => new CommandEntry { Name = id, Value = "TYPE_TEMPLATE" });
-
-            foreach (var item in filtered) DisplayCommands.Add(item);
-            OnPropertyChanged(nameof(IsListBoxVisible));
-        }
-
-        public event PropertyChangedEventHandler? PropertyChanged;
-        protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-        {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
     }
 }

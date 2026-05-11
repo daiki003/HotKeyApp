@@ -4,6 +4,9 @@ using System.Windows.Input;
 using System.Windows.Controls;
 using HotKeyCommandApp.ViewModels;
 using HotKeyCommandApp.Services;
+using HotKeyCommandApp.ViewModels.ButtonCreationSteps;
+using HotKeyCommandApp.Models;
+using R3;
 using System.Windows.Interop;
 
 namespace HotKeyCommandApp.Views
@@ -25,60 +28,65 @@ namespace HotKeyCommandApp.Views
                 this.Close();
             };
 
-            _viewModel.RequestControlFocus += (controlName) =>
-            {
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    if (controlName == "InputTextBox")
-                    {
-                        InputTextBox.Focus();
-                        InputTextBox.CaretIndex = InputTextBox.Text.Length;
-                    }
-                    else if (controlName == "CommandListBox")
-                    {
-                        if (CommandListBox.SelectedIndex < 0 && CommandListBox.Items.Count > 0)
-                            CommandListBox.SelectedIndex = 0;
+            _viewModel.RequestControlFocus += HandleRequestControlFocus;
 
-                        var item = CommandListBox.ItemContainerGenerator.ContainerFromIndex(CommandListBox.SelectedIndex) as ListBoxItem;
-                        if (item != null) Keyboard.Focus(item);
-                        else CommandListBox.Focus();
-                    }
-                }), System.Windows.Threading.DispatcherPriority.Render);
-            };
-
-            // ステップが進んだら「戻る」ナビゲーションを許可する
-            _viewModel.PropertyChanged += (s, e) =>
-            {
-                if (e.PropertyName == nameof(ButtonCreationViewModel.CurrentStep))
+            // 選択アイテムが変更されたらスクロールする
+            _viewModel.SelectedItem
+                .Subscribe((CommandEntry? item) =>
                 {
-                    // No extra logic needed for step tracking here anymore
-                }
-
-                // キーボードやコマンドで選択が変更された際に自動スクロールする
-                if (e.PropertyName == nameof(ButtonCreationViewModel.SelectedItem))
-                {
-                    if (_viewModel.SelectedItem != null)
+                    if (item != null)
                     {
-                        // ちらつきを防ぐため、次のレンダリング前に高い優先度でスクロールを実行する
                         Dispatcher.BeginInvoke(new Action(() =>
                         {
-                            CommandListBox.ScrollIntoView(_viewModel.SelectedItem);
+                            CommandListBox.ScrollIntoView(item);
                         }), System.Windows.Threading.DispatcherPriority.Loaded);
                     }
+                });
+        }
+
+        private void HandleRequestControlFocus(string controlName)
+        {
+            // UI生成を確実に待つため、DispatcherPriority.Background を使用
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (controlName == "InputTextBox")
+                {
+                    InputTextBox.Focus();
+                    if (!string.IsNullOrEmpty(InputTextBox.Text))
+                    {
+                        InputTextBox.CaretIndex = InputTextBox.Text.Length;
+                    }
                 }
-            };
+                else if (controlName == "CommandListBox")
+                {
+                    CommandListBox.Focus();
+                    
+                    if (_viewModel.SelectedItem.Value != null)
+                    {
+                        CommandListBox.ScrollIntoView(_viewModel.SelectedItem.Value);
+                        
+                        // アイテム自体にフォーカスを移すことで確実に操作可能にする
+                        var container = CommandListBox.ItemContainerGenerator.ContainerFromItem(_viewModel.SelectedItem.Value) as ListBoxItem;
+                        if (container != null)
+                        {
+                            Keyboard.Focus(container);
+                        }
+                    }
+                }
+            }), System.Windows.Threading.DispatcherPriority.Background);
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            Dispatcher.BeginInvoke(new Action(() =>
+            // 起動時に現在のステップに応じて適切なコントロールにフォーカスを当てる
+            string targetControl = "InputTextBox";
+            if (_viewModel.CurrentStepObject.Value is PresetSelectionStep || 
+                _viewModel.CurrentStepObject.Value is ListSelectionCreationStep)
             {
-                if (InputTextBox.IsVisible)
-                {
-                    InputTextBox.Focus();
-                    InputTextBox.SelectAll();
-                }
-            }), System.Windows.Threading.DispatcherPriority.Loaded);
+                targetControl = "CommandListBox";
+            }
+
+            HandleRequestControlFocus(targetControl);
         }
 
         private void TextBox_GotFocus(object sender, RoutedEventArgs e)
@@ -126,35 +134,61 @@ namespace HotKeyCommandApp.Views
 
             if (e.Key == Key.F1)
             {
-                _viewModel.IsRequiresArgumentChecked = !_viewModel.IsRequiresArgumentChecked;
+                if (_viewModel.CurrentStepObject.Value is OptionsCreationStep os)
+                {
+                    os.IsRequiresArgumentChecked.Value = !os.IsRequiresArgumentChecked.Value;
+                }
                 e.Handled = true;
                 return;
             }
 
             if (e.Key == Key.F2)
             {
-                if (_viewModel.CurrentStep == InputStep.EnteringAppPath && _viewModel.SelectedItem != null &&
-                    _viewModel.SelectedItem.Value != "NONE" && _viewModel.SelectedItem.Value != "ADD_REGISTERED_APP")
+                if (_viewModel.CurrentStepObject.Value is ListSelectionCreationStep lss && lss.ListSource == "registered_apps" && _viewModel.SelectedItem.Value != null &&
+                    _viewModel.SelectedItem.Value.Value != "NONE" && _viewModel.SelectedItem.Value.Value != "ADD_REGISTERED_APP")
                 {
-                    _viewModel.EditRegisteredAppCommand.Execute(_viewModel.SelectedItem);
+                    _viewModel.EditRegisteredAppCommand.Execute(_viewModel.SelectedItem.Value);
                     e.Handled = true;
                     return;
                 }
 
-                _viewModel.IsFileSearchChecked = !_viewModel.IsFileSearchChecked;
+                if (_viewModel.CurrentStepObject.Value is OptionsCreationStep os)
+                {
+                    os.IsFileSearchChecked.Value = !os.IsFileSearchChecked.Value;
+                }
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.F3)
+            {
+                if (_viewModel.CurrentStepObject.Value is OptionsCreationStep os)
+                {
+                    os.IsBatchModeChecked.Value = !os.IsBatchModeChecked.Value;
+                }
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.F4)
+            {
+                if (_viewModel.CurrentStepObject.Value is OptionsCreationStep os)
+                {
+                    os.UseWindowFocusLogicChecked.Value = !os.UseWindowFocusLogicChecked.Value;
+                }
                 e.Handled = true;
                 return;
             }
 
             if (e.Key == Key.Delete)
             {
-                if (_viewModel.CurrentStep == InputStep.EnteringAppPath && _viewModel.SelectedItem != null &&
-                    _viewModel.SelectedItem.Value != "NONE" && _viewModel.SelectedItem.Value != "ADD_REGISTERED_APP")
+                if (_viewModel.CurrentStepObject.Value is ListSelectionCreationStep lss2 && lss2.ListSource == "registered_apps" && _viewModel.SelectedItem.Value != null &&
+                    _viewModel.SelectedItem.Value.Value != "NONE" && _viewModel.SelectedItem.Value.Value != "ADD_REGISTERED_APP")
                 {
-                    var dialog = new DeleteConfirmationWindow(_viewModel.SelectedItem.Name) { Owner = this };
+                    var dialog = new DeleteConfirmationWindow(_viewModel.SelectedItem.Value.Name) { Owner = this };
                     if (dialog.ShowDialog() == true)
                     {
-                        _viewModel.DeleteRegisteredAppCommand.Execute(_viewModel.SelectedItem);
+                        _viewModel.DeleteRegisteredAppCommand.Execute(_viewModel.SelectedItem.Value);
                     }
                     e.Handled = true;
                     return;
@@ -180,12 +214,33 @@ namespace HotKeyCommandApp.Views
                     }
                 }
             }
-
+            
+            if (e.Key == Key.Left || e.Key == Key.Right)
+            {
+                // テキスト入力が不要なステップ、またはリストにフォーカスがある場合に左右キーで階層移動を試みる
+                bool isTextInputActive = InputTextBox.Visibility == Visibility.Visible && InputTextBox.IsFocused;
+                if (!isTextInputActive || !(_viewModel.CurrentStepObject.Value?.IsTextInputVisible ?? true))
+                {
+                    int direction = e.Key == Key.Right ? 1 : -1;
+                    if (_viewModel.CurrentStepObject.Value?.HandleHorizontalNavigation(direction) == true)
+                    {
+                        e.Handled = true;
+                        return;
+                    }
+                }
+            }
+            
             if (e.Key == Key.Enter)
             {
-                // このウィンドウでは、フォーカスはほぼ常にInputTextBoxにあります。
-                // CommitInputCommandが、入力されたテキストを使うか、選択されたアイテムを使うかのロジックを処理します。
-                _viewModel.CommitInputCommand.Execute(null);
+                // リストが表示されている場合は、選択アイテムの確定ロジック（Execute）を優先する
+                if (_viewModel.IsListBoxVisible.Value && _viewModel.SelectedItem.Value != null)
+                {
+                    _viewModel.ExecuteCommand.Execute(_viewModel.SelectedItem.Value);
+                }
+                else
+                {
+                    _viewModel.CommitInputCommand.Execute(null);
+                }
                 e.Handled = true;
                 return;
             }

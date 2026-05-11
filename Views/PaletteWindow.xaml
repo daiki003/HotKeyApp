@@ -204,6 +204,7 @@
                          HorizontalContentAlignment="Stretch">
                     <ListBox.Style>
                         <Style TargetType="ListBox">
+                            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
                             <Setter Property="ItemsPanel">
                                 <Setter.Value>
                                     <ItemsPanelTemplate>

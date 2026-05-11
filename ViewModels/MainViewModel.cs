@@ -14,22 +14,7 @@ using Newtonsoft.Json;
 
 namespace HotKeyCommandApp.ViewModels
 {
-    public enum InputStep
-    {
-        EnteringName,
-        SelectingType,
-        EnteringValue,
-        EnteringAppPath,
-        EnteringSlackTeamID,
-        EnteringSlackChannelID,
-        None
-    }
 
-    public class CommandTypeOption
-    {
-        public string Name { get; set; } = string.Empty;
-        public CommandType Type { get; set; }
-    }
 
     public class MainViewModel : INotifyPropertyChanged
     {
@@ -49,23 +34,15 @@ namespace HotKeyCommandApp.ViewModels
         {
             public string Title { get; init; } = "";
             public CommandEntry? SelectedItem { get; init; }
-            public CommandType? SelectedType { get; init; } // 入力モード用
+            public string? SelectedTemplateId { get; init; }
             public List<(CommandEntry? Parent, CommandEntry? LastSelected, string Title)> NavigationStack { get; init; } = new();
 
-            // どの親を表示していたかの参照
             public CommandEntry? ParentMenu { get; init; }
             public bool IsRoot { get; init; }
 
-            // 入力モード
             public bool IsInputMode { get; init; }
-            public InputStep CurrentStep { get; init; }
             public string InputText { get; init; } = "";
             public string InputPrompt { get; init; } = "";
-            public CommandEntry? EditingCommand { get; init; }
-            public string NewEntryName { get; init; } = "";
-            public CommandType NewEntryType { get; init; }
-            public string SlackTeamID { get; init; } = "";
-            public string SlackChannelID { get; init; } = "";
         }
 
         private List<CommandEntry> _rootCommands = new();
@@ -114,6 +91,7 @@ namespace HotKeyCommandApp.ViewModels
         }
 
         public bool IsItemSelected => SelectedItem != null;
+        
 
         private CommandEntry? _currentParent;
         public CommandEntry? CurrentParent
@@ -129,7 +107,7 @@ namespace HotKeyCommandApp.ViewModels
         }
 
         /// <summary>ウィンドウ切替モード（サムネイル表示）かどうか</summary>
-        public bool IsWindowSwitcherMode => CurrentParent?.Type == CommandType.WindowSwitcher;
+        public bool IsWindowSwitcherMode => CurrentParent?.Category == CommandCategory.WindowSwitcher;
 
         /// <summary>通常のリスト表示モードかどうか</summary>
         public bool IsNormalListMode => !IsWindowSwitcherMode;
@@ -168,7 +146,7 @@ namespace HotKeyCommandApp.ViewModels
             // ListBox is visible if NOT in InputMode, OR if in FileSearchMode, OR if we're picking a Type (shared with entering name)
             // OR if we have hints/results to show during InputMode
             // But NOT if we are in SettingsMode
-            IsListBoxVisible = (!IsInputMode || IsFileSearchMode || CurrentStep == InputStep.EnteringName || (IsInputMode && DisplayCommands.Count > 0));
+            IsListBoxVisible = (!IsInputMode || IsFileSearchMode || (IsInputMode && DisplayCommands.Count > 0));
             OnPropertyChanged(nameof(IsListBoxVisible));
         }
 
@@ -181,31 +159,15 @@ namespace HotKeyCommandApp.ViewModels
                 _inputText = value;
                 OnPropertyChanged();
                 if (IsFileSearchMode) PerformFileSearch(value);
-                else if (IsInputMode && CurrentStep == InputStep.EnteringValue) PerformIncrementalSearch(value);
-                else if (IsInputMode && CurrentStep == InputStep.EnteringSlackTeamID) PopulateSlackTeamHistory(value);
+
             }
         }
 
         private string _inputPrompt = string.Empty;
 
-        public List<CommandTypeOption> AvailableCommandTypes { get; } = new()
-        {
-            new CommandTypeOption { Name = "URLを開く", Type = CommandType.URL },
-            new CommandTypeOption { Name = "Slackを開く", Type = CommandType.Slack },
-            new CommandTypeOption { Name = "フォルダを開く", Type = CommandType.Folder },
-            new CommandTypeOption { Name = "バッチ実行", Type = CommandType.Batch },
-            new CommandTypeOption { Name = "ファイルを開く", Type = CommandType.File },
-            new CommandTypeOption { Name = "特定のウィンドウを切替", Type = CommandType.WindowSwitcher },
-            new CommandTypeOption { Name = "階層の親", Type = CommandType.Menu }
-        };
+        public bool ShowFileSearchOption => IsFileSearchMode;
+        public bool ShowValueInput => IsFileSearchMode;
 
-        public bool ShowArgumentOption => CurrentStep == InputStep.EnteringValue && (_newEntryType == CommandType.URL || _newEntryType == CommandType.Folder || _newEntryType == CommandType.Batch || _newEntryType == CommandType.File);
-        public bool ShowFileSearchOption => (CurrentStep == InputStep.EnteringValue || CurrentStep == InputStep.EnteringAppPath) && (_newEntryType == CommandType.Folder || _newEntryType == CommandType.File);
-        public bool ShowAppPathInput => false; // Hide manual input field for app path
-        public bool ShowMainBrowseButton => CurrentStep == InputStep.EnteringValue && (_newEntryType == CommandType.Folder || _newEntryType == CommandType.File || _newEntryType == CommandType.Batch);
-        public bool ShowValueInput => CurrentStep == InputStep.EnteringName || CurrentStep == InputStep.EnteringValue || IsFileSearchMode;
-
-        public bool IsSelectingType => false; // Obsolete but kept for safety if referenced elsewhere temporarily
 
         public string InputPrompt
         {
@@ -215,72 +177,15 @@ namespace HotKeyCommandApp.ViewModels
 
         public event Action<string>? RequestControlFocus;
 
-        private InputStep _currentStep = InputStep.None;
-        public InputStep CurrentStep
-        {
-            get => _currentStep;
-            set
-            {
-                _currentStep = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(ShowArgumentOption));
-                OnPropertyChanged(nameof(ShowFileSearchOption));
-                OnPropertyChanged(nameof(ShowValueInput));
-                OnPropertyChanged(nameof(ShowAppPathInput));
-                OnPropertyChanged(nameof(ShowMainBrowseButton));
-                OnPropertyChanged(nameof(IsSelectingType));
-                UpdateListBoxVisibility();
 
-                // Signal focus based on step
-                switch (value)
-                {
-                    case InputStep.EnteringName: RequestControlFocus?.Invoke("InputTextBox"); break;
-                    case InputStep.EnteringValue: RequestControlFocus?.Invoke("InputTextBox"); break;
-                    case InputStep.EnteringAppPath: RequestControlFocus?.Invoke("CommandListBox"); break;
-                }
-            }
-        }
 
         public event Action<CommandEntry>? RequestShortcutAssignment;
         public event Action<CommandEntry>? RequestDeleteConfirmation;
         public event Action<CommandEntry?, double, double>? RequestButtonCreation;
         public event Action<MainViewModel, bool>? RequestWindowSwitcher;
 
-        private string _newEntryName = string.Empty;
-        private CommandType _newEntryType;
-        private CommandEntry? _editingCommand; // null = 新規追加, not null = 既存編集
-
-        private string _slackTeamID = string.Empty;
-        private string _slackChannelID = string.Empty;
-
-        private bool _isRequiresArgumentChecked;
-        public bool IsRequiresArgumentChecked
-        {
-            get => _isRequiresArgumentChecked;
-            set { _isRequiresArgumentChecked = value; OnPropertyChanged(); }
-        }
-
-        private bool _isFileSearchChecked;
-        public bool IsFileSearchChecked
-        {
-            get => _isFileSearchChecked;
-            set { _isFileSearchChecked = value; OnPropertyChanged(); }
-        }
-
         public event Func<CommandEntry, string, string?>? RequestArgumentInput;
         public event Action? RequestSettings;
-
-        private string _appPath = string.Empty;
-        public string AppPath
-        {
-            get => _appPath;
-            set
-            {
-                _appPath = value;
-                OnPropertyChanged();
-                // Do not perform search on AppPath anymore
-            }
-        }
 
         private bool _isFileSearchMode;
         public bool IsFileSearchMode
@@ -476,11 +381,6 @@ namespace HotKeyCommandApp.ViewModels
         private ICommand? _saveSettingsCommand;
         public ICommand SaveSettingsCommand => _saveSettingsCommand ??= new RelayCommand<object>(_ => SaveSettings());
 
-        private ICommand? _deleteRegisteredAppCommand;
-        public ICommand DeleteRegisteredAppCommand => _deleteRegisteredAppCommand ??= new RelayCommand<CommandEntry>(DeleteRegisteredApp);
-
-        private ICommand? _editRegisteredAppCommand;
-        public ICommand EditRegisteredAppCommand => _editRegisteredAppCommand ??= new RelayCommand<CommandEntry>(EditRegisteredApp);
 
         private ICommand? _duplicateCommand;
         public ICommand DuplicateCommand => _duplicateCommand ??= new RelayCommand<CommandEntry>(Duplicate);
@@ -497,185 +397,6 @@ namespace HotKeyCommandApp.ViewModels
         public ICommand NavigateForwardCommand => new RelayCommand<object>(_ => NavigateForward());
         public ICommand AddNewButtonCommand => new RelayCommand<object>(_ => { RequestButtonCreation?.Invoke(null, WindowWidth, WindowHeight); });
 
-        private string? GetContextDirectory()
-        {
-            // Use current input/path as starting directory context
-            string path = (CurrentStep == InputStep.EnteringAppPath) ? AppPath : InputText;
-            if (string.IsNullOrWhiteSpace(path)) return null;
-
-            try
-            {
-                if (Directory.Exists(path)) return path;
-                if (File.Exists(path)) return Path.GetDirectoryName(path);
-
-                // Check parent directory if partial path is entered
-                string? dir = Path.GetDirectoryName(path);
-                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir)) return dir;
-            }
-            catch { }
-            return null;
-        }
-
-        private bool CanBrowseFile()
-        {
-            return CurrentStep == InputStep.EnteringValue && (_newEntryType == CommandType.Folder || _newEntryType == CommandType.File || _newEntryType == CommandType.Batch);
-        }
-
-        private bool CanBrowseApp()
-        {
-            return CurrentStep == InputStep.EnteringAppPath;
-        }
-
-        private void BrowseFile(string? initialDirectory = null)
-        {
-            IsDialogActive = true;
-            try
-            {
-                if (_newEntryType == CommandType.Folder)
-                {
-                    var dialog = new Microsoft.Win32.OpenFolderDialog();
-                    if (!string.IsNullOrEmpty(initialDirectory)) dialog.InitialDirectory = initialDirectory;
-                    if (dialog.ShowDialog() == true)
-                    {
-                        InputText = dialog.FolderName;
-                    }
-                }
-                else
-                {
-                    var dialog = new Microsoft.Win32.OpenFileDialog();
-                    if (!string.IsNullOrEmpty(initialDirectory)) dialog.InitialDirectory = initialDirectory;
-                    if (dialog.ShowDialog() == true)
-                    {
-                        InputText = dialog.FileName;
-                    }
-                }
-            }
-            finally
-            {
-                IsDialogActive = false;
-                if (CurrentStep == InputStep.EnteringValue) RequestControlFocus?.Invoke("InputTextBox");
-                else if (CurrentStep == InputStep.EnteringAppPath) RequestControlFocus?.Invoke("AppPathTextBox");
-            }
-        }
-
-        private void BrowseApp(string? initialDirectory = null)
-        {
-            IsDialogActive = true;
-            try
-            {
-                var dialog = new Microsoft.Win32.OpenFileDialog();
-                dialog.Filter = "Executable Files (*.exe)|*.exe|All Files (*.*)|*.*";
-                if (!string.IsNullOrEmpty(initialDirectory)) dialog.InitialDirectory = initialDirectory;
-                if (dialog.ShowDialog() == true)
-                {
-                    AppPath = dialog.FileName;
-                }
-            }
-            finally
-            {
-                IsDialogActive = false;
-                RequestControlFocus?.Invoke("AppPathTextBox");
-            }
-        }
-
-        /// <summary>登録済みアプリ一覧をDisplayCommandsにセットする</summary>
-        private void PopulateRegisteredApps()
-        {
-            DisplayCommands.Clear();
-            DisplayCommands.Add(new CommandEntry { Name = "選択なし", Value = "NONE", Type = CommandType.Command });
-            foreach (var app in _appSettings.RegisteredApps)
-            {
-                DisplayCommands.Add(new CommandEntry { Name = app.Name, Value = app.Path, Type = CommandType.Command });
-            }
-            DisplayCommands.Add(new CommandEntry { Name = "+ アプリを追加...", Value = "ADD_REGISTERED_APP", Type = CommandType.Command });
-            SelectedItem = DisplayCommands.FirstOrDefault();
-        }
-
-        /// <summary>ファイルダイアログからアプリを選択して登録済みリストに追加する</summary>
-        private void AddRegisteredApp()
-        {
-            IsDialogActive = true;
-            try
-            {
-                var dialog = new Microsoft.Win32.OpenFileDialog();
-                dialog.Title = "登録するアプリを選択してください";
-                dialog.Filter = "Executable Files (*.exe)|*.exe|All Files (*.*)|*.*";
-
-                string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-                if (Directory.Exists(programFiles)) dialog.InitialDirectory = programFiles;
-
-                if (dialog.ShowDialog() == true)
-                {
-                    RegisterAppFromPath(dialog.FileName);
-                    AppPath = dialog.FileName;
-                    // アプリ追加後、即座に決定せずリストを更新して選択状態にする
-                    PopulateRegisteredApps();
-                    SelectedItem = DisplayCommands.FirstOrDefault(c => c.Value == dialog.FileName);
-                }
-            }
-            finally
-            {
-                IsDialogActive = false;
-                RequestControlFocus?.Invoke("AppPathTextBox");
-            }
-        }
-
-        private void DeleteRegisteredApp(CommandEntry? command)
-        {
-            if (command == null || command.Value == "NONE" || command.Value == "ADD_REGISTERED_APP") return;
-
-            var appToRemove = _appSettings.RegisteredApps.FirstOrDefault(a => a.Path == command.Value);
-            if (appToRemove != null)
-            {
-                _appSettings.RegisteredApps.Remove(appToRemove);
-                _configService.SaveSettings(_appSettings);
-                PopulateRegisteredApps();
-            }
-        }
-
-        private void EditRegisteredApp(CommandEntry? command)
-        {
-            if (command == null || command.Value == "NONE" || command.Value == "ADD_REGISTERED_APP") return;
-
-            IsDialogActive = true;
-            try
-            {
-                var dialog = new Microsoft.Win32.OpenFileDialog();
-                dialog.Title = $"{command.Name} の実行ファイルを選び直してください";
-                dialog.Filter = "Executable Files (*.exe)|*.exe|All Files (*.*)|*.*";
-                dialog.FileName = command.Value;
-
-                if (dialog.ShowDialog() == true)
-                {
-                    var appToEdit = _appSettings.RegisteredApps.FirstOrDefault(a => a.Path == command.Value);
-                    if (appToEdit != null)
-                    {
-                        // パスを更新
-                        appToEdit.Path = dialog.FileName;
-
-                        // 名前も更新（オプション）
-                        try
-                        {
-                            var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(dialog.FileName);
-                            appToEdit.Name = !string.IsNullOrWhiteSpace(info.ProductName) ? info.ProductName : System.IO.Path.GetFileNameWithoutExtension(dialog.FileName);
-                        }
-                        catch
-                        {
-                            appToEdit.Name = System.IO.Path.GetFileNameWithoutExtension(dialog.FileName);
-                        }
-
-                        _configService.SaveSettings(_appSettings);
-                        PopulateRegisteredApps();
-                        SelectedItem = DisplayCommands.FirstOrDefault(c => c.Value == dialog.FileName);
-                    }
-                }
-            }
-            finally
-            {
-                IsDialogActive = false;
-                RequestControlFocus?.Invoke("AppPathTextBox");
-            }
-        }
 
 
         public MainViewModel()
@@ -712,7 +433,7 @@ namespace HotKeyCommandApp.ViewModels
             }
 
             // Clean up any "Add Button" or system commands that shouldn't be persisted
-            list.RemoveAll(c => c.Type == CommandType.Command && (c.Value?.StartsWith("ADD_") ?? false));
+            list.RemoveAll(c => c.IsSystemButton);
 
             foreach (var item in list)
             {
@@ -740,19 +461,19 @@ namespace HotKeyCommandApp.ViewModels
 
             // Ensure "Add Button" for hierarchy levels (if not in special input/search modes)
             // ウィンドウ切替モード時（動的階層）はボタン追加を表示しない
-            bool isWindowSwitcher = parent?.Type == CommandType.WindowSwitcher;
+            bool isWindowSwitcher = parent?.Category == CommandCategory.WindowSwitcher;
             if (!IsInputMode && !IsFileSearchMode && !isWindowSwitcher)
             {
-                if (!DisplayCommands.Any(c => c.Type == CommandType.Command && (c.Value?.StartsWith("ADD_") ?? false)))
+                if (!DisplayCommands.Any(c => (c.Value?.StartsWith("ADD_") ?? false)))
                 {
-                    DisplayCommands.Add(new CommandEntry { Name = "ボタン追加", Type = CommandType.Command, Value = "ADD_BUTTON" });
+                    DisplayCommands.Add(new CommandEntry { Name = "ボタン追加", IsSystem = true, Value = "ADD_BUTTON" });
                 }
             }
 
             Title = title;
             CurrentParent = parent;
             CanGoBack = _navigationHistory.Count > 0;
-            SelectedItem = itemToSelect ?? ((IsInputMode && CurrentStep != InputStep.EnteringName) ? null : DisplayCommands.FirstOrDefault());
+            SelectedItem = itemToSelect ?? DisplayCommands.FirstOrDefault();
 
             // Load icons asynchronously
             if (windowCommands.Any())
@@ -823,19 +544,13 @@ namespace HotKeyCommandApp.ViewModels
             {
                 Title = Title,
                 SelectedItem = SelectedItem,
-                SelectedType = (IsInputMode && SelectedItem != null) ? SelectedItem.Type : (CommandType?)null,
+                SelectedTemplateId = (IsInputMode && SelectedItem != null) ? (SelectedItem.Tag as CommandPreset)?.Id : null,
                 NavigationStack = _navigationHistory.ToList(),
                 ParentMenu = parent,
                 IsRoot = isRoot,
                 IsInputMode = IsInputMode,
-                CurrentStep = CurrentStep,
                 InputText = InputText,
-                InputPrompt = InputPrompt,
-                EditingCommand = _editingCommand,
-                NewEntryName = _newEntryName,
-                NewEntryType = _newEntryType,
-                SlackTeamID = _slackTeamID,
-                SlackChannelID = _slackChannelID
+                InputPrompt = InputPrompt
             };
 
             // 直前の履歴と同じ状態なら記録しない
@@ -843,7 +558,6 @@ namespace HotKeyCommandApp.ViewModels
             {
                 var last = _history.Last();
                 if (last.Title == state.Title &&
-                    last.CurrentStep == state.CurrentStep &&
                     last.IsInputMode == state.IsInputMode &&
                     last.InputText == state.InputText &&
                     last.SelectedItem == state.SelectedItem)
@@ -877,35 +591,9 @@ namespace HotKeyCommandApp.ViewModels
                 return;
             }
 
-            // 1. Check for CommandType.Command (Menu items like "ADD_BUTTON", etc.)
-            if (command.Type == CommandType.Command)
+            // 1. Check for system buttons (ADD_BUTTON, search results, etc.)
+            if (command.IsSystemButton)
             {
-                if (command.Value == "TYPE_TEMPLATE")
-                {
-                    // Hint selection logic
-                    if (CurrentStep == InputStep.EnteringValue) InputText = command.Name;
-                    else if (CurrentStep == InputStep.EnteringAppPath) AppPath = command.Name;
-
-                    if ((Directory.Exists(command.Name) || (command.Name.EndsWith(Path.DirectorySeparatorChar) && Directory.Exists(Path.GetDirectoryName(command.Name))))
-                        && !command.Name.EndsWith(Path.DirectorySeparatorChar))
-                    {
-                        string val = command.Name + Path.DirectorySeparatorChar;
-                        if (CurrentStep == InputStep.EnteringValue) InputText = val;
-                        else if (CurrentStep == InputStep.EnteringAppPath) AppPath = val;
-                    }
-                    return;
-                }
-
-                if (command.Value == "NONE" ||
-                    command.Value == "ADD_REGISTERED_APP" ||
-                    command.Value == "REGISTERED_APP" ||
-                    command.Value == "BROWSE_EXPLORER" ||
-                    command.Value == "INSTALLED_APP")
-                {
-                    SelectedItem = command;
-                    CommitInput();
-                    return;
-                }
 
                 if (command.Value == "ADD_BUTTON")
                 {
@@ -916,7 +604,7 @@ namespace HotKeyCommandApp.ViewModels
             }
 
             // 1.5 特定のウィンドウ切替（動的階層生成）
-            if (command.Type == CommandType.WindowSwitcher && command.WindowHandle == IntPtr.Zero)
+            if (command.Category == CommandCategory.WindowSwitcher && command.WindowHandle == IntPtr.Zero)
             {
                 // すでにこのウィンドウ切替の一覧が表示されている場合は、選択を次に進める（連打対応）
                 if (ActiveWindowSwitcherCommand == command && WindowSwitcherItems.Any())
@@ -941,7 +629,7 @@ namespace HotKeyCommandApp.ViewModels
                     {
                         Name = w.Title,
                         Value = w.Title,
-                        Type = CommandType.WindowSwitcher,
+                        Category = CommandCategory.WindowSwitcher,
                         WindowHandle = w.Handle,
                         IconSource = w.Icon
                     }).ToList();
@@ -998,8 +686,9 @@ namespace HotKeyCommandApp.ViewModels
             }
 
             // 2. Check for Menu and enter it
-            if (command.Type == CommandType.Menu && command.Children != null)
+            if (command.Category == CommandCategory.Hierarchy)
             {
+                if (command.Children == null) command.Children = new List<CommandEntry>();
                 if (IsFileSearchMode) CancelInput(); // Exit search if navigating
 
                 // 親階層の特定（現在の親の直下にあるメニューか判定）
@@ -1025,7 +714,7 @@ namespace HotKeyCommandApp.ViewModels
             }
 
             // 3. Handle File Search
-            if (command.IsFileSearchEnabled && !IsFileSearchMode)
+            if (command.Behavior.IsFileSearchEnabled && !IsFileSearchMode)
             {
                 _targetFolderCommand = command;
                 _preSearchCommands = DisplayCommands.ToList();
@@ -1038,7 +727,7 @@ namespace HotKeyCommandApp.ViewModels
             }
 
             // 4. Handle RequiresArgument (Modal Dialog)
-            if (command.RequiresArgument)
+            if (command.Behavior.RequiresArgument)
             {
                 string? argument = RequestArgumentInput?.Invoke(command, $"[{command.Name}] の引数を入力してください:");
                 if (argument == null) return; // Canceled
@@ -1139,7 +828,7 @@ namespace HotKeyCommandApp.ViewModels
                     // Fallback to drives if nothing else found
                     var drives = DriveInfo.GetDrives().Where(d => d.IsReady).ToList();
                     DisplayCommands.Clear();
-                    foreach (var d in drives) DisplayCommands.Add(new CommandEntry { Name = d.Name, Value = "TYPE_TEMPLATE", Type = CommandType.Command });
+                    foreach (var d in drives) DisplayCommands.Add(new CommandEntry { Name = d.Name, Value = "TYPE_TEMPLATE", IsSystem = true });
                     UpdateListBoxVisibility();
                     return;
                 }
@@ -1177,7 +866,7 @@ namespace HotKeyCommandApp.ViewModels
 
                                 if (name.Contains(filter, StringComparison.OrdinalIgnoreCase))
                                 {
-                                    found.Add(new CommandEntry { Name = entry, Value = "TYPE_TEMPLATE", Type = CommandType.Command });
+                                    found.Add(new CommandEntry { Name = entry, Value = "TYPE_TEMPLATE", IsSystem = true });
                                     if (found.Count >= 30) return found;
                                 }
 
@@ -1194,8 +883,6 @@ namespace HotKeyCommandApp.ViewModels
                 }, ct);
 
                 if (ct.IsCancellationRequested) return;
-
-                if (CurrentStep != InputStep.EnteringValue) return;
 
                 int? previousIndex = SelectedItem != null ? DisplayCommands.IndexOf(SelectedItem) : (int?)null;
                 DisplayCommands.Clear();
@@ -1244,7 +931,7 @@ namespace HotKeyCommandApp.ViewModels
                     {
                         Name = Path.GetFileName(p),
                         Value = p,
-                        Type = Directory.Exists(p) ? CommandType.Folder : CommandType.URL
+                        Category = CommandCategory.Open
                     })
                     .Where(e => e.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
                     .Take(30)
@@ -1271,7 +958,7 @@ namespace HotKeyCommandApp.ViewModels
 
         private void StartShortcutAssignment(CommandEntry? command)
         {
-            if (command == null || command.Type == CommandType.Command) return;
+            if (command == null || command.IsSystemButton) return;
             RequestShortcutAssignment?.Invoke(command);
         }
 
@@ -1421,11 +1108,11 @@ namespace HotKeyCommandApp.ViewModels
             if (command == null) return;
 
             // Protection: cannot delete system commands (ADD_ buttons)
-            if (command.Type == CommandType.Command && command.Value.StartsWith("ADD_")) return;
+            if (command.IsSystemButton && command.Value.StartsWith("ADD_")) return;
 
             // Note: Users should be able to delete their own buttons even if named "再ビルド" or "JSON同期"
             // unless they are for the system reload logic.
-            if (command.Value == "reload.bat" && command.Type == CommandType.Batch && (command.Name == "再ビルド" || command.Name == "Reload App")) return;
+            if (command.Value == "reload.bat" && command.Category == CommandCategory.Open && (command.Name == "再ビルド" || command.Name == "Reload App")) return;
 
             RequestDeleteConfirmation?.Invoke(command);
         }
@@ -1491,17 +1178,17 @@ namespace HotKeyCommandApp.ViewModels
             if (newIndex < 0 || newIndex >= currentList.Count) return;
 
             // System commands at the end (Add... buttons) should not be moved past
-            if (currentList[newIndex].Type == CommandType.Command || currentList[index].Type == CommandType.Command)
+            if (currentList[newIndex].IsSystemButton || currentList[index].IsSystemButton)
             {
                 // But allow reordering among regular items if they are not system
-                if (currentList[newIndex].Type == CommandType.Command && direction > 0) return;
-                if (currentList[index].Type == CommandType.Command) return;
+                if (currentList[newIndex].IsSystemButton && direction > 0) return;
+                if (currentList[index].IsSystemButton) return;
             }
 
             if (!stateJustCleared && !IsOnHierarchyButton)
             {
                 // Check if target is a menu
-                if (currentList[newIndex].Type == CommandType.Menu)
+                if (currentList[newIndex].Category == CommandCategory.Hierarchy)
                 {
                     IsOnHierarchyButton = true;
                     TargetHierarchyItem = currentList[newIndex];
@@ -1521,7 +1208,7 @@ namespace HotKeyCommandApp.ViewModels
             {
                 targetList.Clear();
                 // Filter out system buttons (ADD_BUTTON) when persisting
-                targetList.AddRange(currentList.Where(c => c.Type != CommandType.Command || !(c.Value?.StartsWith("ADD_") ?? false)));
+                targetList.AddRange(currentList.Where(c => !c.IsSystemButton));
             }
             _configService.SaveCommands(_rootCommands);
 
@@ -1529,386 +1216,13 @@ namespace HotKeyCommandApp.ViewModels
             UpdateDisplay(currentList, Title, command, CurrentParent);
         }
 
-        private List<CommandEntry> _preInputCommands = new();
-        private void SetupTypeSelectionDisplay()
-        {
-            var types = AvailableCommandTypes.Select(t => new CommandEntry
-            {
-                Name = t.Name,
-                Type = t.Type,
-                Value = "TYPE_TEMPLATE" // Marker 
-            }).ToList();
-
-            DisplayCommands.Clear();
-            foreach (var t in types) DisplayCommands.Add(t);
-        }
-
-        public void StartInputFlow()
-        {
-            _editingCommand = null; // 新規追加モード
-            _preInputCommands = DisplayCommands.ToList(); // Backup current list
-            _newEntryName = string.Empty;
-            InputText = string.Empty;
-            AppPath = string.Empty;
-            DisplayCommands.Clear();
-            IsRequiresArgumentChecked = false;
-            IsFileSearchChecked = false;
-            IsInputMode = true;
-
-            // Integrated Name/Type Selection: Show types in the ListBox immediately
-            CurrentStep = InputStep.EnteringName;
-            InputPrompt = "名前を入力し、機能を選んでください:";
-
-            SetupTypeSelectionDisplay();
-            SelectedItem = DisplayCommands.FirstOrDefault();
-            RecordHistory();
-            RequestSync?.Invoke();
-        }
-
-        private void StartEditFlow(CommandEntry? command)
-        {
-            if (command == null) return;
-            // システムコマンドは編集不可
-            if (command.Type == CommandType.Command) return;
-
-            _editingCommand = command;
-            _preInputCommands = DisplayCommands.ToList();
-            _newEntryName = command.Name;
-            _newEntryType = command.Type;
-            IsRequiresArgumentChecked = command.RequiresArgument;
-            IsFileSearchChecked = command.IsFileSearchEnabled;
-            IsRequiresArgumentChecked = command.RequiresArgument;
-            IsFileSearchChecked = command.IsFileSearchEnabled;
-            IsInputMode = true;
-
-            // 名前と種別の編集から開始
-            CurrentStep = InputStep.EnteringName;
-            InputPrompt = "名前を編集し、機能を選んでください:";
-            InputText = command.Name;
-
-            SetupTypeSelectionDisplay();
-            // 現在の機能にフォーカスを当てる
-            SelectedItem = DisplayCommands.FirstOrDefault(c => c.Type == command.Type) ?? DisplayCommands.FirstOrDefault();
-            AppPath = command.AppPath ?? string.Empty;
-            RecordHistory();
-            RequestSync?.Invoke();
-        }
-
-        private void CommitInput()
-        {
-            // Cancel any pending search from the previous step so it doesn't overwrite UI later
-            _searchCts?.Cancel();
-
-            if (SelectedItem != null)
-            {
-                // In file search, execute immediately.
-                if (IsFileSearchMode)
-                {
-                    Execute(SelectedItem);
-                    return;
-                }
-
-                // In value input (adding button), copy to input field instead of executing directly.
-                // Other steps (like selecting function type or selecting app) should execute immediately on Enter.
-                if (CurrentStep == InputStep.EnteringValue)
-                {
-                    // Copy display name (path) to input field for search results
-                    // Search results use "TYPE_TEMPLATE" as Value, actual path is in Name.
-                    InputText = (SelectedItem.Value == "TYPE_TEMPLATE") ? SelectedItem.Name : (SelectedItem.Value ?? SelectedItem.Name);
-                    SelectedItem = null; // Focus returns to InputTextBox
-                    return;
-                }
-            }
-
-            if (IsFileSearchMode && SelectedItem == null)
-            {
-                if (string.IsNullOrWhiteSpace(InputText)) return;
-                // Run the action with the current input as argument
-                if (_targetFolderCommand != null)
-                {
-                    RunActionAndHandleVisibility(_targetFolderCommand, InputText);
-                }
-                return;
-            }
-
-            if (CurrentStep == InputStep.EnteringName)
-            {
-                if (string.IsNullOrWhiteSpace(InputText)) return;
-                if (SelectedItem == null) return;
-
-                _newEntryName = InputText.Trim();
-                _newEntryType = SelectedItem.Type;
-
-                if (_newEntryType == CommandType.Menu)
-                {
-                    InputText = string.Empty;
-                    FinishInputFlow();
-                }
-                else if (_newEntryType == CommandType.Slack)
-                {
-                    _slackTeamID = _appSettings.SlackTeamIdHistory.FirstOrDefault() ?? "";
-                    InputText = _slackTeamID;
-                    CurrentStep = InputStep.EnteringSlackTeamID;
-                    InputPrompt = "チームIDを入力してください (TXXXXXXXX):";
-                    PopulateSlackTeamHistory(_slackTeamID);
-                }
-                else
-                {
-                    // 編集中の場合は現在の値をデフォルトで入れる
-                    InputText = _editingCommand?.Value ?? string.Empty;
-                    CurrentStep = InputStep.EnteringValue;
-                    InputPrompt = "URLまたはパスを入力してください:";
-                    DisplayCommands.Clear(); // 種別選択リストをクリア
-                }
-                RecordHistory();
-                return;
-            }
-
-            if (IsInputMode && CurrentStep == InputStep.EnteringValue)
-            {
-                string path = InputText.Trim();
-                bool isFolderHint = false;
-
-                // If a hint is selected, use its path
-                if (SelectedItem != null && SelectedItem.Value == "TYPE_TEMPLATE")
-                {
-                    path = SelectedItem.Name;
-                    isFolderHint = Directory.Exists(path);
-                }
-
-                if (string.IsNullOrEmpty(path) && _newEntryType != CommandType.Menu) return;
-
-                if (_newEntryType == CommandType.Folder)
-                {
-                    CurrentStep = InputStep.EnteringAppPath;
-                    InputText = path;
-                    InputPrompt = "開く際に使用するソフトを選択してください (任意):";
-                    PopulateRegisteredApps();
-                }
-                else if (_newEntryType == CommandType.Batch || _newEntryType == CommandType.File)
-                {
-                    if (isFolderHint)
-                    {
-                        // Open file browser at this folder
-                        BrowseFile(path);
-                        return; // Stay in this step (BrowseFile will update InputText)
-                    }
-                    else
-                    {
-                        CurrentStep = InputStep.EnteringAppPath;
-                        InputText = path;
-                        InputPrompt = "開く際に使用するソフトを選択してください (任意):";
-                        PopulateRegisteredApps();
-                    }
-                }
-                else
-                {
-                    CurrentStep = InputStep.None;
-                    InputText = path;
-                    FinishInputFlow();
-                }
-                RecordHistory();
-                return;
-            }
-
-            if (CurrentStep == InputStep.EnteringSlackTeamID)
-            {
-                // If an item is selected from history, use it
-                if (SelectedItem != null)
-                {
-                    InputText = SelectedItem.Name;
-                    SelectedItem = null;
-                    return;
-                }
-
-                _slackTeamID = InputText.Trim();
-                
-                // Save to history
-                if (!string.IsNullOrWhiteSpace(_slackTeamID))
-                {
-                    _appSettings.SlackTeamIdHistory.Remove(_slackTeamID);
-                    _appSettings.SlackTeamIdHistory.Insert(0, _slackTeamID);
-                    if (_appSettings.SlackTeamIdHistory.Count > 10) 
-                        _appSettings.SlackTeamIdHistory.RemoveAt(10);
-                    _configService.SaveSettings(_appSettings);
-                }
-
-                InputText = _slackChannelID;
-                CurrentStep = InputStep.EnteringSlackChannelID;
-                InputPrompt = "チャンネルIDを入力してください (CXXXXXXXX):";
-                RecordHistory();
-                return;
-            }
-
-            if (CurrentStep == InputStep.EnteringSlackChannelID)
-            {
-                _slackChannelID = InputText.Trim();
-                FinishInputFlow();
-                RecordHistory();
-                return;
-            }
-
-            if (IsInputMode && CurrentStep == InputStep.EnteringAppPath)
-            {
-                // If a hint is selected, use its value
-                if (SelectedItem != null)
-                {
-                    if (SelectedItem.Value == "NONE")
-                    {
-                        AppPath = string.Empty;
-                        FinishInputFlow();
-                        return;
-                    }
-
-                    if (SelectedItem.Value == "ADD_REGISTERED_APP")
-                    {
-                        AddRegisteredApp();
-                        return;
-                    }
-
-                    if (SelectedItem.Value == "REGISTERED_APP")
-                    {
-                        AppPath = SelectedItem.Name; // Name has the display name, store path in Tag via CommandEntry
-                        // Actually use the path stored in the entry's value or a custom field
-                        // We store it temporarily in Name and use Value to differentiate
-                        // Look up the actual path from settings
-                        var regApp = _appSettings.RegisteredApps.FirstOrDefault(a => a.Name == SelectedItem.Name);
-                        if (regApp != null) AppPath = regApp.Path;
-                        FinishInputFlow();
-                        return;
-                    }
-
-                    if (SelectedItem.Value == "TYPE_TEMPLATE")
-                    {
-                        string hintPath = SelectedItem.Name;
-                        if (Directory.Exists(hintPath))
-                        {
-                            BrowseApp(hintPath);
-                            return;
-                        }
-                        AppPath = hintPath;
-                        FinishInputFlow();
-                        return;
-                    }
-                }
-
-                AppPath = AppPath.Trim();
-                FinishInputFlow();
-            }
 
 
-        }
-        private void PopulateSlackTeamHistory(string query)
-        {
-            DisplayCommands.Clear();
-            var filtered = _appSettings.SlackTeamIdHistory
-                .Where(id => id.Contains(query, StringComparison.OrdinalIgnoreCase))
-                .Select(id => new CommandEntry { Name = id, Value = "TYPE_TEMPLATE" });
-            
-            foreach (var item in filtered) DisplayCommands.Add(item);
-            UpdateListBoxVisibility();
-        }
-
-        private void RegisterAppFromPath(string? appPath)
-        {
-            if (string.IsNullOrWhiteSpace(appPath)) return;
-
-            string displayName;
-            try
-            {
-                var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(appPath);
-                displayName = !string.IsNullOrWhiteSpace(info.ProductName)
-                    ? info.ProductName
-                    : System.IO.Path.GetFileNameWithoutExtension(appPath);
-            }
-            catch
-            {
-                displayName = System.IO.Path.GetFileNameWithoutExtension(appPath);
-            }
-
-            if (!_appSettings.RegisteredApps.Any(a => a.Path.Equals(appPath, StringComparison.OrdinalIgnoreCase)))
-            {
-                _appSettings.RegisteredApps.Add(new RegisteredApp { Name = displayName, Path = appPath });
-                _configService.SaveSettings(_appSettings);
-            }
-        }
-
-        private void FinishInputFlow()
-        {
-            string val = InputText.Trim();
-            if (_newEntryType == CommandType.Slack)
-            {
-                val = $"slack://channel?team={_slackTeamID}&id={_slackChannelID}";
-                // 名前が未入力、またはデフォルトのままの場合はチームIDを名前にする
-                if (string.IsNullOrWhiteSpace(_newEntryName) || _newEntryName == "新しいボタン")
-                {
-                    _newEntryName = $"Slack: {_slackTeamID}";
-                }
-            }
-            else if (_newEntryType == CommandType.URL && !string.IsNullOrEmpty(val)
-                && !val.StartsWith("http") && !val.Contains("://"))
-            {
-                val = "https://" + val;
-            }
-
-            if (_editingCommand != null)
-            {
-                // 編集モード：すべてのプロパティを更新
-                _editingCommand.Name = _newEntryName;
-                _editingCommand.Type = _newEntryType;
-                _editingCommand.Value = val;
-                _editingCommand.AppPath = (_newEntryType == CommandType.File || _newEntryType == CommandType.Folder) ? AppPath.Trim() : null;
-                _editingCommand.RequiresArgument = IsRequiresArgumentChecked;
-                _editingCommand.IsFileSearchEnabled = IsFileSearchChecked;
-
-                // Menuへの変更/解除をハンドル
-                if (_editingCommand.Type == CommandType.Menu && _editingCommand.Children == null)
-                {
-                    _editingCommand.Children = new List<CommandEntry>();
-                }
-                else if (_editingCommand.Type != CommandType.Menu)
-                {
-                    _editingCommand.Children = null;
-                }
-
-                _configService.SaveCommands(_rootCommands);
-
-                var currentList = _preInputCommands.ToList();
-                UpdateDisplay(currentList, Title, _editingCommand, CurrentParent);
-                CancelInput(false);
-                return;
-            }
-
-            var newEntry = new CommandEntry
-            {
-                Name = _newEntryName,
-                Type = _newEntryType,
-                Value = val,
-                AppPath = (_newEntryType == CommandType.File || _newEntryType == CommandType.Folder) ? AppPath.Trim() : null,
-                RequiresArgument = IsRequiresArgumentChecked,
-                IsFileSearchEnabled = IsFileSearchChecked,
-                Children = _newEntryType == CommandType.Menu ? new List<CommandEntry>() : null
-            };
-
-            // Add to CURRENT menu context
-            var targetList = (CurrentParent == null) ? _rootCommands : CurrentParent.Children;
-            if (targetList == null)
-            {
-                if (CurrentParent != null) CurrentParent.Children = new List<CommandEntry>();
-                targetList = CurrentParent?.Children ?? _rootCommands;
-            }
-
-            targetList.Add(newEntry);
-            _configService.SaveCommands(_rootCommands);
-
-            // Refresh UI (UpdateDisplay will add the ADD_BUTTON back for UI)
-            UpdateDisplay(targetList.ToList(), Title, newEntry, CurrentParent);
-            CancelInput(false);
-        }
+        private void FinishInputFlow_Deprecrated() { }
 
         private void Duplicate(CommandEntry? command)
         {
-            if (command == null || (command.Type == CommandType.Command && (command.Value?.StartsWith("ADD_") ?? false))) return;
+            if (command == null || command.IsSystemButton) return;
 
             // Deep clone
             var json = JsonConvert.SerializeObject(command);
@@ -1939,20 +1253,42 @@ namespace HotKeyCommandApp.ViewModels
             UpdateDisplay(targetList, Title, clone, CurrentParent);
         }
 
-        private List<CommandEntry> ReconstructionFromDisplay()
+
+        private void CommitInput()
         {
-            // Simple approach: if we want to be robust, we need to update the _rootCommands properly.
-            // Since we are recursive, let's stick to the current structure.
-            return _rootCommands;
+            _searchCts?.Cancel();
+
+            if (IsFileSearchMode)
+            {
+                if (SelectedItem != null)
+                {
+                    Execute(SelectedItem);
+                }
+                else if (!string.IsNullOrWhiteSpace(InputText) && _targetFolderCommand != null)
+                {
+                    RunActionAndHandleVisibility(_targetFolderCommand, InputText);
+                }
+            }
         }
 
         public void AddOrUpdateCommand(CommandEntry command, CommandEntry? originalCommand)
         {
             if (originalCommand != null)
             {
-                // Edit case: properties are already updated in the original object
-                _configService.SaveCommands(_rootCommands);
-                UpdateDisplay(DisplayCommands.ToList(), Title, command, CurrentParent);
+                // Edit case: 既存のコマンドを新しいインスタンスで置き換える
+                if (ReplaceCommandInHierarchy(_rootCommands, originalCommand, command))
+                {
+                    _configService.SaveCommands(_rootCommands);
+                    
+                    // 現在表示中のリストも更新
+                    var currentList = DisplayCommands.ToList();
+                    int index = currentList.IndexOf(originalCommand);
+                    if (index >= 0)
+                    {
+                        currentList[index] = command;
+                    }
+                    UpdateDisplay(currentList, Title, command, CurrentParent);
+                }
             }
             else
             {
@@ -1970,6 +1306,21 @@ namespace HotKeyCommandApp.ViewModels
                 // Refresh UI
                 UpdateDisplay(targetList.ToList(), Title, command, CurrentParent);
             }
+        }
+
+        private bool ReplaceCommandInHierarchy(List<CommandEntry> list, CommandEntry target, CommandEntry newCommand)
+        {
+            int index = list.IndexOf(target);
+            if (index >= 0)
+            {
+                list[index] = newCommand;
+                return true;
+            }
+            foreach (var item in list)
+            {
+                if (item.Children != null && ReplaceCommandInHierarchy(item.Children, target, newCommand)) return true;
+            }
+            return false;
         }
 
         private bool RemoveFromCurrentList(CommandEntry target)
@@ -1996,25 +1347,15 @@ namespace HotKeyCommandApp.ViewModels
             {
                 IsFileSearchMode = false;
                 _targetFolderCommand = null;
-                if (restoreList) UpdateDisplay(_preSearchCommands, Title, null, CurrentParent);
+                UpdateDisplay(_preSearchCommands, Title, null, CurrentParent);
             }
-            else if (restoreList)
-            {
-                // Restore commands that were there before "Add Button"
-                if (_preInputCommands != null && _preInputCommands.Count > 0)
-                {
-                    UpdateDisplay(_preInputCommands, Title, null, CurrentParent);
-                }
-                else
-                {
-                    LoadCommands();
-                }
-            }
-            CurrentStep = InputStep.None;
+            
             IsInputMode = false;
             OnPropertyChanged(nameof(IsListBoxVisible));
             RequestSync?.Invoke();
         }
+
+
 
         private void GoBack()
         {
@@ -2052,12 +1393,8 @@ namespace HotKeyCommandApp.ViewModels
         {
             // 状態の復元
             IsInputMode = state.IsInputMode;
-            CurrentStep = state.CurrentStep;
             InputText = state.InputText;
             InputPrompt = state.InputPrompt;
-            _editingCommand = state.EditingCommand;
-            _newEntryName = state.NewEntryName;
-            _newEntryType = state.NewEntryType;
 
             // 階層スタックの復元
             _navigationHistory.Clear();
@@ -2068,27 +1405,7 @@ namespace HotKeyCommandApp.ViewModels
             CanGoBack = _navigationHistory.Count > 0;
 
             // 表示リストの再構築
-            if (IsInputMode && CurrentStep == InputStep.EnteringName)
-            {
-                SetupTypeSelectionDisplay();
-                Title = state.Title;
-                // 種別に基づいて選択アイテムを復元（オブジェクト参照ではなく種類で一致させる）
-                if (state.SelectedType.HasValue)
-                {
-                    SelectedItem = DisplayCommands.FirstOrDefault(c => c.Type == state.SelectedType.Value);
-                }
-                else
-                {
-                    SelectedItem = DisplayCommands.FirstOrDefault();
-                }
-            }
-            else if (IsInputMode && CurrentStep == InputStep.EnteringValue)
-            {
-                // リストは隠れているが、内部的には Step 1 のリストを保持（または空にする）
-                DisplayCommands.Clear();
-                Title = state.Title;
-            }
-            else if (state.IsRoot)
+            if (state.IsRoot)
             {
                 DisplayCommands.Clear();
                 foreach (var cmd in _rootCommands) DisplayCommands.Add(cmd);
@@ -2127,7 +1444,7 @@ namespace HotKeyCommandApp.ViewModels
                 return;
             }
 
-            if (SelectedItem != null && SelectedItem.Type == CommandType.Menu)
+            if (SelectedItem != null && SelectedItem.Category == CommandCategory.Hierarchy)
             {
                 Execute(SelectedItem);
             }
@@ -2146,7 +1463,7 @@ namespace HotKeyCommandApp.ViewModels
 
             // Add to target menu
             // Insert before "Add Button" if it exists
-            int addIndex = targetMenu.Children.FindIndex(c => c.Type == CommandType.Command && c.Value.StartsWith("ADD_"));
+            int addIndex = targetMenu.Children.FindIndex(c => c.IsSystemButton && c.Value.StartsWith("ADD_"));
             if (addIndex >= 0)
             {
                 targetMenu.Children.Insert(addIndex, itemToEnter);
@@ -2197,7 +1514,7 @@ namespace HotKeyCommandApp.ViewModels
                 else
                 {
                     // Fallback: insert before the "+" button
-                    int addIdx = DisplayCommands.ToList().FindIndex(c => c.Type == CommandType.Command && (c.Value?.StartsWith("ADD_") ?? false));
+                    int addIdx = DisplayCommands.ToList().FindIndex(c => c.IsSystemButton && (c.Value?.StartsWith("ADD_") ?? false));
                     if (addIdx >= 0) DisplayCommands.Insert(addIdx, itemToExit);
                     else DisplayCommands.Add(itemToExit);
                 }
@@ -2205,7 +1522,7 @@ namespace HotKeyCommandApp.ViewModels
             else
             {
                 // Root: just insert before "+"
-                int addIdx = DisplayCommands.ToList().FindIndex(c => c.Type == CommandType.Command && (c.Value?.StartsWith("ADD_") ?? false));
+                int addIdx = DisplayCommands.ToList().FindIndex(c => c.IsSystemButton && (c.Value?.StartsWith("ADD_") ?? false));
                 if (addIdx >= 0) DisplayCommands.Insert(addIdx, itemToExit);
                 else DisplayCommands.Add(itemToExit);
             }
@@ -2216,7 +1533,7 @@ namespace HotKeyCommandApp.ViewModels
             {
                 parentList.Clear();
                 // Filter out the system buttons from the persistent list
-                var itemsToPersist = DisplayCommands.Where(c => c.Type != CommandType.Command || (c.Value != null && !c.Value.StartsWith("ADD_"))).ToList();
+                var itemsToPersist = DisplayCommands.Where(c => !c.IsSystemButton || (c.Value != null && !c.Value.StartsWith("ADD_"))).ToList();
                 parentList.AddRange(itemsToPersist);
             }
             _configService.SaveCommands(_rootCommands);
@@ -2227,7 +1544,7 @@ namespace HotKeyCommandApp.ViewModels
 
         public void ResetToRoot()
         {
-            CurrentStep = InputStep.None;
+
             IsInputMode = false;
             IsFileSearchMode = false;
             CurrentParent = null;
@@ -2337,6 +1654,7 @@ namespace HotKeyCommandApp.ViewModels
             }
             RequestSync?.Invoke();
         }
+
 
         public event Action? RequestHide;
         public event Action? RequestShow;

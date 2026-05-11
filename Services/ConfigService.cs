@@ -10,8 +10,12 @@ namespace HotKeyCommandApp.Services
     {
         private static readonly string ConfigFileName = "commands.json";
         private static readonly string SettingsFileName = "settings.json";
+        private static readonly string PresetsFileName = "presets.json";
         private string ConfigPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConfigFileName);
         private string SettingsPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, SettingsFileName);
+        private string PresetsPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, PresetsFileName);
+
+        private List<CommandPreset>? _cachedPresets;
 
         public List<CommandEntry> LoadCommands()
         {
@@ -25,7 +29,9 @@ namespace HotKeyCommandApp.Services
                 var json = File.ReadAllText(ConfigPath);
                 var settings = new JsonSerializerSettings();
                 settings.Converters.Add(new Newtonsoft.Json.Converters.StringEnumConverter());
-                return JsonConvert.DeserializeObject<List<CommandEntry>>(json, settings) ?? new List<CommandEntry>();
+                var commands = JsonConvert.DeserializeObject<List<CommandEntry>>(json, settings) ?? new List<CommandEntry>();
+
+                return commands;
             }
             catch (Exception ex)
             {
@@ -33,6 +39,7 @@ namespace HotKeyCommandApp.Services
                 return new List<CommandEntry>();
             }
         }
+
 
         public void SaveCommands(List<CommandEntry> commands)
         {
@@ -57,7 +64,7 @@ namespace HotKeyCommandApp.Services
             if (list == null) return;
 
             // Remove system buttons
-            list.RemoveAll(c => c.Type == CommandType.Command && (c.Value?.StartsWith("ADD_") ?? false));
+            list.RemoveAll(c => c.IsSystemButton);
 
             // Recurse into children
             foreach (var item in list)
@@ -101,7 +108,47 @@ namespace HotKeyCommandApp.Services
             }
         }
 
+        public List<CommandPreset> LoadPresets()
+        {
+            if (_cachedPresets != null) return _cachedPresets;
 
+            if (!File.Exists(PresetsPath))
+            {
+                _cachedPresets = CommandPreset.GetDefaults();
+                SavePresets(_cachedPresets);
+                return _cachedPresets;
+            }
+
+            try
+            {
+                var json = File.ReadAllText(PresetsPath);
+                var settings = new JsonSerializerSettings();
+                settings.Converters.Add(new Newtonsoft.Json.Converters.StringEnumConverter());
+                _cachedPresets = JsonConvert.DeserializeObject<List<CommandPreset>>(json, settings) ?? CommandPreset.GetDefaults();
+                return _cachedPresets;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading presets: {ex.Message}");
+                return CommandPreset.GetDefaults();
+            }
+        }
+
+        public void SavePresets(List<CommandPreset> presets)
+        {
+            try
+            {
+                var settings = new JsonSerializerSettings { Formatting = Formatting.Indented };
+                settings.Converters.Add(new Newtonsoft.Json.Converters.StringEnumConverter());
+                var json = JsonConvert.SerializeObject(presets, settings);
+                File.WriteAllText(PresetsPath, json);
+                _cachedPresets = presets;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error saving presets: {ex.Message}");
+            }
+        }
 
         private void CreateDefaultConfig()
         {
@@ -110,39 +157,55 @@ namespace HotKeyCommandApp.Services
                 new CommandEntry
                 {
                     Name = "URLを開く",
-                    Type = CommandType.Menu,
+                    Category = CommandCategory.Hierarchy,
                     Children = new List<CommandEntry>
                     {
-                        new CommandEntry { Name = "Google", Type = CommandType.URL, Value = "https://www.google.com" },
-                        new CommandEntry { Name = "Youtube", Type = CommandType.URL, Value = "https://www.youtube.com" }
+                        new CommandEntry { Name = "Google", Category = CommandCategory.Open, Value = "https://www.google.com" },
+                        new CommandEntry { Name = "Youtube", Category = CommandCategory.Open, Value = "https://www.youtube.com" }
                     }
                 },
                 new CommandEntry
                 {
                     Name = "フォルダを開く",
-                    Type = CommandType.Menu,
+                    Category = CommandCategory.Hierarchy,
                     Children = new List<CommandEntry>
                     {
-                        new CommandEntry { Name = "フォルダ1", Type = CommandType.Folder, Value = "C:\\" }
+                        new CommandEntry 
+                        { 
+                            Name = "フォルダ1", 
+                            Category = CommandCategory.Open, 
+                            Value = "C:\\", 
+                            Behavior = new CommandBehavior { UseWindowFocusLogic = true } 
+                        }
                     }
                 },
                 new CommandEntry
                 {
                     Name = "バッチ実行",
-                    Type = CommandType.Menu,
+                    Category = CommandCategory.Hierarchy,
                     Children = new List<CommandEntry>
                     {
-                        new CommandEntry { Name = "JSON同期", Type = CommandType.Batch, Value = @"C:\Users\daiki\AIApp\HotKeyApp\sync_json.bat" },
-                        new CommandEntry { Name = "バッチ1", Type = CommandType.Batch, Value = "reload.bat" }
+                        new CommandEntry 
+                        { 
+                            Name = "JSON同期", 
+                            Category = CommandCategory.Open, 
+                            Value = @"C:\Users\daiki\AIApp\HotKeyApp\sync_json.bat", 
+                            Behavior = new CommandBehavior { IsBatchMode = true } 
+                        },
+                        new CommandEntry 
+                        { 
+                            Name = "バッチ1", 
+                            Category = CommandCategory.Open, 
+                            Value = "reload.bat", 
+                            Behavior = new CommandBehavior { IsBatchMode = true } 
+                        }
                     }
                 },
                 new CommandEntry
                 {
                     Name = "ファイルを開く",
-                    Type = CommandType.Menu,
-                    Children = new List<CommandEntry>
-                    {
-                    }
+                    Category = CommandCategory.Hierarchy,
+                    Children = new List<CommandEntry>()
                 }
             };
 
