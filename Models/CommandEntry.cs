@@ -64,6 +64,10 @@ namespace HotKeyCommandApp.Models
 
         [JsonIgnore]
         public System.IntPtr WindowHandle { get; set; }
+        [JsonIgnore]
+        public int WindowWidth { get; set; }
+        [JsonIgnore]
+        public int WindowHeight { get; set; }
 
         private ImageSource? _iconSource;
         [JsonIgnore]

@@ -13,7 +13,7 @@
         Opacity="1"
         Topmost="True"
         SizeToContent="WidthAndHeight"
-        MaxWidth="1200"
+        MaxWidth="1400"
         KeyUp="Window_KeyUp"
         PreviewKeyDown="Window_PreviewKeyDown">
 
@@ -21,13 +21,12 @@
         <local:ImageSourceToVisibilityConverter x:Key="ImageSourceToVisibilityConverter" />
         <local:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
         
-        <!-- Window Switcher Thumbnail Template -->
         <DataTemplate x:Key="WindowThumbnailTemplate">
-            <Grid Width="200" Height="170" Margin="5">
+            <Grid Width="300" Height="217" Margin="8">
                 <Border x:Name="ThumbBorder" Background="#2D2D2D" CornerRadius="0" BorderBrush="#444444" BorderThickness="1.5" ClipToBounds="True">
                     <Grid>
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="34" />
+                            <RowDefinition Height="48" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
@@ -38,15 +37,17 @@
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <Image Grid.Column="0" Source="{Binding IconSource}" Width="16" Height="16" Margin="0,0,8,0" VerticalAlignment="Center"
+                                <Image Grid.Column="0" Source="{Binding IconSource}" Width="20" Height="20" Margin="0,0,10,0" VerticalAlignment="Center"
                                        Visibility="{Binding IconSource, Converter={StaticResource ImageSourceToVisibilityConverter}}"/>
-                                <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="White" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" FontWeight="SemiBold"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="White" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" FontWeight="SemiBold"/>
                             </Grid>
                         </Border>
 
                         <!-- Content Area: Thumbnail View -->
                         <Border Grid.Row="1" Background="Transparent" Margin="2">
                             <local:WindowThumbnailView SourceWindowHandle="{Binding WindowHandle}" 
+                                                       SourceWindowWidth="{Binding WindowWidth}"
+                                                       SourceWindowHeight="{Binding WindowHeight}"
                                                        IsThumbnailEnabled="{Binding IsThumbnailEnabled, RelativeSource={RelativeSource AncestorType=Window}}"
                                                        Margin="0" />
                         </Border>
@@ -80,12 +81,12 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <TextBlock Text="{Binding ActiveWindowSwitcherCommand.Value}" 
+            <TextBlock Text="{Binding ActiveWindowSwitcherCommand.Name}" 
                        Foreground="#00A2FF" 
                        FontSize="18" 
                        FontWeight="Bold"
                        HorizontalAlignment="Center" 
-                       Margin="0,10,0,15" />
+                       Margin="0,0,0,10" />
 
             <ListBox x:Name="SwitcherListBox"
                      Grid.Row="1"

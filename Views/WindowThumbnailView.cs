@@ -50,6 +50,34 @@ namespace HotKeyCommandApp.Views
             }
         }
 
+        public static readonly DependencyProperty SourceWindowWidthProperty =
+            DependencyProperty.Register("SourceWindowWidth", typeof(int), typeof(WindowThumbnailView),
+                new PropertyMetadata(0, OnSourceSizeChanged));
+
+        public int SourceWindowWidth
+        {
+            get => (int)GetValue(SourceWindowWidthProperty);
+            set => SetValue(SourceWindowWidthProperty, value);
+        }
+
+        public static readonly DependencyProperty SourceWindowHeightProperty =
+            DependencyProperty.Register("SourceWindowHeight", typeof(int), typeof(WindowThumbnailView),
+                new PropertyMetadata(0, OnSourceSizeChanged));
+
+        public int SourceWindowHeight
+        {
+            get => (int)GetValue(SourceWindowHeightProperty);
+            set => SetValue(SourceWindowHeightProperty, value);
+        }
+
+        private static void OnSourceSizeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            if (d is WindowThumbnailView view)
+            {
+                view.UpdateThumbnail();
+            }
+        }
+
         public WindowThumbnailView()
         {
             this.SizeChanged += (s, e) => UpdateThumbnail();
@@ -102,15 +130,42 @@ namespace HotKeyCommandApp.Views
                 dpiY = source.CompositionTarget.TransformToDevice.M22;
             }
 
+            // アスペクト比を維持した表示領域の計算 (Uniform)
+            double targetWidth = this.ActualWidth;
+            double targetHeight = this.ActualHeight;
+            double offsetX = 0;
+            double offsetY = 0;
+
+            if (SourceWindowWidth > 0 && SourceWindowHeight > 0)
+            {
+                double sourceAspect = (double)SourceWindowWidth / SourceWindowHeight;
+                double targetAspect = targetWidth / targetHeight;
+
+                if (sourceAspect > targetAspect)
+                {
+                    // ウィンドウが横長：横幅いっぱいで上下に余白
+                    double newHeight = targetWidth / sourceAspect;
+                    offsetY = (targetHeight - newHeight) / 2;
+                    targetHeight = newHeight;
+                }
+                else
+                {
+                    // ウィンドウが縦長：縦幅いっぱいで左右に余白
+                    double newWidth = targetHeight * sourceAspect;
+                    offsetX = (targetWidth - newWidth) / 2;
+                    targetWidth = newWidth;
+                }
+            }
+
             var props = new NativeMethods.DWM_THUMBNAIL_PROPERTIES
             {
                 dwFlags = NativeMethods.DWM_TNP_RECTDESTINATION | NativeMethods.DWM_TNP_VISIBLE | NativeMethods.DWM_TNP_SOURCECLIENTAREAONLY,
                 rcDestination = new NativeMethods.RECT
                 {
-                    Left = (int)(point.X * dpiX),
-                    Top = (int)(point.Y * dpiY),
-                    Right = (int)((point.X + this.ActualWidth) * dpiX),
-                    Bottom = (int)((point.Y + this.ActualHeight) * dpiY)
+                    Left = (int)((point.X + offsetX) * dpiX),
+                    Top = (int)((point.Y + offsetY) * dpiY),
+                    Right = (int)((point.X + offsetX + targetWidth) * dpiX),
+                    Bottom = (int)((point.Y + offsetY + targetHeight) * dpiY)
                 },
                 fVisible = true,
                 fSourceClientAreaOnly = true,

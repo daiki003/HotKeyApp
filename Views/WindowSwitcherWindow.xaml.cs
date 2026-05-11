@@ -158,8 +158,8 @@ namespace HotKeyCommandApp.Views
                         else
                         {
                             // 上下移動：現在の幅から1行あたりのアイテム数（列数）を推定
-                            // アイテム幅 200 + マージン 5*2 = 210
-                            double itemWidth = 210;
+                            // アイテム幅 300 + マージン 8*2 = 316
+                            double itemWidth = 316;
                             int columns = Math.Max(1, (int)(SwitcherListBox.ActualWidth / itemWidth));
                             int totalRows = (count + columns - 1) / columns;
                             int currentRow = currentIndex / columns;

@@ -256,6 +256,8 @@ namespace HotKeyCommandApp.Services
             public IntPtr Handle { get; set; }
             public string Title { get; set; } = string.Empty;
             public ImageSource? Icon { get; set; }
+            public int Width { get; set; }
+            public int Height { get; set; }
         }
 
         public List<WindowInfo> GetVisibleWindowsByTitle(string filter)
@@ -280,11 +282,15 @@ namespace HotKeyCommandApp.Services
 
                 if (isMatch)
                 {
+                    NativeMethods.RECT rect;
+                    NativeMethods.GetWindowRect(hWnd, out rect);
                     results.Add(new WindowInfo
                     {
                         Handle = hWnd,
                         Title = title,
-                        Icon = GetWindowIconSource(hWnd, title)
+                        Icon = GetWindowIconSource(hWnd, title),
+                        Width = rect.Width,
+                        Height = rect.Height
                     });
                 }
             });
