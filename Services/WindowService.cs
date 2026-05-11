@@ -261,9 +261,24 @@ namespace HotKeyCommandApp.Services
         public List<WindowInfo> GetVisibleWindowsByTitle(string filter)
         {
             var results = new List<WindowInfo>();
+            var filterParts = (filter ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
             EnumerateRealWindows((hWnd, title) =>
             {
-                if (string.IsNullOrEmpty(filter) || title.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                bool isMatch = true;
+                if (filterParts.Length > 0)
+                {
+                    foreach (var part in filterParts)
+                    {
+                        if (!title.Contains(part, StringComparison.OrdinalIgnoreCase))
+                        {
+                            isMatch = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (isMatch)
                 {
                     results.Add(new WindowInfo
                     {
@@ -397,6 +412,67 @@ namespace HotKeyCommandApp.Services
             };
 
             NativeMethods.EnumWindows(proc, IntPtr.Zero);
+        }
+        public string? ShowBrowseDialog(bool isFolder, string filter, string? initialPath = null)
+        {
+            string? dirToOpen = null;
+            string? fileToSelect = null;
+
+            if (!string.IsNullOrWhiteSpace(initialPath))
+            {
+                try
+                {
+                    if (System.IO.Directory.Exists(initialPath))
+                    {
+                        dirToOpen = initialPath;
+                    }
+                    else if (System.IO.File.Exists(initialPath))
+                    {
+                        dirToOpen = System.IO.Path.GetDirectoryName(initialPath);
+                        fileToSelect = System.IO.Path.GetFileName(initialPath);
+                    }
+                    else
+                    {
+                        string? parent = System.IO.Path.GetDirectoryName(initialPath);
+                        if (!string.IsNullOrEmpty(parent) && System.IO.Directory.Exists(parent))
+                        {
+                            dirToOpen = parent;
+                            fileToSelect = System.IO.Path.GetFileName(initialPath);
+                        }
+                    }
+                }
+                catch { } // 無効なパス文字列などの例外を無視
+            }
+
+            if (isFolder)
+            {
+                var dialog = new Microsoft.Win32.OpenFolderDialog
+                {
+                    Title = "フォルダを選択してください"
+                };
+                if (!string.IsNullOrEmpty(dirToOpen))
+                {
+                    dialog.InitialDirectory = dirToOpen;
+                }
+                return dialog.ShowDialog() == true ? dialog.FolderName : null;
+            }
+            else
+            {
+                var dialog = new Microsoft.Win32.OpenFileDialog
+                {
+                    Title = "ファイルを選択してください",
+                    Filter = filter
+                };
+                if (!string.IsNullOrEmpty(dirToOpen))
+                {
+                    dialog.InitialDirectory = dirToOpen;
+                }
+                if (!string.IsNullOrEmpty(fileToSelect))
+                {
+                    dialog.FileName = fileToSelect;
+                }
+                return dialog.ShowDialog() == true ? dialog.FileName : null;
+            }
         }
     }
 }

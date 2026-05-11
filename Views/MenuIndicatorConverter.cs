@@ -10,12 +10,15 @@ namespace HotKeyCommandApp.Views
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            if (value is CommandEntry entry && entry.Type == CommandType.Menu)
+            if (value is CommandEntry entry)
             {
-                // 種類選択テンプレート用の矢印は表示しない
-                if (entry.Value == "TYPE_TEMPLATE") return Visibility.Collapsed;
-                
-                return Visibility.Visible;
+                if (entry.Category == CommandCategory.Hierarchy || (entry.Value?.StartsWith("FOLDER:") ?? false))
+                {
+                    // 種類選択テンプレート用の矢印は表示しない
+                    if (entry.Value == "TYPE_TEMPLATE") return Visibility.Collapsed;
+                    
+                    return Visibility.Visible;
+                }
             }
             return Visibility.Collapsed;
         }

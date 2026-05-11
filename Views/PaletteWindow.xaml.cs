@@ -238,15 +238,7 @@ namespace HotKeyCommandApp.Views
 
             if (vm.IsInputMode)
             {
-                if (vm.CurrentStep == InputStep.EnteringAppPath)
-                {
-                    // EnteringAppPathの場合はListBoxをすぐにフォーカスさせる
-                    CommandListBox.Focus();
-                }
-                else
-                {
-                    InputTextBox.Focus();
-                }
+                InputTextBox.Focus();
                 return;
             }
 
@@ -353,7 +345,7 @@ namespace HotKeyCommandApp.Views
                         vm.LoadCommands();
                     }
                     var command = vm.ExecuteHotkeyById(id);
-                    if (command != null && command.Type == CommandType.WindowSwitcher)
+                    if (command != null && command.Category == CommandCategory.WindowSwitcher)
                     {
                         // 専用ウィンドウ化されたため、パレットを表示する必要はない
                         // (vm.ExecuteHotkeyById 内で専用ウィンドウの起動イベントが発火する)
@@ -540,25 +532,7 @@ namespace HotKeyCommandApp.Views
                 if (isAnyDialogOpen)
                 {
                     // 登録済みアプリの削除処理
-                    if (key == Key.Delete && vm.CurrentStep == InputStep.EnteringAppPath && vm.SelectedItem != null &&
-                        vm.SelectedItem.Value != "NONE" && vm.SelectedItem.Value != "ADD_REGISTERED_APP")
-                    {
-                        vm.IsDialogActive = true;
-                        try
-                        {
-                            var dialog = new DeleteConfirmationWindow(vm.SelectedItem.Name) { Owner = this };
-                            if (dialog.ShowDialog() == true)
-                            {
-                                vm.DeleteRegisteredAppCommand.Execute(vm.SelectedItem);
-                            }
-                        }
-                        finally
-                        {
-                            vm.IsDialogActive = false;
-                        }
-                        e.Handled = true;
-                        return;
-                    }
+
 
                     // 必要に応じてダイアログコンテキスト内でのナビゲーションキーを許可する
                     // (ただし現在はInputFlowが独自のナビゲーションをCommitInput/MoveSelection経由で処理している)
@@ -588,7 +562,7 @@ namespace HotKeyCommandApp.Views
                 // 3. ダイアログ展開時は背面のナビゲーションキーもブロック
                 if (isAnyDialogOpen)
                 {
-                    if (vm.IsFileSearchMode || vm.CurrentStep == InputStep.EnteringName || vm.CurrentStep == InputStep.EnteringValue || vm.CurrentStep == InputStep.EnteringAppPath)
+                    if (vm.IsFileSearchMode)
                     {
                         if (key == Key.Up) { vm.MoveSelection(-1); e.Handled = true; return; }
                         if (key == Key.Down) { vm.MoveSelection(1); e.Handled = true; return; }
@@ -636,22 +610,14 @@ namespace HotKeyCommandApp.Views
 
                 if (vm.IsInputMode && key == Key.F1 && !vm.IsFileSearchMode)
                 {
-                    vm.IsRequiresArgumentChecked = !vm.IsRequiresArgumentChecked;
+                    // Deprecated - behaviors handled in ButtonCreationWindow
                     e.Handled = true;
                     return;
                 }
 
                 if (vm.IsInputMode && key == Key.F2 && !vm.IsFileSearchMode)
                 {
-                    if (vm.CurrentStep == InputStep.EnteringAppPath && vm.SelectedItem != null &&
-                        vm.SelectedItem.Value != "NONE" && vm.SelectedItem.Value != "ADD_REGISTERED_APP")
-                    {
-                        vm.EditRegisteredAppCommand.Execute(vm.SelectedItem);
-                        e.Handled = true;
-                        return;
-                    }
-
-                    vm.IsFileSearchChecked = !vm.IsFileSearchChecked;
+                    // Deprecated - behaviors handled in ButtonCreationWindow
                     e.Handled = true;
                     return;
                 }
@@ -917,7 +883,7 @@ namespace HotKeyCommandApp.Views
                     if (sender is ListBoxItem listBoxItem && listBoxItem.DataContext is CommandEntry command)
                     {
                         // システムボタンはドラッグ不可
-                        if (command.Type == CommandType.Command && (command.Value?.StartsWith("ADD_") ?? false)) return;
+                        if (command.IsSystemButton && (command.Value?.StartsWith("ADD_") ?? false)) return;
 
                         DragDrop.DoDragDrop(listBoxItem, command, DragDropEffects.Move);
                     }
