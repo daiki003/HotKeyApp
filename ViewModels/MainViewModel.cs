@@ -609,15 +609,20 @@ namespace HotKeyCommandApp.ViewModels
                 // すでにこのウィンドウ切替の一覧が表示されている場合は、選択を次に進める（連打対応）
                 if (ActiveWindowSwitcherCommand == command && WindowSwitcherItems.Any())
                 {
-                    // ウィンドウ切替専用の次へ移動処理
+                    bool isShiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
                     int idx = (SelectedWindowItem != null) ? WindowSwitcherItems.IndexOf(SelectedWindowItem) : -1;
-                    if (idx >= 0 && idx < WindowSwitcherItems.Count - 1)
+                    
+                    if (isShiftPressed)
                     {
-                        SelectedWindowItem = WindowSwitcherItems[idx + 1];
+                        // 逆送り
+                        int nextIdx = (idx <= 0) ? WindowSwitcherItems.Count - 1 : idx - 1;
+                        SelectedWindowItem = WindowSwitcherItems[nextIdx];
                     }
                     else
                     {
-                        SelectedWindowItem = WindowSwitcherItems.FirstOrDefault();
+                        // 順送り
+                        int nextIdx = (idx >= WindowSwitcherItems.Count - 1) ? 0 : idx + 1;
+                        SelectedWindowItem = WindowSwitcherItems[nextIdx];
                     }
                     return;
                 }
@@ -625,13 +630,36 @@ namespace HotKeyCommandApp.ViewModels
                 var windows = _windowService.GetVisibleWindowsByTitle(command.Value);
                 if (windows.Any())
                 {
-                    var windowItems = windows.Select(w => new CommandEntry
+                    var windowItems = windows.Select(w =>
                     {
-                        Name = w.Title,
-                        Value = w.Title,
-                        Category = CommandCategory.WindowSwitcher,
-                        WindowHandle = w.Handle,
-                        IconSource = w.Icon
+                        string displayName = w.Title;
+                        if (!string.IsNullOrWhiteSpace(command.Value))
+                        {
+                            var filterParts = command.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                            foreach (var part in filterParts)
+                            {
+                                int idx = displayName.IndexOf(part, StringComparison.OrdinalIgnoreCase);
+                                if (idx >= 0)
+                                {
+                                    displayName = displayName.Remove(idx, part.Length);
+                                }
+                            }
+                            // 前後の不要な記号や空白を掃除
+                            displayName = displayName.Trim(' ', '-', '—', '－', '|', '｜', '・', ':', '：');
+                        }
+
+                        if (string.IsNullOrWhiteSpace(displayName)) displayName = w.Title;
+
+                        return new CommandEntry
+                        {
+                            Name = displayName,
+                            Value = w.Title,
+                            Category = CommandCategory.WindowSwitcher,
+                            WindowHandle = w.Handle,
+                            IconSource = w.Icon,
+                            WindowWidth = w.Width,
+                            WindowHeight = w.Height
+                        };
                     }).ToList();
 
                     // 切替専用プロパティを更新（通常プロパティは触らない）
@@ -660,14 +688,38 @@ namespace HotKeyCommandApp.ViewModels
                         }
                     }
 
-                    // 最初に対象の1つ目を選択するか判定（1つ目が現在のフォーカスでなければ1つ目、そうでなければ2つ目を選択）
-                    if (windowItems.Any() && windowItems[0].WindowHandle != foregroundHWnd)
+                    // 最初に対象を選択するか判定
+                    bool isShiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+                    int initialIndex = 0;
+
+                    // 1つ目が現在のフォーカスウィンドウなら、順送りなら2つ目、逆送りなら最後を選択
+                    if (windowItems.Any() && windowItems[0].WindowHandle == foregroundHWnd)
                     {
-                        SelectedWindowItem = WindowSwitcherItems[0];
+                        if (isShiftPressed)
+                        {
+                            initialIndex = WindowSwitcherItems.Count - 1;
+                        }
+                        else if (WindowSwitcherItems.Count >= 2)
+                        {
+                            initialIndex = 1;
+                        }
                     }
-                    else if (WindowSwitcherItems.Count >= 2)
+                    else
                     {
-                        SelectedWindowItem = WindowSwitcherItems[1];
+                        // 現在のウィンドウがリストにない、または1つ目でない場合
+                        if (isShiftPressed)
+                        {
+                            initialIndex = WindowSwitcherItems.Count - 1;
+                        }
+                        else
+                        {
+                            initialIndex = 0;
+                        }
+                    }
+
+                    if (WindowSwitcherItems.Count > initialIndex)
+                    {
+                        SelectedWindowItem = WindowSwitcherItems[initialIndex];
                     }
                     else
                     {
@@ -1071,6 +1123,16 @@ namespace HotKeyCommandApp.ViewModels
                     int id = nextId++;
                     _globalHotkeyMapping[id] = command;
                     RequestRegisterGlobalHotkey?.Invoke(id, command.Hotkey);
+
+                    // ウィンドウ切替の場合は、Shift付きも自動登録して逆送りをサポートする
+                    if (command.Category == CommandCategory.WindowSwitcher &&
+                        !command.Hotkey.Split('+').Any(p => p.Trim().Equals("Shift", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        int shiftId = nextId++;
+                        _globalHotkeyMapping[shiftId] = command;
+                        string shiftHotkey = "Shift + " + command.Hotkey;
+                        RequestRegisterGlobalHotkey?.Invoke(shiftId, shiftHotkey);
+                    }
                 }
 
                 if (command.Children != null)
