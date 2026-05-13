@@ -20,6 +20,7 @@ namespace HotKeyCommandApp.Views
         private Point _dragStartPoint;
         private bool _isWaitingForAltRelease = false;
         private WindowSwitcherWindow? _activeSwitcherWindow;
+        private GitCommandWindow? _activeGitWindow;
 
         public PaletteWindow()
         {
@@ -174,6 +175,26 @@ namespace HotKeyCommandApp.Views
                     
                     // 2. 確定したサイズを用いて、最右モニターの中央へ瞬時に移動（ワープ）させる。
                     WindowHelper.CenterOnRightmostMonitor(switcher);
+                };
+
+                vm.RequestGitWindow += (command) =>
+                {
+                    if (_activeGitWindow != null && _activeGitWindow.IsLoaded)
+                    {
+                        if (_activeGitWindow.WindowState == WindowState.Minimized)
+                        {
+                            _activeGitWindow.WindowState = WindowState.Normal;
+                        }
+                        _activeGitWindow.Activate();
+                        _activeGitWindow.Focus();
+                    }
+                    else
+                    {
+                        _activeGitWindow = new GitCommandWindow(command.Value ?? string.Empty, vm);
+                        _activeGitWindow.Closed += (s, e) => { if (_activeGitWindow == s) _activeGitWindow = null; };
+                        _activeGitWindow.Show();
+                    }
+                    OnRequestHide();
                 };
 
                 vm.RequestDeleteConfirmation += (command) =>

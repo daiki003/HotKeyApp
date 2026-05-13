@@ -183,6 +183,7 @@ namespace HotKeyCommandApp.ViewModels
         public event Action<CommandEntry>? RequestDeleteConfirmation;
         public event Action<CommandEntry?, double, double>? RequestButtonCreation;
         public event Action<MainViewModel, bool>? RequestWindowSwitcher;
+        public event Action<CommandEntry>? RequestGitWindow;
 
         public event Func<CommandEntry, string, string?>? RequestArgumentInput;
         public event Action? RequestSettings;
@@ -228,6 +229,33 @@ namespace HotKeyCommandApp.ViewModels
             get => _appSettings.WindowLeft;
             set { _appSettings.WindowLeft = value; OnPropertyChanged(); }
         }
+
+        public double GitWindowTop
+        {
+            get => _appSettings.GitWindowTop;
+            set { _appSettings.GitWindowTop = value; OnPropertyChanged(); }
+        }
+
+        public double GitWindowLeft
+        {
+            get => _appSettings.GitWindowLeft;
+            set { _appSettings.GitWindowLeft = value; OnPropertyChanged(); }
+        }
+
+        public double GitWindowWidth
+        {
+            get => _appSettings.GitWindowWidth;
+            set { _appSettings.GitWindowWidth = value; OnPropertyChanged(); }
+        }
+
+        public double GitWindowHeight
+        {
+            get => _appSettings.GitWindowHeight;
+            set { _appSettings.GitWindowHeight = value; OnPropertyChanged(); }
+        }
+
+
+
 
         public double ButtonWidth
         {
@@ -735,6 +763,13 @@ namespace HotKeyCommandApp.ViewModels
                 {
                     return;
                 }
+            }
+
+            // 1.8 Check for Git operations
+            if (command.Category == CommandCategory.Git)
+            {
+                RequestGitWindow?.Invoke(command);
+                return;
             }
 
             // 2. Check for Menu and enter it

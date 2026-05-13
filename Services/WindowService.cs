@@ -145,10 +145,6 @@ namespace HotKeyCommandApp.Services
             {
                 NativeMethods.ShowWindow(hWnd, NativeMethods.SW_RESTORE);
             }
-            else
-            {
-                NativeMethods.ShowWindow(hWnd, NativeMethods.SW_SHOW);
-            }
 
             // Force Z-order change
             NativeMethods.SetWindowPos(hWnd, NativeMethods.HWND_TOP, 0, 0, 0, 0, NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOMOVE | NativeMethods.SWP_SHOWWINDOW);

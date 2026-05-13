@@ -36,9 +36,20 @@ namespace HotKeyCommandApp.ViewModels.ButtonCreationSteps
             PopulateList();
 
             // 初期値の復元
-            if (results.TryGetValue(_def.DataKey, out var result) && result is ListSelectionResult listResult)
+            if (results.TryGetValue(_def.DataKey, out var result))
             {
-                SelectedItem.Value = listResult.SelectedItem;
+                if (result is ListSelectionResult listResult)
+                {
+                    SelectedItem.Value = listResult.SelectedItem;
+                }
+                else if (result is TextInputResult textResult && !string.IsNullOrEmpty(textResult.Text))
+                {
+                    var target = DisplayCommands.FirstOrDefault(c => c.Value.Equals(textResult.Text, StringComparison.OrdinalIgnoreCase));
+                    if (target != null)
+                    {
+                        SelectedItem.Value = target;
+                    }
+                }
             }
         }
 

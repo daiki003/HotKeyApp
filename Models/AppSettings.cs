@@ -15,6 +15,10 @@ namespace HotKeyCommandApp.Models
         public double WindowHeight { get; set; } = 300;
         public double WindowTop { get; set; } = double.NaN;
         public double WindowLeft { get; set; } = double.NaN;
+        public double GitWindowTop { get; set; } = double.NaN;
+        public double GitWindowLeft { get; set; } = double.NaN;
+        public double GitWindowWidth { get; set; } = 450;
+        public double GitWindowHeight { get; set; } = 320;
         public double ButtonWidth { get; set; } = 350;
         public double ButtonHeight { get; set; } = 50;
         public double MovementSpeed { get; set; } = 1200.0;
@@ -28,5 +32,9 @@ namespace HotKeyCommandApp.Models
 
         /// <summary>SlackのチームID履歴</summary>
         public List<string> SlackTeamIdHistory { get; set; } = new();
+
+        /// <summary>Gitウィンドウ内で利用できる独自のコマンドエイリアス</summary>
     }
+
+    /// <summary>Git独自のコマンドエイリアス情報</summary>
 }

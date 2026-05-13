@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using HotKeyCommandApp.Models;
@@ -16,11 +17,30 @@ namespace HotKeyCommandApp.Services
                 string value = command.Value ?? string.Empty;
                 bool wasReplaced = false;
 
-                // {0}が含まれる場合は置換を行う（モードに関わらず）
-                if (argument != null && value.Contains("{0}"))
+                // {0}などのプレースホルダーが含まれる場合は置換を行う（モードに関わらず）
+                bool hasPlaceholder = false;
+                for (int i = 0; i < 10; i++)
                 {
-                    value = value.Replace("{0}", argument);
-                    wasReplaced = true;
+                    if (value.Contains($"{{{i}}}"))
+                    {
+                        hasPlaceholder = true;
+                        break;
+                    }
+                }
+
+                if (argument != null && hasPlaceholder)
+                {
+                    var parsedArgs = ParseArguments(argument);
+                    for (int i = 0; i < 10; i++)
+                    {
+                        string placeholder = $"{{{i}}}";
+                        if (value.Contains(placeholder))
+                        {
+                            string replacement = i < parsedArgs.Count ? parsedArgs[i] : "";
+                            value = value.Replace(placeholder, replacement);
+                            wasReplaced = true;
+                        }
+                    }
                 }
 
                 // ウィンドウハンドルが直接指定されている場合は、タイプに関わらず最優先でフォーカスする
@@ -133,6 +153,38 @@ namespace HotKeyCommandApp.Services
                 return Path.GetDirectoryName(value) ?? AppDomain.CurrentDomain.BaseDirectory;
             }
             return string.Empty;
+        }
+
+        private List<string> ParseArguments(string commandLine)
+        {
+            var args = new List<string>();
+            bool inQuotes = false;
+            string currentArg = "";
+            for (int i = 0; i < commandLine.Length; i++)
+            {
+                char c = commandLine[i];
+                if (c == '"')
+                {
+                    inQuotes = !inQuotes;
+                }
+                else if (c == ' ' && !inQuotes)
+                {
+                    if (!string.IsNullOrEmpty(currentArg))
+                    {
+                        args.Add(currentArg);
+                        currentArg = "";
+                    }
+                }
+                else
+                {
+                    currentArg += c;
+                }
+            }
+            if (!string.IsNullOrEmpty(currentArg))
+            {
+                args.Add(currentArg);
+            }
+            return args;
         }
     }
 }

@@ -12,6 +12,16 @@ namespace HotKeyCommandApp.Views
     {
         private MainViewModel _viewModel;
 
+        private enum SettingsPage
+        {
+            List,
+            Size,
+            Shortcuts,
+            Others
+        }
+
+        private SettingsPage _currentPage = SettingsPage.List;
+
         public SettingsWindow(MainViewModel viewModel)
         {
             InitializeComponent();
@@ -20,30 +30,119 @@ namespace HotKeyCommandApp.Views
 
             this.Loaded += (s, e) =>
             {
-                FontSizeTextBox.Focus();
-                FontSizeTextBox.SelectAll();
+                SwitchPage(SettingsPage.List);
             };
+        }
+
+        private void SwitchPage(SettingsPage page)
+        {
+            _currentPage = page;
+
+            // 全パネル非表示
+            CategoryListScrollViewer.Visibility = Visibility.Collapsed;
+            SizePanel.Visibility = Visibility.Collapsed;
+            ShortcutsPanel.Visibility = Visibility.Collapsed;
+            OthersPanel.Visibility = Visibility.Collapsed;
+            BackButton.Visibility = Visibility.Collapsed;
+
+            if (page == SettingsPage.List)
+            {
+                TitleTextBlock.Text = "設定";
+                FooterHintTextBlock.Text = "矢印キーで選択 / Escで閉じる";
+                CategoryListScrollViewer.Visibility = Visibility.Visible;
+
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    SizeCategoryButton.Focus();
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
+            }
+            else
+            {
+                BackButton.Visibility = Visibility.Visible;
+                FooterHintTextBlock.Text = "Alt+← または Esc で一覧に戻る";
+
+                if (page == SettingsPage.Size)
+                {
+                    TitleTextBlock.Text = "サイズ調整";
+                    SizePanel.Visibility = Visibility.Visible;
+                    Dispatcher.BeginInvoke(new Action(() => { FontSizeTextBox.Focus(); FontSizeTextBox.SelectAll(); }), System.Windows.Threading.DispatcherPriority.Loaded);
+                }
+                else if (page == SettingsPage.Shortcuts)
+                {
+                    TitleTextBlock.Text = "ショートカット";
+                    ShortcutsPanel.Visibility = Visibility.Visible;
+                    Dispatcher.BeginInvoke(new Action(() => { GlobalHotkeyButton.Focus(); }), System.Windows.Threading.DispatcherPriority.Loaded);
+                }
+                else if (page == SettingsPage.Others)
+                {
+                    TitleTextBlock.Text = "その他";
+                    OthersPanel.Visibility = Visibility.Visible;
+                    Dispatcher.BeginInvoke(new Action(() => { MovementSpeedTextBox.Focus(); MovementSpeedTextBox.SelectAll(); }), System.Windows.Threading.DispatcherPriority.Loaded);
+                }
+            }
+        }
+
+        private void CategoryButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is string tag)
+            {
+                if (tag == "Size") SwitchPage(SettingsPage.Size);
+                else if (tag == "Shortcuts") SwitchPage(SettingsPage.Shortcuts);
+                else if (tag == "Others") SwitchPage(SettingsPage.Others);
+            }
+        }
+
+        private void OpenSettingsJsonButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                SaveSettings();
+                string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
+                if (System.IO.File.Exists(path))
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = path,
+                        UseShellExecute = true
+                    });
+                }
+                else
+                {
+                    MessageBox.Show("settings.json がまだ生成されていません。", "通知", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"ファイルを開けませんでした: {ex.Message}", "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void BackButton_Click(object sender, RoutedEventArgs e)
+        {
+            SaveSettings();
+            SwitchPage(SettingsPage.List);
         }
 
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            // AltキーなどSystemキーと一緒に押されたキーはe.SystemKeyに格納されるため解決する
+            Key actualKey = (e.Key == Key.ImeProcessed) ? e.ImeProcessedKey : e.Key;
+            if (actualKey == Key.System) actualKey = e.SystemKey;
+
             if (_viewModel.IsCapturingHotkey)
             {
-                if (e.Key == Key.Escape)
+                if (actualKey == Key.Escape)
                 {
                     CancelCapture();
                     e.Handled = true;
                     return;
                 }
 
-                Key key = (e.Key == Key.ImeProcessed) ? e.ImeProcessedKey : e.Key;
-                if (key == Key.System) key = e.SystemKey;
-
                 // 修飾キーのみの場合
-                if (key == Key.LeftCtrl || key == Key.RightCtrl ||
-                    key == Key.LeftAlt || key == Key.RightAlt ||
-                    key == Key.LeftShift || key == Key.RightShift ||
-                    key == Key.LWin || key == Key.RWin)
+                if (actualKey == Key.LeftCtrl || actualKey == Key.RightCtrl ||
+                    actualKey == Key.LeftAlt || actualKey == Key.RightAlt ||
+                    actualKey == Key.LeftShift || actualKey == Key.RightShift ||
+                    actualKey == Key.LWin || actualKey == Key.RWin)
                 {
                     e.Handled = true;
                     return;
@@ -58,13 +157,12 @@ namespace HotKeyCommandApp.Views
                 if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt)) parts.Add("Alt");
                 if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) parts.Add("Shift");
 
-                string keyStr = key.ToString();
+                string keyStr = actualKey.ToString();
                 
-                // Key.OemPlus, Key.OemCommaなどをわかりやすく変換
-                if (key == Key.OemPlus) keyStr = "Plus";
-                else if (key == Key.OemComma) keyStr = "Comma";
-                else if (key == Key.OemMinus) keyStr = "Minus";
-                else if (key == Key.OemPeriod) keyStr = "Period";
+                if (actualKey == Key.OemPlus) keyStr = "Plus";
+                else if (actualKey == Key.OemComma) keyStr = "Comma";
+                else if (actualKey == Key.OemMinus) keyStr = "Minus";
+                else if (actualKey == Key.OemPeriod) keyStr = "Period";
 
                 parts.Add(keyStr);
 
@@ -89,38 +187,44 @@ namespace HotKeyCommandApp.Views
                 return;
             }
 
-            if (e.Key == Key.Enter)
+            // Alt + ← で一覧に戻る (VsCodeスタイル)
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt) && actualKey == Key.Left)
+            {
+                if (_currentPage != SettingsPage.List)
+                {
+                    SaveSettings();
+                    SwitchPage(SettingsPage.List);
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            if (actualKey == Key.Enter)
             {
                 if (FocusManager.GetFocusedElement(this) is Button) return; // ボタン自身に処理させる
-                SaveAndClose();
-                e.Handled = true;
-            }
-            else if (e.Key == Key.Escape)
-            {
-                CancelAndClose();
-                e.Handled = true;
-            }
-            else if (e.Key == Key.PageDown)
-            {
-                if (SettingsTabControl.SelectedIndex < SettingsTabControl.Items.Count - 1)
+
+                if (_currentPage == SettingsPage.List)
                 {
-                    SettingsTabControl.SelectedIndex++;
+                    // 一覧画面でのEnter時、ボタン以外にフォーカスがあっても何もしない
+                    return; 
                 }
                 else
                 {
-                    SettingsTabControl.SelectedIndex = 0; // ループさせる場合
+                    // 詳細画面でのEnterは設定を保存して一覧に戻る
+                    SaveSettings();
+                    SwitchPage(SettingsPage.List);
+                    e.Handled = true;
                 }
-                e.Handled = true;
             }
-            else if (e.Key == Key.PageUp)
+            else if (actualKey == Key.Escape)
             {
-                if (SettingsTabControl.SelectedIndex > 0)
+                if (_currentPage == SettingsPage.List)
                 {
-                    SettingsTabControl.SelectedIndex--;
+                    CancelAndClose();
                 }
                 else
                 {
-                    SettingsTabControl.SelectedIndex = SettingsTabControl.Items.Count - 1; // ループさせる場合
+                    SwitchPage(SettingsPage.List);
                 }
                 e.Handled = true;
             }
@@ -170,12 +274,17 @@ namespace HotKeyCommandApp.Views
             SaveAndClose();
         }
 
-        private void SaveAndClose()
+        private void SaveSettings()
         {
             if (_viewModel.SaveSettingsCommand.CanExecute(null))
             {
                 _viewModel.SaveSettingsCommand.Execute(null);
             }
+        }
+
+        private void SaveAndClose()
+        {
+            SaveSettings();
             this.DialogResult = true;
             this.Close();
         }

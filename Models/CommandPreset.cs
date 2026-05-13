@@ -232,6 +232,17 @@ namespace HotKeyCommandApp.Models
                         new PresetStepDefinition { StepType = StepType.TextInput, Title = "Slack チャンネル", Prompt = "チャンネルIDを入力してください (CXXXXXXXX):", DataKey = "slack_channel" },
                     }
                 },
+                new CommandPreset
+                {
+                    Id = "git",
+                    Name = "Git 操作",
+                    Category = CommandCategory.Git,
+                    Steps = new List<PresetStepDefinition>
+                    {
+                        new PresetStepDefinition { StepType = StepType.TextInput, Title = "名前入力", Prompt = "ボタンの名前を入力してください:", DataKey = "name" },
+                        new PresetStepDefinition { StepType = StepType.TextInput, Title = "リポジトリパス", Prompt = "対象リポジトリのパスを入力してください:", DataKey = "value", ShowBrowseButton = true, BrowseFileType = "Folder" },
+                    }
+                },
             };
         }
     }

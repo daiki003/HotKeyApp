@@ -33,18 +33,11 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <!-- Title and Action -->
+            <!-- Title -->
             <Grid Grid.Row="0" Margin="0,0,0,15">
                 <TextBlock Text="{Binding Title.Value}" 
                            FontSize="20" FontWeight="Light" Foreground="White"
                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                
-                <Button Command="{Binding CommitInputCommand}"
-                        HorizontalAlignment="Right" VerticalAlignment="Top"
-                        Background="Transparent" BorderThickness="0"
-                        Padding="5" Cursor="Hand" ToolTip="保存 (Ctrl+Enter)">
-                    <TextBlock Text="確定" Foreground="#007ACC" FontWeight="Bold" FontSize="14"/>
-                </Button>
             </Grid>
 
             <!-- Page Indicators (Dots) with Guides -->
@@ -119,7 +112,6 @@
                                      VerticalContentAlignment="Center">
                                 <TextBox.InputBindings>
                                     <KeyBinding Key="Enter" Command="{Binding CommitInputCommand}" />
-                                    <KeyBinding Modifiers="Control" Key="Enter" Command="{Binding CommitInputCommand}" />
                                     <KeyBinding Key="Escape" Command="{Binding CancelInputCommand}" />
                                     <KeyBinding Modifiers="Control" Key="P" Command="{Binding BrowseFileCommand}" />
                                     <KeyBinding Key="PageUp" Command="{Binding MoveToPreviousStepCommand}" />
@@ -299,8 +291,6 @@
                     <KeyBinding Key="Enter" 
                                 Command="{Binding DataContext.ExecuteCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                 CommandParameter="{Binding SelectedItem, RelativeSource={RelativeSource AncestorType=ListBox}}" />
-                    <KeyBinding Modifiers="Control" Key="Enter" 
-                                Command="{Binding DataContext.CommitInputCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" />
                     <KeyBinding Key="Down" Command="{Binding DataContext.MoveDownCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" />
                     <KeyBinding Key="Up" Command="{Binding DataContext.MoveUpCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" />
                     <KeyBinding Key="PageUp" Command="{Binding DataContext.MoveToPreviousStepCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" />

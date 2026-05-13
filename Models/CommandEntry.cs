@@ -18,7 +18,8 @@ namespace HotKeyCommandApp.Models
         None,           // 未指定
         Open,           // 「開く」
         WindowSwitcher, // 「ウィンドウ切替」
-        Hierarchy       // 「階層」
+        Hierarchy,      // 「階層」
+        Git             // 「Git」
     }
 
     /// <summary>

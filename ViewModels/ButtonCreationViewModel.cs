@@ -396,6 +396,16 @@ namespace HotKeyCommandApp.ViewModels
             }
         }
 
+        private bool HasPlaceholder(string? val)
+        {
+            if (string.IsNullOrEmpty(val)) return false;
+            for (int i = 0; i < 10; i++)
+            {
+                if (val.Contains($"{{{i}}}")) return true;
+            }
+            return false;
+        }
+
         private void FinishFlow()
         {
             var name = (StepResults.GetValueOrDefault("name") as TextInputResult)?.Text;
@@ -422,7 +432,15 @@ namespace HotKeyCommandApp.ViewModels
                 }
             }
 
-            var appPath = (StepResults.GetValueOrDefault("app_path") as TextInputResult)?.Text;
+            string? appPath = null;
+            if (StepResults.GetValueOrDefault("app_path") is ListSelectionResult lsr && lsr.SelectedItem != null)
+            {
+                appPath = lsr.SelectedItem.Value == "NONE" ? null : lsr.SelectedItem.Value;
+            }
+            else if (StepResults.GetValueOrDefault("app_path") is TextInputResult tir)
+            {
+                appPath = tir.Text;
+            }
 
             if (string.IsNullOrWhiteSpace(name)) return;
             
@@ -446,7 +464,7 @@ namespace HotKeyCommandApp.ViewModels
                 {
                     RequiresArgument = (behaviors?.IsBatchMode ?? (preset?.ActionOptions?.IsBatchMode == OptionDisplayMode.AlwaysOn)) 
                         ? (behaviors?.RequiresArgument ?? (preset?.ActionOptions?.RequiresArgument == OptionDisplayMode.AlwaysOn)) 
-                        : (value?.Contains("{0}") ?? false),
+                        : HasPlaceholder(value),
                     IsFileSearchEnabled = behaviors?.IsFileSearchEnabled ?? (preset?.ActionOptions?.IsFileSearchEnabled == OptionDisplayMode.AlwaysOn),
                     IsBatchMode = behaviors?.IsBatchMode ?? (preset?.ActionOptions?.IsBatchMode == OptionDisplayMode.AlwaysOn),
                     UseWindowFocusLogic = behaviors?.UseWindowFocusLogic ?? (preset?.ActionOptions?.UseWindowFocusLogic == OptionDisplayMode.AlwaysOn)
