@@ -76,6 +76,13 @@ namespace HotKeyCommandApp.ViewModels
             set { _isMoveMode = value; OnPropertyChanged(); }
         }
 
+        private bool _isFrontMode = false;
+        public bool IsFrontMode
+        {
+            get => _isFrontMode;
+            set { _isFrontMode = value; OnPropertyChanged(); }
+        }
+
         private string _repositoryName = string.Empty;
         public string RepositoryName
         {
@@ -164,8 +171,45 @@ namespace HotKeyCommandApp.ViewModels
                 var matchedAlias = _gitSettingsManager.CurrentSettings.Aliases.FirstOrDefault(a => string.Equals(a.Alias, cmdWord, StringComparison.OrdinalIgnoreCase));
                 if (matchedAlias != null && !string.IsNullOrWhiteSpace(matchedAlias.TargetCommand))
                 {
-                    // エイリアスの置換結果で input を上書きする
-                    input = matchedAlias.TargetCommand + (string.IsNullOrEmpty(cmdArgs) ? "" : " " + cmdArgs);
+                    string targetCmd = matchedAlias.TargetCommand;
+                    bool hasPlaceholder = false;
+                    for (int i = 0; i < 10; i++)
+                    {
+                        if (targetCmd.Contains($"{{{i}}}"))
+                        {
+                            hasPlaceholder = true;
+                            break;
+                        }
+                    }
+
+                    if (hasPlaceholder)
+                    {
+                        var tempCommand = new CommandEntry
+                        {
+                            Name = matchedAlias.Alias,
+                            Value = targetCmd
+                        };
+
+                        string? argString = RequestArgumentInput?.Invoke(tempCommand, $"[{matchedAlias.Alias}] の引数を入力してください:");
+                        if (argString == null) return; // ユーザーがキャンセルした場合は実行中断
+
+                        var parsedArgs = ParseArguments(argString);
+                        for (int i = 0; i < 10; i++)
+                        {
+                            string placeholder = $"{{{i}}}";
+                            if (targetCmd.Contains(placeholder))
+                            {
+                                string replacement = i < parsedArgs.Count ? parsedArgs[i] : "";
+                                targetCmd = targetCmd.Replace(placeholder, replacement);
+                            }
+                        }
+                        input = targetCmd;
+                    }
+                    else
+                    {
+                        // エイリアスの置換結果で input を上書きする
+                        input = targetCmd + (string.IsNullOrEmpty(cmdArgs) ? "" : " " + cmdArgs);
+                    }
                 }
             }
 
@@ -174,6 +218,13 @@ namespace HotKeyCommandApp.ViewModels
             {
                 IsMoveMode = true;
                 SetConsoleOutput("ウィンドウ移動モード", "・Ctrl+矢印: ウィンドウ移動\n・Ctrl+Shift+矢印: サイズ変更\n・Esc: 移動モード終了");
+                return;
+            }
+
+            if (string.Equals(input, "front", StringComparison.OrdinalIgnoreCase))
+            {
+                IsFrontMode = true;
+                SetConsoleOutput("最前面固定モード", "Gitウィンドウを常に最前面に表示します。\n・Esc: 解除");
                 return;
             }
 
@@ -465,6 +516,40 @@ namespace HotKeyCommandApp.ViewModels
                     InputText = string.Empty;
                 }
             }
+        }
+
+        public event Func<CommandEntry, string, string?>? RequestArgumentInput;
+
+        private List<string> ParseArguments(string commandLine)
+        {
+            var args = new List<string>();
+            bool inQuotes = false;
+            string currentArg = "";
+            for (int i = 0; i < commandLine.Length; i++)
+            {
+                char c = commandLine[i];
+                if (c == '"')
+                {
+                    inQuotes = !inQuotes;
+                }
+                else if (c == ' ' && !inQuotes)
+                {
+                    if (!string.IsNullOrEmpty(currentArg))
+                    {
+                        args.Add(currentArg);
+                        currentArg = "";
+                    }
+                }
+                else
+                {
+                    currentArg += c;
+                }
+            }
+            if (!string.IsNullOrEmpty(currentArg))
+            {
+                args.Add(currentArg);
+            }
+            return args;
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

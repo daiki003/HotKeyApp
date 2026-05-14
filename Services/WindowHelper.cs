@@ -228,6 +228,7 @@ namespace HotKeyCommandApp.Services
         {
             Point? offset = null;
             bool isSyncing = false;
+            bool isDragging = false;
 
             window.MouseLeftButtonDown += (s, e) =>
             {
@@ -239,6 +240,7 @@ namespace HotKeyCommandApp.Services
                         offset = new Point(window.Left - window.Owner.Left, window.Top - window.Owner.Top);
                     }
                     
+                    isDragging = true;
                     try
                     {
                         // ダイアログ自身をドラッグ移動させる
@@ -247,13 +249,17 @@ namespace HotKeyCommandApp.Services
                     catch (InvalidOperationException)
                     {
                     }
+                    finally
+                    {
+                        isDragging = false;
+                    }
                 }
             };
 
             window.LocationChanged += (s, e) =>
             {
                 // ドラッグ中、ダイアログの位置が変わるたびにOwnerを追従させる
-                if (isSyncing || window.Owner == null || offset == null) return;
+                if (!isDragging || isSyncing || window.Owner == null || offset == null) return;
 
                 isSyncing = true;
                 try

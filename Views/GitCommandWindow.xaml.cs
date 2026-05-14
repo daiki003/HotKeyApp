@@ -4,6 +4,8 @@ using System.Windows.Input;
 using System.Windows.Media;
 using HotKeyCommandApp.Services;
 using HotKeyCommandApp.ViewModels;
+using HotKeyCommandApp.Models;
+
 
 namespace HotKeyCommandApp.Views
 {
@@ -16,7 +18,26 @@ namespace HotKeyCommandApp.Views
         {
             _mainVm = mainVm;
             InitializeComponent();
-            DataContext = new GitCommandViewModel(repositoryPath, _mainVm);
+            var vm = new GitCommandViewModel(repositoryPath, _mainVm);
+            DataContext = vm;
+            vm.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(GitCommandViewModel.IsFrontMode))
+                {
+                    this.Topmost = vm.IsFrontMode;
+                }
+            };
+
+            vm.RequestArgumentInput += (command, prompt) =>
+            {
+                var dialog = new ArgumentInputDialog(command, prompt) { Owner = this };
+                dialog.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                if (dialog.ShowDialog() == true)
+                {
+                    return dialog.InputText;
+                }
+                return null;
+            };
             CompositionTarget.Rendering += OnRendering;
 
             if (!double.IsNaN(_mainVm.GitWindowTop) && !double.IsNaN(_mainVm.GitWindowLeft))
@@ -78,6 +99,18 @@ namespace HotKeyCommandApp.Views
                     if (e.Key == Key.Escape)
                     {
                         vm.IsHistoryMode = false;
+                        Dispatcher.BeginInvoke(() => CommandInputBox.Focus(), System.Windows.Threading.DispatcherPriority.Input);
+                        e.Handled = true;
+                        return;
+                    }
+                }
+
+                if (vm.IsFrontMode)
+                {
+                    if (e.Key == Key.Escape)
+                    {
+                        vm.IsFrontMode = false;
+                        vm.ConsoleOutput = "[最前面固定モード終了]\n\n" + vm.ConsoleOutput;
                         Dispatcher.BeginInvoke(() => CommandInputBox.Focus(), System.Windows.Threading.DispatcherPriority.Input);
                         e.Handled = true;
                         return;

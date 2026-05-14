@@ -91,16 +91,16 @@ namespace HotKeyCommandApp.ViewModels
         }
 
         public bool IsItemSelected => SelectedItem != null;
-        
+
 
         private CommandEntry? _currentParent;
         public CommandEntry? CurrentParent
         {
             get => _currentParent;
-            set 
-            { 
-                _currentParent = value; 
-                OnPropertyChanged(); 
+            set
+            {
+                _currentParent = value;
+                OnPropertyChanged();
                 OnPropertyChanged(nameof(IsWindowSwitcherMode));
                 OnPropertyChanged(nameof(IsNormalListMode));
             }
@@ -611,229 +611,229 @@ namespace HotKeyCommandApp.ViewModels
             try
             {
 
-            // 0. 動的に生成されたウィンドウアイテムの処理
-            if (command.WindowHandle != IntPtr.Zero)
-            {
-                _windowService.FocusWindow(command.WindowHandle);
-                RequestHide?.Invoke();
-                return;
-            }
-
-            // 1. Check for system buttons (ADD_BUTTON, search results, etc.)
-            if (command.IsSystemButton)
-            {
-
-                if (command.Value == "ADD_BUTTON")
+                // 0. 動的に生成されたウィンドウアイテムの処理
+                if (command.WindowHandle != IntPtr.Zero)
                 {
-                    RequestButtonCreation?.Invoke(null, WindowWidth, WindowHeight);
+                    _windowService.FocusWindow(command.WindowHandle);
+                    RequestHide?.Invoke();
                     return;
                 }
-                return;
-            }
 
-            // 1.5 特定のウィンドウ切替（動的階層生成）
-            if (command.Category == CommandCategory.WindowSwitcher && command.WindowHandle == IntPtr.Zero)
-            {
-                // すでにこのウィンドウ切替の一覧が表示されている場合は、選択を次に進める（連打対応）
-                if (ActiveWindowSwitcherCommand == command && WindowSwitcherItems.Any())
+                // 1. Check for system buttons (ADD_BUTTON, search results, etc.)
+                if (command.IsSystemButton)
                 {
-                    bool isShiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
-                    int idx = (SelectedWindowItem != null) ? WindowSwitcherItems.IndexOf(SelectedWindowItem) : -1;
-                    
-                    if (isShiftPressed)
+
+                    if (command.Value == "ADD_BUTTON")
                     {
-                        // 逆送り
-                        int nextIdx = (idx <= 0) ? WindowSwitcherItems.Count - 1 : idx - 1;
-                        SelectedWindowItem = WindowSwitcherItems[nextIdx];
-                    }
-                    else
-                    {
-                        // 順送り
-                        int nextIdx = (idx >= WindowSwitcherItems.Count - 1) ? 0 : idx + 1;
-                        SelectedWindowItem = WindowSwitcherItems[nextIdx];
+                        RequestButtonCreation?.Invoke(null, WindowWidth, WindowHeight);
+                        return;
                     }
                     return;
                 }
 
-                var windows = _windowService.GetVisibleWindowsByTitle(command.Value);
-                if (windows.Any())
+                // 1.5 特定のウィンドウ切替（動的階層生成）
+                if (command.Category == CommandCategory.WindowSwitcher && command.WindowHandle == IntPtr.Zero)
                 {
-                    var windowItems = windows.Select(w =>
+                    // すでにこのウィンドウ切替の一覧が表示されている場合は、選択を次に進める（連打対応）
+                    if (ActiveWindowSwitcherCommand == command && WindowSwitcherItems.Any())
                     {
-                        string displayName = w.Title;
-                        if (!string.IsNullOrWhiteSpace(command.Value))
-                        {
-                            var filterParts = command.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                            foreach (var part in filterParts)
-                            {
-                                int idx = displayName.IndexOf(part, StringComparison.OrdinalIgnoreCase);
-                                if (idx >= 0)
-                                {
-                                    displayName = displayName.Remove(idx, part.Length);
-                                }
-                            }
-                            // 前後の不要な記号や空白を掃除
-                            displayName = displayName.Trim(' ', '-', '—', '－', '|', '｜', '・', ':', '：');
-                        }
+                        bool isShiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+                        int idx = (SelectedWindowItem != null) ? WindowSwitcherItems.IndexOf(SelectedWindowItem) : -1;
 
-                        if (string.IsNullOrWhiteSpace(displayName)) displayName = w.Title;
-
-                        return new CommandEntry
-                        {
-                            Name = displayName,
-                            Value = w.Title,
-                            Category = CommandCategory.WindowSwitcher,
-                            WindowHandle = w.Handle,
-                            IconSource = w.Icon,
-                            WindowWidth = w.Width,
-                            WindowHeight = w.Height
-                        };
-                    }).ToList();
-
-                    // 切替専用プロパティを更新（通常プロパティは触らない）
-                    WindowSwitcherItems.Clear();
-                    foreach (var item in windowItems) WindowSwitcherItems.Add(item);
-                    ActiveWindowSwitcherCommand = command;
-                    
-                    // 現在のフォーカスウィンドウを取得（パレット自身がフォーカスされている場合はその後ろのウィンドウ）
-                    IntPtr foregroundHWnd = NativeMethods.GetForegroundWindow();
-                    uint foregroundPid;
-                    NativeMethods.GetWindowThreadProcessId(foregroundHWnd, out foregroundPid);
-                    uint myPid = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
-
-                    if (foregroundPid == myPid)
-                    {
-                        IntPtr prevWindow = foregroundHWnd;
-                        while ((prevWindow = NativeMethods.GetWindow(prevWindow, NativeMethods.GW_HWNDNEXT)) != IntPtr.Zero)
-                        {
-                            if (!NativeMethods.IsWindowVisible(prevWindow)) continue;
-                            uint pid;
-                            NativeMethods.GetWindowThreadProcessId(prevWindow, out pid);
-                            if (pid == myPid) continue;
-                            
-                            foregroundHWnd = NativeMethods.GetAncestor(prevWindow, NativeMethods.GA_ROOT);
-                            break;
-                        }
-                    }
-
-                    // 最初に対象を選択するか判定
-                    bool isShiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
-                    int initialIndex = 0;
-
-                    // 1つ目が現在のフォーカスウィンドウなら、順送りなら2つ目、逆送りなら最後を選択
-                    if (windowItems.Any() && windowItems[0].WindowHandle == foregroundHWnd)
-                    {
                         if (isShiftPressed)
                         {
-                            initialIndex = WindowSwitcherItems.Count - 1;
-                        }
-                        else if (WindowSwitcherItems.Count >= 2)
-                        {
-                            initialIndex = 1;
-                        }
-                    }
-                    else
-                    {
-                        // 現在のウィンドウがリストにない、または1つ目でない場合
-                        if (isShiftPressed)
-                        {
-                            initialIndex = WindowSwitcherItems.Count - 1;
+                            // 逆送り
+                            int nextIdx = (idx <= 0) ? WindowSwitcherItems.Count - 1 : idx - 1;
+                            SelectedWindowItem = WindowSwitcherItems[nextIdx];
                         }
                         else
                         {
-                            initialIndex = 0;
+                            // 順送り
+                            int nextIdx = (idx >= WindowSwitcherItems.Count - 1) ? 0 : idx + 1;
+                            SelectedWindowItem = WindowSwitcherItems[nextIdx];
                         }
+                        return;
                     }
 
-                    if (WindowSwitcherItems.Count > initialIndex)
+                    var windows = _windowService.GetVisibleWindowsByTitle(command.Value);
+                    if (windows.Any())
                     {
-                        SelectedWindowItem = WindowSwitcherItems[initialIndex];
+                        var windowItems = windows.Select(w =>
+                        {
+                            string displayName = w.Title;
+                            if (!string.IsNullOrWhiteSpace(command.Value))
+                            {
+                                var filterParts = command.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                                foreach (var part in filterParts)
+                                {
+                                    int idx = displayName.IndexOf(part, StringComparison.OrdinalIgnoreCase);
+                                    if (idx >= 0)
+                                    {
+                                        displayName = displayName.Remove(idx, part.Length);
+                                    }
+                                }
+                                // 前後の不要な記号や空白を掃除
+                                displayName = displayName.Trim(' ', '-', '—', '－', '|', '｜', '・', ':', '：');
+                            }
+
+                            if (string.IsNullOrWhiteSpace(displayName)) displayName = w.Title;
+
+                            return new CommandEntry
+                            {
+                                Name = displayName,
+                                Value = w.Title,
+                                Category = CommandCategory.WindowSwitcher,
+                                WindowHandle = w.Handle,
+                                IconSource = w.Icon,
+                                WindowWidth = w.Width,
+                                WindowHeight = w.Height
+                            };
+                        }).ToList();
+
+                        // 切替専用プロパティを更新（通常プロパティは触らない）
+                        WindowSwitcherItems.Clear();
+                        foreach (var item in windowItems) WindowSwitcherItems.Add(item);
+                        ActiveWindowSwitcherCommand = command;
+
+                        // 現在のフォーカスウィンドウを取得（パレット自身がフォーカスされている場合はその後ろのウィンドウ）
+                        IntPtr foregroundHWnd = NativeMethods.GetForegroundWindow();
+                        uint foregroundPid;
+                        NativeMethods.GetWindowThreadProcessId(foregroundHWnd, out foregroundPid);
+                        uint myPid = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+
+                        if (foregroundPid == myPid)
+                        {
+                            IntPtr prevWindow = foregroundHWnd;
+                            while ((prevWindow = NativeMethods.GetWindow(prevWindow, NativeMethods.GW_HWNDNEXT)) != IntPtr.Zero)
+                            {
+                                if (!NativeMethods.IsWindowVisible(prevWindow)) continue;
+                                uint pid;
+                                NativeMethods.GetWindowThreadProcessId(prevWindow, out pid);
+                                if (pid == myPid) continue;
+
+                                foregroundHWnd = NativeMethods.GetAncestor(prevWindow, NativeMethods.GA_ROOT);
+                                break;
+                            }
+                        }
+
+                        // 最初に対象を選択するか判定
+                        bool isShiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+                        int initialIndex = 0;
+
+                        // 1つ目が現在のフォーカスウィンドウなら、順送りなら2つ目、逆送りなら最後を選択
+                        if (windowItems.Any() && windowItems[0].WindowHandle == foregroundHWnd)
+                        {
+                            if (isShiftPressed)
+                            {
+                                initialIndex = WindowSwitcherItems.Count - 1;
+                            }
+                            else if (WindowSwitcherItems.Count >= 2)
+                            {
+                                initialIndex = 1;
+                            }
+                        }
+                        else
+                        {
+                            // 現在のウィンドウがリストにない、または1つ目でない場合
+                            if (isShiftPressed)
+                            {
+                                initialIndex = WindowSwitcherItems.Count - 1;
+                            }
+                            else
+                            {
+                                initialIndex = 0;
+                            }
+                        }
+
+                        if (WindowSwitcherItems.Count > initialIndex)
+                        {
+                            SelectedWindowItem = WindowSwitcherItems[initialIndex];
+                        }
+                        else
+                        {
+                            SelectedWindowItem = WindowSwitcherItems.FirstOrDefault();
+                        }
+
+                        // 専用ウィンドウの表示をリクエスト
+                        RequestWindowSwitcher?.Invoke(this, true); // true = Peek mode
+                        RequestSync?.Invoke();
+                        return;
                     }
                     else
                     {
-                        SelectedWindowItem = WindowSwitcherItems.FirstOrDefault();
+                        return;
+                    }
+                }
+
+                // 1.8 Check for Git operations
+                if (command.Category == CommandCategory.Git)
+                {
+                    RequestGitWindow?.Invoke(command);
+                    return;
+                }
+
+                // 2. Check for Menu and enter it
+                if (command.Category == CommandCategory.Hierarchy)
+                {
+                    if (command.Children == null) command.Children = new List<CommandEntry>();
+                    if (IsFileSearchMode) CancelInput(); // Exit search if navigating
+
+                    // 親階層の特定（現在の親の直下にあるメニューか判定）
+                    bool isChildOfCurrent = (CurrentParent == null)
+                        ? _rootCommands.Contains(command)
+                        : (CurrentParent.Children?.Contains(command) ?? false);
+
+                    if (isChildOfCurrent)
+                    {
+                        // 同一階層内または直下への移動なら通常どおりプッシュ
+                        _navigationHistory.Push((CurrentParent, SelectedItem, Title));
+                    }
+                    else
+                    {
+                        // ショートカットなどによるジャンプ時：
+                        // 実際の階層構造に合わせてナビゲーションスタックを再構築する
+                        ReconstructNavigationHistory(command);
                     }
 
-                    // 専用ウィンドウの表示をリクエスト
-                    RequestWindowSwitcher?.Invoke(this, true); // true = Peek mode
+                    UpdateDisplay(command.Children, command.Name, null, command);
+                    RequestShow?.Invoke();
+                    return;
+                }
+
+                // 3. Handle File Search
+                if (command.Behavior.IsFileSearchEnabled && !IsFileSearchMode)
+                {
+                    _targetFolderCommand = command;
+                    _preSearchCommands = DisplayCommands.ToList();
+                    IsFileSearchMode = true;
+                    InputPrompt = $"[{command.Name}] 内を検索:";
+                    InputText = string.Empty;
+                    IsInputMode = true;
                     RequestSync?.Invoke();
                     return;
                 }
-                else
+
+                // 4. Handle RequiresArgument (Modal Dialog)
+                if (command.Behavior.RequiresArgument)
                 {
+                    string? argument = RequestArgumentInput?.Invoke(command, $"[{command.Name}] の引数を入力してください:（右キーで引数追加）");
+                    if (argument == null) return; // Canceled
+
+                    // Update history
+                    if (!string.IsNullOrWhiteSpace(argument))
+                    {
+                        command.ArgumentsHistory.Remove(argument); // Remove duplicate if exists
+                        command.ArgumentsHistory.Insert(0, argument);
+                        if (command.ArgumentsHistory.Count > 10) // Limit to 10 items
+                        {
+                            command.ArgumentsHistory.RemoveAt(command.ArgumentsHistory.Count - 1);
+                        }
+                        _configService.SaveCommands(_rootCommands);
+                    }
+
+                    RunActionAndHandleVisibility(command, argument);
                     return;
                 }
-            }
-
-            // 1.8 Check for Git operations
-            if (command.Category == CommandCategory.Git)
-            {
-                RequestGitWindow?.Invoke(command);
-                return;
-            }
-
-            // 2. Check for Menu and enter it
-            if (command.Category == CommandCategory.Hierarchy)
-            {
-                if (command.Children == null) command.Children = new List<CommandEntry>();
-                if (IsFileSearchMode) CancelInput(); // Exit search if navigating
-
-                // 親階層の特定（現在の親の直下にあるメニューか判定）
-                bool isChildOfCurrent = (CurrentParent == null)
-                    ? _rootCommands.Contains(command)
-                    : (CurrentParent.Children?.Contains(command) ?? false);
-
-                if (isChildOfCurrent)
-                {
-                    // 同一階層内または直下への移動なら通常どおりプッシュ
-                    _navigationHistory.Push((CurrentParent, SelectedItem, Title));
-                }
-                else
-                {
-                    // ショートカットなどによるジャンプ時：
-                    // 実際の階層構造に合わせてナビゲーションスタックを再構築する
-                    ReconstructNavigationHistory(command);
-                }
-
-                UpdateDisplay(command.Children, command.Name, null, command);
-                RequestShow?.Invoke();
-                return;
-            }
-
-            // 3. Handle File Search
-            if (command.Behavior.IsFileSearchEnabled && !IsFileSearchMode)
-            {
-                _targetFolderCommand = command;
-                _preSearchCommands = DisplayCommands.ToList();
-                IsFileSearchMode = true;
-                InputPrompt = $"[{command.Name}] 内を検索:";
-                InputText = string.Empty;
-                IsInputMode = true;
-                RequestSync?.Invoke();
-                return;
-            }
-
-            // 4. Handle RequiresArgument (Modal Dialog)
-            if (command.Behavior.RequiresArgument)
-            {
-                string? argument = RequestArgumentInput?.Invoke(command, $"[{command.Name}] の引数を入力してください:");
-                if (argument == null) return; // Canceled
-
-                // Update history
-                if (!string.IsNullOrWhiteSpace(argument))
-                {
-                    command.ArgumentsHistory.Remove(argument); // Remove duplicate if exists
-                    command.ArgumentsHistory.Insert(0, argument);
-                    if (command.ArgumentsHistory.Count > 10) // Limit to 10 items
-                    {
-                        command.ArgumentsHistory.RemoveAt(command.ArgumentsHistory.Count - 1);
-                    }
-                    _configService.SaveCommands(_rootCommands);
-                }
-
-                RunActionAndHandleVisibility(command, argument);
-                return;
-            }
 
                 // 5. Run the actual action
                 RunActionAndHandleVisibility(command);
@@ -1376,7 +1376,7 @@ namespace HotKeyCommandApp.ViewModels
                 if (ReplaceCommandInHierarchy(_rootCommands, originalCommand, command))
                 {
                     _configService.SaveCommands(_rootCommands);
-                    
+
                     // 現在表示中のリストも更新
                     var currentList = DisplayCommands.ToList();
                     int index = currentList.IndexOf(originalCommand);
@@ -1446,7 +1446,7 @@ namespace HotKeyCommandApp.ViewModels
                 _targetFolderCommand = null;
                 UpdateDisplay(_preSearchCommands, Title, null, CurrentParent);
             }
-            
+
             IsInputMode = false;
             OnPropertyChanged(nameof(IsListBoxVisible));
             RequestSync?.Invoke();

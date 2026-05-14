@@ -49,7 +49,6 @@ namespace HotKeyCommandApp.Views
 
             if (_fixedArgumentCount > 0)
             {
-                AddArgumentButton.Visibility = Visibility.Collapsed;
                 for (int i = 0; i < _fixedArgumentCount; i++)
                 {
                     AddNewTextBox(focus: i == 0);
@@ -101,7 +100,7 @@ namespace HotKeyCommandApp.Views
                 FontSize = 15,
                 CaretBrush = System.Windows.Media.Brushes.White,
                 VerticalContentAlignment = VerticalAlignment.Center,
-                AcceptsReturn = false,
+                AcceptsReturn = true,
                 MinWidth = 40,
                 Text = text
             };
@@ -151,8 +150,7 @@ namespace HotKeyCommandApp.Views
                     }
                     else if (_fixedArgumentCount == 0)
                     {
-                        AddArgumentButton.Focus();
-                        AddArgumentButton.BringIntoView();
+                        AddNewTextBox(focus: true);
                         e.Handled = true;
                     }
                 }
@@ -161,7 +159,20 @@ namespace HotKeyCommandApp.Views
             {
                 if (tb.CaretIndex == 0 && tb.SelectionLength == 0)
                 {
-                    if (index > 0)
+                    if (index == _textBoxes.Count - 1 && tb.Text.Length == 0 && _fixedArgumentCount == 0 && _textBoxes.Count > 1)
+                    {
+                        var prevTb = _textBoxes[index - 1];
+                        _textBoxes.Remove(tb);
+                        InputsStackPanel.Children.Remove(tb);
+                        
+                        UpdateTextBoxWidths();
+
+                        prevTb.Focus();
+                        prevTb.CaretIndex = prevTb.Text.Length;
+                        prevTb.BringIntoView();
+                        e.Handled = true;
+                    }
+                    else if (index > 0)
                     {
                         var prevTb = _textBoxes[index - 1];
                         prevTb.Focus();
@@ -192,8 +203,7 @@ namespace HotKeyCommandApp.Views
                 }
                 else if (_fixedArgumentCount == 0)
                 {
-                    AddArgumentButton.Focus();
-                    AddArgumentButton.BringIntoView();
+                    AddNewTextBox(focus: true);
                     e.Handled = true;
                 }
             }
@@ -226,15 +236,10 @@ namespace HotKeyCommandApp.Views
             }
         }
 
-        private void AddArgumentButton_Click(object sender, RoutedEventArgs e)
-        {
-            AddNewTextBox(focus: true);
-        }
-
         private string BuildArgumentsString()
         {
             var args = _textBoxes.Select(tb => tb.Text).Where(t => !string.IsNullOrEmpty(t)).ToList();
-            var escapedArgs = args.Select(a => a.Contains(" ") ? $"\"{a}\"" : a);
+            var escapedArgs = args.Select(a => (a.Contains(" ") || a.Contains("\n") || a.Contains("\r")) ? $"\"{a}\"" : a);
             return string.Join(" ", escapedArgs);
         }
 
@@ -274,10 +279,18 @@ namespace HotKeyCommandApp.Views
         {
             if (e.Key == Key.Enter)
             {
-                // If Add button is focused, let it handle Enter (it generates Click)
-                if (AddArgumentButton.IsFocused)
+                bool isShiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+                if (isShiftPressed)
                 {
-                    return;
+                    var focusedTextBox = Keyboard.FocusedElement as TextBox;
+                    if (focusedTextBox != null && _textBoxes.Contains(focusedTextBox))
+                    {
+                        int caret = focusedTextBox.CaretIndex;
+                        focusedTextBox.Text = focusedTextBox.Text.Insert(caret, Environment.NewLine);
+                        focusedTextBox.CaretIndex = caret + Environment.NewLine.Length;
+                        e.Handled = true;
+                        return;
+                    }
                 }
 
                 if (HistoryListBox.SelectedIndex >= 0 && HistoryListBox.SelectedItem != null)
@@ -351,21 +364,6 @@ namespace HotKeyCommandApp.Views
                         HistoryListBox.SelectedIndex = prev;
                         if (prev >= 0) HistoryListBox.ScrollIntoView(HistoryListBox.SelectedItem);
                     }
-                    e.Handled = true;
-                }
-            }
-            else if (e.Key == Key.Right && AddArgumentButton.IsFocused)
-            {
-                e.Handled = true; // Stay on button
-            }
-            else if ((e.Key == Key.Left || e.Key == Key.PageUp || e.Key == Key.Home) && AddArgumentButton.IsFocused)
-            {
-                if (_textBoxes.Count > 0)
-                {
-                    var lastTb = _textBoxes.Last();
-                    lastTb.Focus();
-                    lastTb.CaretIndex = lastTb.Text.Length;
-                    lastTb.BringIntoView();
                     e.Handled = true;
                 }
             }
