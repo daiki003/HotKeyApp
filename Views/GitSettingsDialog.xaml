@@ -73,7 +73,7 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="Git コマンド設定" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+                <TextBlock Text="Git 設定" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
                 <Button Grid.Column="1" Content="git_settings.jsonを開く" Style="{StaticResource ActionButtonStyle}" Background="#333333" Padding="8,4" FontSize="12" Click="OpenGitSettings_Click" VerticalAlignment="Center"/>
             </Grid>
 
@@ -83,14 +83,44 @@
                         <Setter Property="Background" Value="#2D2D30"/>
                         <Setter Property="Foreground" Value="#888888"/>
                         <Setter Property="Margin" Value="0,0,2,0"/>
-                        <Setter Property="Padding" Value="10,5"/>
+                        <Setter Property="Padding" Value="12,6"/>
                         <Setter Property="BorderThickness" Value="0"/>
-                        <Style.Triggers>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="#1E1E1E"/>
-                                <Setter Property="Foreground" Value="#A0C4E2"/>
-                            </Trigger>
-                        </Style.Triggers>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="TabItem">
+                                    <Border x:Name="Border" 
+                                            Background="{TemplateBinding Background}" 
+                                            BorderThickness="{TemplateBinding BorderThickness}" 
+                                            BorderBrush="{TemplateBinding BorderBrush}" 
+                                            Padding="{TemplateBinding Padding}" 
+                                            CornerRadius="4,4,0,0">
+                                        <ContentPresenter x:Name="ContentSite"
+                                                          ContentSource="Header"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center"
+                                                          RecognizesAccessKey="True"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="Border" Property="Background" Value="#3E3E42"/>
+                                            <Setter Property="Foreground" Value="#A0C4E2"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Border" Property="Background" Value="#333337"/>
+                                            <Setter Property="Foreground" Value="#D4D4D4"/>
+                                        </Trigger>
+                                        <MultiTrigger>
+                                            <MultiTrigger.Conditions>
+                                                <Condition Property="IsSelected" Value="True"/>
+                                                <Condition Property="IsMouseOver" Value="True"/>
+                                            </MultiTrigger.Conditions>
+                                            <Setter TargetName="Border" Property="Background" Value="#3E3E42"/>
+                                            <Setter Property="Foreground" Value="#A0C4E2"/>
+                                        </MultiTrigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
                     </Style>
                 </TabControl.Resources>
 
@@ -105,29 +135,35 @@
 
                         <Grid Margin="0,0,10,5">
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="24"/>
                                 <ColumnDefinition Width="150"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="50"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="エイリアス名" Foreground="#AAAAAA" />
-                            <TextBlock Text="実行コマンド" Foreground="#AAAAAA" Grid.Column="1" Margin="10,0,0,0" />
+                            <TextBlock Grid.Column="1" Text="エイリアス名" Foreground="#AAAAAA" />
+                            <TextBlock Grid.Column="2" Text="実行コマンド" Foreground="#AAAAAA" Margin="10,0,0,0" />
                         </Grid>
 
                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                             <ItemsControl x:Name="AliasesItemsControl">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Grid Margin="0,0,10,5">
+                                        <Grid Margin="0,0,10,5" AllowDrop="True" DragOver="Row_DragOver" Drop="Row_Drop">
                                             <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="24"/>
                                                 <ColumnDefinition Width="150"/>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="50"/>
                                             </Grid.ColumnDefinitions>
                                             
-                                            <TextBox Text="{Binding Alias, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource AliasTextBoxStyle}" />
-                                            <TextBox Text="{Binding TargetCommand, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource AliasTextBoxStyle}" Grid.Column="1" Margin="10,0,0,0" />
+                                            <TextBlock Text="☰" Foreground="#666666" VerticalAlignment="Center" HorizontalAlignment="Center" Cursor="SizeAll" 
+                                                       PreviewMouseLeftButtonDown="DragHandle_PreviewMouseLeftButtonDown"
+                                                       PreviewMouseMove="DragHandle_PreviewMouseMove"/>
                                             
-                                            <Button Content="削除" Grid.Column="2" Margin="10,0,0,0" Style="{StaticResource InlineDeleteButtonStyle}" Click="DeleteAliasInline_Click" />
+                                            <TextBox Grid.Column="1" Text="{Binding Alias, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource AliasTextBoxStyle}" />
+                                            <TextBox Grid.Column="2" Text="{Binding TargetCommand, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource AliasTextBoxStyle}" Margin="10,0,0,0" />
+                                            
+                                            <Button Content="削除" Grid.Column="3" Margin="10,0,0,0" Style="{StaticResource InlineDeleteButtonStyle}" Click="DeleteAliasInline_Click" />
                                         </Grid>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
@@ -161,6 +197,56 @@
                             <Button Content="新規追加" Style="{StaticResource ActionButtonStyle}" Background="#007ACC" Click="AddFunction_Click" Margin="0,0,0,10"/>
                             <Button Content="削除" Style="{StaticResource ActionButtonStyle}" Background="#A80000" Click="DeleteFunction_Click"/>
                         </StackPanel>
+                    </Grid>
+                </TabItem>
+
+                <!-- リポジトリ名 タブ -->
+                <TabItem Header="リポジトリ名">
+                    <Grid Margin="0,10,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <Grid Margin="0,0,10,5">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="24"/>
+                                <ColumnDefinition Width="250"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="50"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="1" Text="リポジトリパス" Foreground="#AAAAAA" />
+                            <TextBlock Grid.Column="2" Text="表示名" Foreground="#AAAAAA" Margin="10,0,0,0" />
+                        </Grid>
+
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl x:Name="MappingsItemsControl">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,10,5" AllowDrop="True" DragOver="Row_DragOver" Drop="Row_Drop">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="24"/>
+                                                <ColumnDefinition Width="250"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="50"/>
+                                            </Grid.ColumnDefinitions>
+                                            
+                                            <TextBlock Text="☰" Foreground="#666666" VerticalAlignment="Center" HorizontalAlignment="Center" Cursor="SizeAll" 
+                                                       PreviewMouseLeftButtonDown="DragHandle_PreviewMouseLeftButtonDown"
+                                                       PreviewMouseMove="DragHandle_PreviewMouseMove"/>
+                                            
+                                            <TextBox Grid.Column="1" Text="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource AliasTextBoxStyle}" />
+                                            <TextBox Grid.Column="2" Text="{Binding OverwrittenName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource AliasTextBoxStyle}" Margin="10,0,0,0" />
+                                            
+                                            <Button Content="削除" Grid.Column="3" Margin="10,0,0,0" Style="{StaticResource InlineDeleteButtonStyle}" Click="DeleteMappingInline_Click" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+
+                        <Button x:Name="AddMappingButton" Grid.Row="2" Content="新規追加" Style="{StaticResource ActionButtonStyle}" Background="#007ACC" HorizontalAlignment="Left" Margin="0,10,0,0" Click="AddMapping_Click" />
                     </Grid>
                 </TabItem>
             </TabControl>

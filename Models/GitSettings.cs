@@ -22,6 +22,8 @@ namespace HotKeyCommandApp.Models
                 Commands = new List<string> { "git add .", "git commit -m \"{0}\"", "git push" }
             }
         };
+
+        public List<RepositoryNameMapping> RepositoryNameMappings { get; set; } = new();
     }
 
     public class GitAliasEntry
@@ -35,5 +37,12 @@ namespace HotKeyCommandApp.Models
         public string Name { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
         public List<string> Commands { get; set; } = new();
+    }
+
+    public class RepositoryNameMapping
+    {
+        public string Path { get; set; } = string.Empty;
+        public string OverwrittenName { get; set; } = string.Empty;
+        public string BaseBranch { get; set; } = string.Empty;
     }
 }

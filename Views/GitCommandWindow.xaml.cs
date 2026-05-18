@@ -90,8 +90,27 @@ namespace HotKeyCommandApp.Views
             };
         }
 
+        private DateTime _lastShiftPressTime = DateTime.MinValue;
+
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.LeftShift || e.Key == Key.RightShift)
+            {
+                var now = DateTime.Now;
+                if ((now - _lastShiftPressTime).TotalMilliseconds <= 400)
+                {
+                    if (DataContext is GitCommandViewModel vmMove && !vmMove.IsMoveMode)
+                    {
+                        vmMove.IsMoveMode = true;
+                        vmMove.SetConsoleOutput("ウィンドウ移動モード", "・矢印: ウィンドウ移動\n・Shift+矢印: サイズ変更\n・Esc: 移動モード終了");
+                        e.Handled = true;
+                        _lastShiftPressTime = DateTime.MinValue;
+                        return;
+                    }
+                }
+                _lastShiftPressTime = now;
+            }
+
             if (DataContext is GitCommandViewModel vm)
             {
                 if (vm.IsHistoryMode)
@@ -128,7 +147,7 @@ namespace HotKeyCommandApp.Views
                         return;
                     }
 
-                    if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control | ModifierKeys.Shift))
+                    if (Keyboard.Modifiers == ModifierKeys.Shift)
                     {
                         const double step = 10.0;
                         if (e.Key == Key.Left)
@@ -156,7 +175,7 @@ namespace HotKeyCommandApp.Views
                             return;
                         }
                     }
-                    else if (Keyboard.Modifiers == ModifierKeys.Control)
+                    else if (Keyboard.Modifiers == ModifierKeys.None)
                     {
                         if (e.Key == Key.Left || e.Key == Key.Right || e.Key == Key.Up || e.Key == Key.Down)
                         {
@@ -239,7 +258,7 @@ namespace HotKeyCommandApp.Views
 
             if (deltaTime > 0.1) deltaTime = 0.1;
 
-            if (Keyboard.Modifiers == ModifierKeys.Control)
+            if (!Keyboard.IsKeyDown(Key.LeftShift) && !Keyboard.IsKeyDown(Key.RightShift))
             {
                 double speed = vm.MovementSpeed;
                 double distance = speed * deltaTime;

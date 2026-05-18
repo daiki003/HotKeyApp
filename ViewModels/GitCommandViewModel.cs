@@ -90,6 +90,13 @@ namespace HotKeyCommandApp.ViewModels
             set { _repositoryName = value; OnPropertyChanged(); }
         }
 
+        private string _parentBranch = string.Empty;
+        public string ParentBranch
+        {
+            get => _parentBranch;
+            set { _parentBranch = value; OnPropertyChanged(); }
+        }
+
         private string _currentBranch = string.Empty;
         public string CurrentBranch
         {
@@ -124,8 +131,17 @@ namespace HotKeyCommandApp.ViewModels
 
             try
             {
-                RepositoryName = new DirectoryInfo(_repositoryPath).Name;
+                var mapping = _gitSettingsManager.CurrentSettings.RepositoryNameMappings.FirstOrDefault(m => string.Equals(m.Path, _repositoryPath, StringComparison.OrdinalIgnoreCase));
+                if (mapping != null && !string.IsNullOrWhiteSpace(mapping.OverwrittenName))
+                {
+                    RepositoryName = mapping.OverwrittenName;
+                }
+                else
+                {
+                    RepositoryName = new DirectoryInfo(_repositoryPath).Name;
+                }
                 CurrentBranch = RunGitCommand("branch --show-current");
+                ParentBranch = mapping != null ? mapping.BaseBranch : string.Empty;
 
                 string status = RunGitCommand("status -s");
                 SetConsoleOutput("Git Status", string.IsNullOrWhiteSpace(status) ? "変更はありません" : status);
@@ -213,13 +229,41 @@ namespace HotKeyCommandApp.ViewModels
                 }
             }
 
-            // 展開後の文字列でアプリ独自コマンドを検知
-            if (string.Equals(input, "move", StringComparison.OrdinalIgnoreCase))
+            // 展開後の文字列で {base} プレースホルダーをベースブランチ名に置換
+            if (input.Contains("{base}"))
             {
-                IsMoveMode = true;
-                SetConsoleOutput("ウィンドウ移動モード", "・Ctrl+矢印: ウィンドウ移動\n・Ctrl+Shift+矢印: サイズ変更\n・Esc: 移動モード終了");
+                string baseBranch = string.IsNullOrWhiteSpace(ParentBranch) ? "main" : ParentBranch;
+                input = input.Replace("{base}", baseBranch);
+            }
+
+            if (input.StartsWith("base ", StringComparison.OrdinalIgnoreCase))
+            {
+                string targetBase = input.Substring(5).Trim();
+                if (!string.IsNullOrWhiteSpace(targetBase))
+                {
+                    ParentBranch = targetBase;
+                    
+                    var mapping = _gitSettingsManager.CurrentSettings.RepositoryNameMappings.FirstOrDefault(m => string.Equals(m.Path, _repositoryPath, StringComparison.OrdinalIgnoreCase));
+                    if (mapping != null)
+                    {
+                        mapping.BaseBranch = targetBase;
+                    }
+                    else
+                    {
+                        _gitSettingsManager.CurrentSettings.RepositoryNameMappings.Add(new RepositoryNameMapping
+                        {
+                            Path = _repositoryPath,
+                            BaseBranch = targetBase
+                        });
+                    }
+                    _gitSettingsManager.SaveSettings();
+
+                    SetConsoleOutput("ベースブランチ設定", $"ベースブランチを '{ParentBranch}' に設定しました。(設定ファイルに保存されました)");
+                }
                 return;
             }
+
+
 
             if (string.Equals(input, "front", StringComparison.OrdinalIgnoreCase))
             {
@@ -386,7 +430,40 @@ namespace HotKeyCommandApp.ViewModels
 
                         string command = commandToRun.TrimStart();
 
-                        // 移動コマンド (cd または repo) のインターセプト
+                        // 展開後の文字列で {base} プレースホルダーをベースブランチ名に置換
+                        if (command.Contains("{base}"))
+                        {
+                            string baseBranch = string.IsNullOrWhiteSpace(ParentBranch) ? "main" : ParentBranch;
+                            command = command.Replace("{base}", baseBranch);
+                        }
+
+                        if (command.StartsWith("base ", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string targetBase = command.Substring(5).Trim();
+                            if (!string.IsNullOrWhiteSpace(targetBase))
+                            {
+                                ParentBranch = targetBase;
+                                
+                                var mapping = _gitSettingsManager.CurrentSettings.RepositoryNameMappings.FirstOrDefault(m => string.Equals(m.Path, _repositoryPath, StringComparison.OrdinalIgnoreCase));
+                                if (mapping != null)
+                                {
+                                    mapping.BaseBranch = targetBase;
+                                }
+                                else
+                                {
+                                    _gitSettingsManager.CurrentSettings.RepositoryNameMappings.Add(new RepositoryNameMapping
+                                    {
+                                        Path = _repositoryPath,
+                                        BaseBranch = targetBase
+                                    });
+                                }
+                                _gitSettingsManager.SaveSettings();
+
+                                finalOutput += $"[ベースブランチ設定] ベースブランチを '{ParentBranch}' に設定しました。(設定ファイルに保存されました)\n";
+                            }
+                            continue; // 外部プロセスの起動はスキップして次のコマンドへ
+                        }
+
                         if (command.StartsWith("cd ", StringComparison.OrdinalIgnoreCase) || 
                             command.StartsWith("repo ", StringComparison.OrdinalIgnoreCase))
                         {
@@ -489,6 +566,45 @@ namespace HotKeyCommandApp.ViewModels
             }
             catch { }
             return "unknown";
+        }
+
+        private string GetParentBranch(string currentBranch)
+        {
+            if (string.IsNullOrEmpty(currentBranch)) return string.Empty;
+            string output = RunGitCommand("log -n 50 --decorate --simplify-by-decoration --oneline --no-color");
+            if (string.IsNullOrWhiteSpace(output)) return string.Empty;
+
+            var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var line in lines)
+            {
+                int start = line.IndexOf('(');
+                int end = line.IndexOf(')');
+                if (start > 0 && end > start)
+                {
+                    string decor = line.Substring(start + 1, end - start - 1);
+                    var parts = decor.Split(',').Select(p => p.Trim());
+                    var branches = new List<string>();
+                    foreach (var part in parts)
+                    {
+                        var branch = part;
+                        if (branch.StartsWith("HEAD -> "))
+                            branch = branch.Substring(8).Trim();
+                        if (branch.StartsWith("origin/"))
+                            continue;
+                        if (branch == "HEAD" || branch == currentBranch)
+                            continue;
+                        if (branch.Contains("tag: "))
+                            continue;
+
+                        branches.Add(branch);
+                    }
+                    if (branches.Count > 0)
+                    {
+                        return branches.First();
+                    }
+                }
+            }
+            return string.Empty;
         }
 
         public void NavigateHistory(bool up)

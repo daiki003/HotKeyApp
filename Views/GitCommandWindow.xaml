@@ -40,12 +40,28 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="{Binding RepositoryName}" Foreground="White" FontSize="16" FontWeight="Bold" VerticalAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding RepositoryName}" Foreground="White" FontSize="16" FontWeight="Bold"/>
+                    <TextBlock Text="{Binding ParentBranch, StringFormat='(Base: {0})'}" Foreground="#888888" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Bottom">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ParentBranch}" Value="">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
                 <Button Grid.Column="1" Click="SettingsButton_Click" Background="Transparent" BorderThickness="0" Padding="5" Cursor="Hand" ToolTip="Git設定 (Ctrl+,)">
                     <TextBlock Text="⚙" Foreground="#888888" FontSize="16"/>
                 </Button>
             </Grid>
-            <TextBlock Grid.Row="1" Text="{Binding CurrentBranch}" Foreground="#007ACC" FontSize="12" FontWeight="SemiBold" Margin="0,2,0,10"/>
+            <StackPanel Grid.Row="1" Margin="0,2,0,10">
+                <TextBlock Text="{Binding CurrentBranch}" Foreground="#007ACC" FontSize="14" FontWeight="SemiBold" />
+            </StackPanel>
             
             <Border Grid.Row="2" Background="#121212" CornerRadius="4" BorderBrush="#2D2D2D" BorderThickness="1" Margin="0,0,0,12" Padding="8">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
