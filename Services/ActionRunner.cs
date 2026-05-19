@@ -14,7 +14,19 @@ namespace HotKeyCommandApp.Services
         {
             try
             {
+                var configService = new ConfigService();
+                var settings = configService.LoadSettings();
+                var constants = settings?.Constants ?? new List<ConstantEntry>();
+
                 string value = command.Value ?? string.Empty;
+                value = ConstantReplacer.ReplaceConstants(value, constants);
+
+                string? appPath = command.AppPath;
+                if (!string.IsNullOrEmpty(appPath))
+                {
+                    appPath = ConstantReplacer.ReplaceConstants(appPath, constants);
+                }
+
                 bool wasReplaced = false;
 
                 // {0}などのプレースホルダーが含まれる場合は置換を行う（モードに関わらず）
@@ -56,11 +68,11 @@ namespace HotKeyCommandApp.Services
                     // アプリそのものを起動しようとしているか、または特定のファイル/フォルダを開こうとしているかを判定
                     bool isOpeningAppItself = string.IsNullOrEmpty(value) || 
                                               (value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && 
-                                               (string.IsNullOrEmpty(command.AppPath) || string.Equals(value, command.AppPath, StringComparison.OrdinalIgnoreCase)));
+                                               (string.IsNullOrEmpty(appPath) || string.Equals(value, appPath, StringComparison.OrdinalIgnoreCase)));
 
                     if (isOpeningAppItself)
                     {
-                        if (!string.IsNullOrEmpty(command.AppPath) && _windowService.ActivateWindowByProcessPath(command.AppPath))
+                        if (!string.IsNullOrEmpty(appPath) && _windowService.ActivateWindowByProcessPath(appPath))
                         {
                             return true;
                         }
@@ -77,8 +89,8 @@ namespace HotKeyCommandApp.Services
                             }
                         }
 
-                        string titleToMatch = !string.IsNullOrEmpty(command.AppPath) 
-                            ? System.IO.Path.GetFileNameWithoutExtension(command.AppPath) 
+                        string titleToMatch = !string.IsNullOrEmpty(appPath) 
+                            ? System.IO.Path.GetFileNameWithoutExtension(appPath) 
                             : System.IO.Path.GetFileNameWithoutExtension(value);
 
                         if (!string.IsNullOrEmpty(titleToMatch) && _windowService.ActivateWindowByTitle(titleToMatch) > 0)
@@ -95,7 +107,7 @@ namespace HotKeyCommandApp.Services
                     }
                 }
 
-                var psi = CreateProcessStartInfo(command, value, argument, wasReplaced);
+                var psi = CreateProcessStartInfo(command, value, appPath, argument, wasReplaced);
 
                 if (psi != null && !string.IsNullOrEmpty(psi.FileName))
                 {
@@ -110,16 +122,16 @@ namespace HotKeyCommandApp.Services
             }
         }
 
-        private ProcessStartInfo? CreateProcessStartInfo(CommandEntry command, string value, string? argument, bool wasReplaced)
+        private ProcessStartInfo? CreateProcessStartInfo(CommandEntry command, string value, string? appPath, string? argument, bool wasReplaced)
         {
             if (command.Category == CommandCategory.Hierarchy) return null;
 
             var psi = new ProcessStartInfo { UseShellExecute = true };
 
             // 起動先の設定
-            if (!string.IsNullOrEmpty(command.AppPath))
+            if (!string.IsNullOrEmpty(appPath))
             {
-                psi.FileName = command.AppPath;
+                psi.FileName = appPath;
                 // ファイル/フォルダ系かつAppPathがある場合は -n を付与（とりあえずUseWindowFocusLogicがONなら付与とする）
                 string args = (command.Behavior.UseWindowFocusLogic ? "-n " : "") + $"\"{value}\"";
                 

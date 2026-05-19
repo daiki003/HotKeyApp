@@ -189,27 +189,37 @@ namespace HotKeyCommandApp.ViewModels
                 {
                     string targetCmd = matchedAlias.TargetCommand;
                     bool hasPlaceholder = false;
+                    int maxPlaceholderIndex = -1;
                     for (int i = 0; i < 10; i++)
                     {
                         if (targetCmd.Contains($"{{{i}}}"))
                         {
                             hasPlaceholder = true;
-                            break;
+                            if (i > maxPlaceholderIndex)
+                            {
+                                maxPlaceholderIndex = i;
+                            }
                         }
                     }
 
+                    List<string> parsedArgs = string.IsNullOrWhiteSpace(cmdArgs) ? new List<string>() : ParseArguments(cmdArgs);
+
                     if (hasPlaceholder)
                     {
-                        var tempCommand = new CommandEntry
+                        if (parsedArgs.Count < maxPlaceholderIndex + 1)
                         {
-                            Name = matchedAlias.Alias,
-                            Value = targetCmd
-                        };
+                            var tempCommand = new CommandEntry
+                            {
+                                Name = matchedAlias.Alias,
+                                Value = targetCmd
+                            };
 
-                        string? argString = RequestArgumentInput?.Invoke(tempCommand, $"[{matchedAlias.Alias}] の引数を入力してください:");
-                        if (argString == null) return; // ユーザーがキャンセルした場合は実行中断
+                            string? argString = RequestArgumentInput?.Invoke(tempCommand, $"[{matchedAlias.Alias}] の引数を入力してください:");
+                            if (argString == null) return; // ユーザーがキャンセルした場合は実行中断
 
-                        var parsedArgs = ParseArguments(argString);
+                            parsedArgs = ParseArguments(argString);
+                        }
+
                         for (int i = 0; i < 10; i++)
                         {
                             string placeholder = $"{{{i}}}";
@@ -315,7 +325,10 @@ namespace HotKeyCommandApp.ViewModels
             }
 
             // 通常の OS コマンドとしてそのまま実行する (git の自動付与なし)
-            string command = input;
+            var configService = new ConfigService();
+            var appSettings = configService.LoadSettings();
+            var constants = appSettings?.Constants ?? new List<ConstantEntry>();
+            string command = ConstantReplacer.ReplaceConstants(input, constants);
             ConsoleOutput = $"[{command}]\n実行中... (Running...)";
 
             try
@@ -391,9 +404,41 @@ namespace HotKeyCommandApp.ViewModels
 
         private async Task ExecuteGitFunctionAsync(GitFunctionEntry function, string cmdArgs)
         {
+            bool hasPlaceholder = false;
+            int maxPlaceholderIndex = -1;
+            foreach (var cmdTemplate in function.Commands)
+            {
+                for (int i = 0; i < 10; i++)
+                {
+                    if (cmdTemplate.Contains($"{{{i}}}"))
+                    {
+                        hasPlaceholder = true;
+                        if (i > maxPlaceholderIndex)
+                        {
+                            maxPlaceholderIndex = i;
+                        }
+                    }
+                }
+            }
+
+            List<string> parsedArgs = string.IsNullOrWhiteSpace(cmdArgs) ? new List<string>() : ParseArguments(cmdArgs);
+
+            if (hasPlaceholder && parsedArgs.Count < maxPlaceholderIndex + 1)
+            {
+                var tempCommand = new CommandEntry
+                {
+                    Name = function.Name,
+                    Value = string.Join("\n", function.Commands)
+                };
+
+                string? argString = RequestArgumentInput?.Invoke(tempCommand, $"[{function.Name}] の引数を入力してください:");
+                if (argString == null) return; // キャンセルされた場合は実行中断
+
+                parsedArgs = ParseArguments(argString);
+            }
+
             SetConsoleOutput($"関数: {function.Name}", "実行中... (Running...)");
 
-            string[] args = cmdArgs.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             string finalOutput = "";
 
             try
@@ -418,17 +463,16 @@ namespace HotKeyCommandApp.ViewModels
                         }
 
                         // 置換 {0}, {1}... 
-                        for (int i = 0; i < args.Length; i++)
+                        for (int i = 0; i < 10; i++)
                         {
-                            commandToRun = commandToRun.Replace($"{{{i}}}", args[i]);
-                        }
-                        // 残りのプレースホルダーを空文字にするか引数全体で置換するなど
-                        if (commandToRun.Contains("{0}") && args.Length == 0)
-                        {
-                            commandToRun = commandToRun.Replace("{0}", cmdArgs);
+                            string replacement = i < parsedArgs.Count ? parsedArgs[i] : "";
+                            commandToRun = commandToRun.Replace($"{{{i}}}", replacement);
                         }
 
-                        string command = commandToRun.TrimStart();
+                        var configService = new ConfigService();
+                        var appSettings = configService.LoadSettings();
+                        var constants = appSettings?.Constants ?? new List<ConstantEntry>();
+                        string command = ConstantReplacer.ReplaceConstants(commandToRun.TrimStart(), constants);
 
                         // 展開後の文字列で {base} プレースホルダーをベースブランチ名に置換
                         if (command.Contains("{base}"))

@@ -30,11 +30,17 @@ namespace HotKeyCommandApp.Models
         /// <summary>アプリ選択画面に表示する登録済みアプリ一覧</summary>
         public List<RegisteredApp> RegisteredApps { get; set; } = new();
 
-        /// <summary>SlackのチームID履歴</summary>
+        /// <summary>Slack of Team ID history</summary>
         public List<string> SlackTeamIdHistory { get; set; } = new();
 
-        /// <summary>Gitウィンドウ内で利用できる独自のコマンドエイリアス</summary>
+        /// <summary>定数定義一覧</summary>
+        public List<ConstantEntry> Constants { get; set; } = new();
     }
 
-    /// <summary>Git独自のコマンドエイリアス情報</summary>
+    /// <summary>定数定義情報</summary>
+    public class ConstantEntry
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Value { get; set; } = string.Empty;
+    }
 }

@@ -362,6 +362,13 @@ namespace HotKeyCommandApp.ViewModels
             set { _editingButtonHeight = value; OnPropertyChanged(); }
         }
 
+        private ObservableCollection<ConstantEntry> _editingConstants = new();
+        public ObservableCollection<ConstantEntry> EditingConstants
+        {
+            get => _editingConstants;
+            set { _editingConstants = value; OnPropertyChanged(); }
+        }
+
 
 
         private ICommand? _executeCommand;
@@ -1668,6 +1675,9 @@ namespace HotKeyCommandApp.ViewModels
             EditingGlobalHotkey = GlobalHotkey;
             EditingSettingsShortcut = SettingsShortcut;
             EditingCreateButtonShortcut = CreateButtonShortcut;
+            EditingConstants = new ObservableCollection<ConstantEntry>(
+                (_appSettings.Constants ?? new System.Collections.Generic.List<ConstantEntry>()).Select(c => new ConstantEntry { Name = c.Name, Value = c.Value })
+            );
             IsCapturingHotkey = false;
             CaptureTarget = string.Empty;
             RequestSettings?.Invoke();
@@ -1684,6 +1694,7 @@ namespace HotKeyCommandApp.ViewModels
             GlobalHotkey = EditingGlobalHotkey;
             SettingsShortcut = EditingSettingsShortcut;
             CreateButtonShortcut = EditingCreateButtonShortcut;
+            _appSettings.Constants = EditingConstants.Select(c => new ConstantEntry { Name = c.Name, Value = c.Value }).ToList();
 
             _configService.SaveSettings(_appSettings);
             RequestSync?.Invoke();

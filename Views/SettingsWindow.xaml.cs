@@ -17,7 +17,8 @@ namespace HotKeyCommandApp.Views
             List,
             Size,
             Shortcuts,
-            Others
+            Others,
+            Constants
         }
 
         private SettingsPage _currentPage = SettingsPage.List;
@@ -43,6 +44,7 @@ namespace HotKeyCommandApp.Views
             SizePanel.Visibility = Visibility.Collapsed;
             ShortcutsPanel.Visibility = Visibility.Collapsed;
             OthersPanel.Visibility = Visibility.Collapsed;
+            ConstantsPanel.Visibility = Visibility.Collapsed;
             BackButton.Visibility = Visibility.Collapsed;
 
             if (page == SettingsPage.List)
@@ -79,6 +81,12 @@ namespace HotKeyCommandApp.Views
                     OthersPanel.Visibility = Visibility.Visible;
                     Dispatcher.BeginInvoke(new Action(() => { MovementSpeedTextBox.Focus(); MovementSpeedTextBox.SelectAll(); }), System.Windows.Threading.DispatcherPriority.Loaded);
                 }
+                else if (page == SettingsPage.Constants)
+                {
+                    TitleTextBlock.Text = "定数定義";
+                    ConstantsPanel.Visibility = Visibility.Visible;
+                    Dispatcher.BeginInvoke(new Action(() => { AddConstantButton.Focus(); }), System.Windows.Threading.DispatcherPriority.Loaded);
+                }
             }
         }
 
@@ -89,6 +97,7 @@ namespace HotKeyCommandApp.Views
                 if (tag == "Size") SwitchPage(SettingsPage.Size);
                 else if (tag == "Shortcuts") SwitchPage(SettingsPage.Shortcuts);
                 else if (tag == "Others") SwitchPage(SettingsPage.Others);
+                else if (tag == "Constants") SwitchPage(SettingsPage.Constants);
             }
         }
 
@@ -314,6 +323,19 @@ namespace HotKeyCommandApp.Views
             WindowHelper.DisableSystemMenu(this);
             WindowHelper.EnableWindowMoveShortcut(this, () => !_viewModel.IsCapturingHotkey);
             WindowHelper.EnableWindowDragMove(this);
+        }
+
+        private void AddConstant_Click(object sender, RoutedEventArgs e)
+        {
+            _viewModel.EditingConstants.Add(new HotKeyCommandApp.Models.ConstantEntry { Name = "NEW_CONSTANT", Value = "" });
+        }
+
+        private void DeleteConstant_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.DataContext is HotKeyCommandApp.Models.ConstantEntry entry)
+            {
+                _viewModel.EditingConstants.Remove(entry);
+            }
         }
     }
 }
