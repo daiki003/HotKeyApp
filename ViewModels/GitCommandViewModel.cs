@@ -371,17 +371,31 @@ namespace HotKeyCommandApp.ViewModels
                         string stdout = outTask.Result?.Trim() ?? string.Empty;
                         string stderr = errTask.Result?.Trim() ?? string.Empty;
 
+                        string details = string.Empty;
                         if (!string.IsNullOrEmpty(stdout) && !string.IsNullOrEmpty(stderr))
                         {
-                            resultOutput = stdout + "\n" + stderr;
+                            details = stdout + "\n" + stderr;
                         }
                         else if (!string.IsNullOrEmpty(stdout))
                         {
-                            resultOutput = stdout;
+                            details = stdout;
                         }
                         else
                         {
-                            resultOutput = stderr;
+                            details = stderr;
+                        }
+
+                        if (process.ExitCode == 0)
+                        {
+                            resultOutput = string.IsNullOrEmpty(details)
+                                ? "正常に完了しました。"
+                                : $"{details}\n\n[成功] 正常に完了しました。";
+                        }
+                        else
+                        {
+                            resultOutput = string.IsNullOrEmpty(details)
+                                ? $"エラーで終了しました。 (ExitCode: {process.ExitCode})"
+                                : $"{details}\n\n[失敗] エラーで終了しました。 (ExitCode: {process.ExitCode})";
                         }
                     }
                 });
@@ -456,6 +470,7 @@ namespace HotKeyCommandApp.ViewModels
             {
                 await Task.Run(async () =>
                 {
+                    bool isSuccess = true;
                     foreach (var cmdTemplate in function.Commands)
                     {
                         string commandToRun = cmdTemplate.Trim();
@@ -590,9 +605,15 @@ namespace HotKeyCommandApp.ViewModels
                             if (process.ExitCode != 0)
                             {
                                 finalOutput += $"\n[エラー終了] コマンドが失敗したため中断しました。\n";
+                                isSuccess = false;
                                 break;
                             }
                         }
+                    }
+
+                    if (isSuccess)
+                    {
+                        finalOutput += "\n\n[成功] すべての処理が正常に完了しました。";
                     }
                 });
 
