@@ -246,6 +246,17 @@ namespace HotKeyCommandApp.ViewModels
                 input = input.Replace("{base}", baseBranch);
             }
 
+            // {current} プレースホルダーを現在のブランチ名に置換
+            if (input.Contains("{current}"))
+            {
+                string currentBranch = RunGitCommand("branch --show-current");
+                if (string.IsNullOrEmpty(currentBranch) || currentBranch == "unknown")
+                {
+                    currentBranch = CurrentBranch;
+                }
+                input = input.Replace("{current}", currentBranch);
+            }
+
             if (input.StartsWith("base ", StringComparison.OrdinalIgnoreCase))
             {
                 string targetBase = input.Substring(5).Trim();
@@ -479,6 +490,17 @@ namespace HotKeyCommandApp.ViewModels
                         {
                             string baseBranch = string.IsNullOrWhiteSpace(ParentBranch) ? "main" : ParentBranch;
                             command = command.Replace("{base}", baseBranch);
+                        }
+
+                        // {current} プレースホルダーを現在のブランチ名に置換
+                        if (command.Contains("{current}"))
+                        {
+                            string currentBranch = RunGitCommand("branch --show-current");
+                            if (string.IsNullOrEmpty(currentBranch) || currentBranch == "unknown")
+                            {
+                                currentBranch = CurrentBranch;
+                            }
+                            command = command.Replace("{current}", currentBranch);
                         }
 
                         if (command.StartsWith("base ", StringComparison.OrdinalIgnoreCase))
