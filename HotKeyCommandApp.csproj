@@ -24,7 +24,7 @@
     </None>
   </ItemGroup>
 
-  <Target Name="CopyCommandsJsonIfMissing" AfterTargets="Build">
+  <Target Name="CopyCommandsJsonIfMissing" AfterTargets="Build" Condition="Exists('$(MSBuildProjectDirectory)\commands.json')">
     <Copy SourceFiles="$(MSBuildProjectDirectory)\commands.json" DestinationFiles="$(TargetDir)commands.json" Condition="!Exists('$(TargetDir)commands.json')" />
   </Target>
 
