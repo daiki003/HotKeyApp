@@ -18,7 +18,8 @@ namespace HotKeyCommandApp.Views
             Size,
             Shortcuts,
             Others,
-            Constants
+            Constants,
+            SelectTemplates
         }
 
         private SettingsPage _currentPage = SettingsPage.List;
@@ -45,6 +46,7 @@ namespace HotKeyCommandApp.Views
             ShortcutsPanel.Visibility = Visibility.Collapsed;
             OthersPanel.Visibility = Visibility.Collapsed;
             ConstantsPanel.Visibility = Visibility.Collapsed;
+            SelectTemplatesPanel.Visibility = Visibility.Collapsed;
             BackButton.Visibility = Visibility.Collapsed;
 
             if (page == SettingsPage.List)
@@ -87,6 +89,12 @@ namespace HotKeyCommandApp.Views
                     ConstantsPanel.Visibility = Visibility.Visible;
                     Dispatcher.BeginInvoke(new Action(() => { AddConstantButton.Focus(); }), System.Windows.Threading.DispatcherPriority.Loaded);
                 }
+                else if (page == SettingsPage.SelectTemplates)
+                {
+                    TitleTextBlock.Text = "選択式テンプレート";
+                    SelectTemplatesPanel.Visibility = Visibility.Visible;
+                    Dispatcher.BeginInvoke(new Action(() => { AddSelectTemplateButton.Focus(); }), System.Windows.Threading.DispatcherPriority.Loaded);
+                }
             }
         }
 
@@ -98,6 +106,7 @@ namespace HotKeyCommandApp.Views
                 else if (tag == "Shortcuts") SwitchPage(SettingsPage.Shortcuts);
                 else if (tag == "Others") SwitchPage(SettingsPage.Others);
                 else if (tag == "Constants") SwitchPage(SettingsPage.Constants);
+                else if (tag == "SelectTemplates") SwitchPage(SettingsPage.SelectTemplates);
             }
         }
 
@@ -335,6 +344,19 @@ namespace HotKeyCommandApp.Views
             if (sender is Button btn && btn.DataContext is HotKeyCommandApp.Models.ConstantEntry entry)
             {
                 _viewModel.EditingConstants.Remove(entry);
+            }
+        }
+
+        private void AddSelectTemplate_Click(object sender, RoutedEventArgs e)
+        {
+            _viewModel.EditingSelectTemplates.Add(new HotKeyCommandApp.Models.SelectTemplate { Name = "NEW_TEMPLATE", OptionsString = "" });
+        }
+
+        private void DeleteSelectTemplate_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.DataContext is HotKeyCommandApp.Models.SelectTemplate entry)
+            {
+                _viewModel.EditingSelectTemplates.Remove(entry);
             }
         }
     }

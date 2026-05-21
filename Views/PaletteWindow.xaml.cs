@@ -69,6 +69,24 @@ namespace HotKeyCommandApp.Views
                     }
                 };
 
+                vm.RequestSelectInput += (command, prompt, options) =>
+                {
+                    vm.IsDialogActive = true;
+                    try
+                    {
+                        var dialog = new ArgumentSelectDialog(command, prompt, options) { Owner = this };
+                        if (dialog.ShowDialog() == true)
+                        {
+                            return dialog.SelectedOption;
+                        }
+                        return null;
+                    }
+                    finally
+                    {
+                        vm.IsDialogActive = false;
+                    }
+                };
+
                 vm.RequestSettings += () =>
                 {
                     vm.IsDialogActive = true;

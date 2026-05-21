@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace HotKeyCommandApp.Models
 {
@@ -35,6 +36,8 @@ namespace HotKeyCommandApp.Models
 
         /// <summary>定数定義一覧</summary>
         public List<ConstantEntry> Constants { get; set; } = new();
+        /// <summary>選択式プレースホルダのテンプレート一覧</summary>
+        public List<SelectTemplate> SelectTemplates { get; set; } = new();
     }
 
     /// <summary>定数定義情報</summary>
@@ -42,5 +45,32 @@ namespace HotKeyCommandApp.Models
     {
         public string Name { get; set; } = string.Empty;
         public string Value { get; set; } = string.Empty;
+    }
+
+    /// <summary>選択式プレースホルダのテンプレート情報</summary>
+    public class SelectTemplate
+    {
+        public string Name { get; set; } = string.Empty;
+        public List<string> Options { get; set; } = new();
+
+        private string? _optionsString;
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string OptionsString
+        {
+            get 
+            {
+                if (_optionsString == null)
+                {
+                    _optionsString = string.Join(",", Options);
+                }
+                return _optionsString;
+            }
+            set
+            {
+                _optionsString = value;
+                Options = new List<string>((value ?? "").Split(',').Select(s => s.Trim()).Where(s => !string.IsNullOrEmpty(s)));
+            }
+        }
     }
 }

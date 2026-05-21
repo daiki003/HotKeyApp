@@ -186,6 +186,8 @@ namespace HotKeyCommandApp.ViewModels
         public event Action<CommandEntry>? RequestGitWindow;
 
         public event Func<CommandEntry, string, string?>? RequestArgumentInput;
+        public delegate string? RequestSelectInputEventHandler(CommandEntry command, string prompt, List<string> options);
+        public event RequestSelectInputEventHandler? RequestSelectInput;
         public event Action? RequestSettings;
 
         private bool _isFileSearchMode;
@@ -367,6 +369,13 @@ namespace HotKeyCommandApp.ViewModels
         {
             get => _editingConstants;
             set { _editingConstants = value; OnPropertyChanged(); }
+        }
+
+        private ObservableCollection<SelectTemplate> _editingSelectTemplates = new();
+        public ObservableCollection<SelectTemplate> EditingSelectTemplates
+        {
+            get => _editingSelectTemplates;
+            set { _editingSelectTemplates = value; OnPropertyChanged(); }
         }
 
 
@@ -820,10 +829,11 @@ namespace HotKeyCommandApp.ViewModels
                     return;
                 }
 
+                string? argument = null;
                 // 4. Handle RequiresArgument (Modal Dialog)
                 if (command.Behavior.RequiresArgument)
                 {
-                    string? argument = RequestArgumentInput?.Invoke(command, $"[{command.Name}] の引数を入力してください:（右キーで引数追加）");
+                    argument = RequestArgumentInput?.Invoke(command, $"[{command.Name}] の引数を入力してください:（右キーで引数追加）");
                     if (argument == null) return; // Canceled
 
                     // Update history
@@ -837,18 +847,82 @@ namespace HotKeyCommandApp.ViewModels
                         }
                         _configService.SaveCommands(_rootCommands);
                     }
+                }
 
-                    RunActionAndHandleVisibility(command, argument);
+                // 4.5 Handle {select:...} placeholders
+                bool hasSelect = false;
+                string tempValue = command.Value ?? string.Empty;
+                string tempAppPath = command.AppPath ?? string.Empty;
+
+                hasSelect |= ProcessSelectPlaceholders(command, ref tempValue);
+                hasSelect |= ProcessSelectPlaceholders(command, ref tempAppPath);
+
+                if (hasSelect)
+                {
+                    var resolvedCommand = new CommandEntry
+                    {
+                        Name = command.Name,
+                        Value = tempValue,
+                        AppPath = tempAppPath,
+                        Category = command.Category,
+                        Behavior = command.Behavior,
+                        WindowHandle = command.WindowHandle,
+                        Hotkey = command.Hotkey,
+                        HotkeyType = command.HotkeyType
+                    };
+                    RunActionAndHandleVisibility(resolvedCommand, argument);
                     return;
                 }
 
                 // 5. Run the actual action
-                RunActionAndHandleVisibility(command);
+                RunActionAndHandleVisibility(command, argument);
+            }
+            catch (OperationCanceledException)
+            {
+                // Canceled by user via dialog
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Error in Execute: {ex}");
             }
+        }
+
+        private bool ProcessSelectPlaceholders(CommandEntry command, ref string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            
+            bool wasReplaced = false;
+            var regex = new System.Text.RegularExpressions.Regex(@"\{select:(.*?)\}");
+            var matches = regex.Matches(text).Cast<System.Text.RegularExpressions.Match>().ToList();
+
+            foreach (var match in matches)
+            {
+                string inner = match.Groups[1].Value;
+                List<string> options;
+
+                var template = _appSettings?.SelectTemplates?.FirstOrDefault(t => t.Name == inner);
+                if (template != null)
+                {
+                    options = template.Options;
+                }
+                else
+                {
+                    options = inner.Split(',').Select(s => s.Trim()).Where(s => !string.IsNullOrEmpty(s)).ToList();
+                }
+
+                if (options.Count == 0) continue;
+
+                string? selected = RequestSelectInput?.Invoke(command, $"[{command.Name}] の引数を選択してください:", options);
+                if (selected == null)
+                {
+                    throw new OperationCanceledException("Selection canceled by user.");
+                }
+
+                text = text.Replace(match.Value, selected);
+                wasReplaced = true;
+            }
+
+            return wasReplaced;
         }
 
         private void RunActionAndHandleVisibility(CommandEntry command, string? argument = null)
@@ -1678,6 +1752,9 @@ namespace HotKeyCommandApp.ViewModels
             EditingConstants = new ObservableCollection<ConstantEntry>(
                 (_appSettings.Constants ?? new System.Collections.Generic.List<ConstantEntry>()).Select(c => new ConstantEntry { Name = c.Name, Value = c.Value })
             );
+            EditingSelectTemplates = new ObservableCollection<SelectTemplate>(
+                (_appSettings.SelectTemplates ?? new System.Collections.Generic.List<SelectTemplate>()).Select(t => new SelectTemplate { Name = t.Name, Options = new System.Collections.Generic.List<string>(t.Options) })
+            );
             IsCapturingHotkey = false;
             CaptureTarget = string.Empty;
             RequestSettings?.Invoke();
@@ -1695,6 +1772,7 @@ namespace HotKeyCommandApp.ViewModels
             SettingsShortcut = EditingSettingsShortcut;
             CreateButtonShortcut = EditingCreateButtonShortcut;
             _appSettings.Constants = EditingConstants.Select(c => new ConstantEntry { Name = c.Name, Value = c.Value }).ToList();
+            _appSettings.SelectTemplates = EditingSelectTemplates.Select(t => new SelectTemplate { Name = t.Name, Options = new System.Collections.Generic.List<string>(t.Options) }).ToList();
 
             _configService.SaveSettings(_appSettings);
             RequestSync?.Invoke();

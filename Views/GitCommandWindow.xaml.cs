@@ -83,6 +83,14 @@ namespace HotKeyCommandApp.Views
                 _mainVm.GitWindowHeight = this.Height;
             };
 
+            this.PreviewMouseLeftButtonDown += (s, e) =>
+            {
+                if (DataContext is GitCommandViewModel vm && !vm.IsMoveMode && !vm.IsHistoryMode)
+                {
+                    Dispatcher.BeginInvoke(() => CommandInputBox.Focus(), System.Windows.Threading.DispatcherPriority.Input);
+                }
+            };
+
             this.Closing += (s, e) =>
             {
                 CompositionTarget.Rendering -= OnRendering;

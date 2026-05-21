@@ -236,41 +236,7 @@
                             </Setter>
                         </Style>
                     </ListBox.Style>
-                    <ListBox.Resources>
-                        <Style TargetType="ScrollBar">
-                            <Setter Property="Width" Value="3" />
-                            <Setter Property="MinWidth" Value="2" />
-                            <Setter Property="Background" Value="Transparent" />
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="ScrollBar">
-                                        <Grid x:Name="Bg" Background="Transparent" SnapsToDevicePixels="true" Width="{TemplateBinding Width}">
-                                            <Track x:Name="PART_Track" Orientation="{TemplateBinding Orientation}"
-                                                   IsDirectionReversed="true" IsEnabled="{TemplateBinding IsEnabled}"
-                                                   Width="{TemplateBinding Width}">
-                                                <Track.Thumb>
-                                                    <Thumb x:Name="Thumb" Background="#444444" BorderThickness="0"
-                                                           MinWidth="2" />
-                                                </Track.Thumb>
-                                            </Track>
-                                        </Grid>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger SourceName="Thumb" Property="IsMouseOver" Value="true">
-                                                <Setter TargetName="Thumb" Property="Background" Value="#666666" />
-                                            </Trigger>
-                                            <Trigger Property="Orientation" Value="Horizontal">
-                                                <Setter Property="Height" Value="2" />
-                                                <Setter Property="Width" Value="Auto" />
-                                            </Trigger>
-                                            <Trigger Property="Orientation" Value="Vertical">
-                                                <Setter Property="Width" Value="2" />
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </ListBox.Resources>
+
                     <ListBox.ItemContainerStyle>
                         <Style TargetType="ListBoxItem">
                             <Setter Property="FocusVisualStyle" Value="{x:Null}" />

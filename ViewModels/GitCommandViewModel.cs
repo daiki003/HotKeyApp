@@ -7,6 +7,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using LibGit2Sharp;
 using HotKeyCommandApp.Models;
 using HotKeyCommandApp.Services;
 
@@ -140,11 +141,11 @@ namespace HotKeyCommandApp.ViewModels
                 {
                     RepositoryName = new DirectoryInfo(_repositoryPath).Name;
                 }
-                CurrentBranch = RunGitCommand("branch --show-current");
+                CurrentBranch = GetCurrentBranchName();
                 ParentBranch = mapping != null ? mapping.BaseBranch : string.Empty;
 
-                string status = RunGitCommand("status -s");
-                SetConsoleOutput("Git Status", string.IsNullOrWhiteSpace(status) ? "変更はありません" : status);
+                string status = GetGitStatusSummary();
+                SetConsoleOutput("Git Status", status);
             }
             catch
             {
@@ -249,7 +250,7 @@ namespace HotKeyCommandApp.ViewModels
             // {current} プレースホルダーを現在のブランチ名に置換
             if (input.Contains("{current}"))
             {
-                string currentBranch = RunGitCommand("branch --show-current");
+                string currentBranch = GetCurrentBranchName();
                 if (string.IsNullOrEmpty(currentBranch) || currentBranch == "unknown")
                 {
                     currentBranch = CurrentBranch;
@@ -348,16 +349,31 @@ namespace HotKeyCommandApp.ViewModels
 
                 await Task.Run(async () =>
                 {
+                    bool isGitDirect = command.StartsWith("git ", StringComparison.OrdinalIgnoreCase) 
+                                       && !command.Contains("|") 
+                                       && !command.Contains(">") 
+                                       && !command.Contains("<") 
+                                       && !command.Contains("&");
+
                     var psi = new ProcessStartInfo
                     {
-                        FileName = "cmd.exe",
-                        Arguments = $"/c {command}",
                         WorkingDirectory = _repositoryPath,
                         UseShellExecute = false,
                         CreateNoWindow = true,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true
                     };
+
+                    if (isGitDirect)
+                    {
+                        psi.FileName = "git";
+                        psi.Arguments = command.Substring(4).Trim();
+                    }
+                    else
+                    {
+                        psi.FileName = "cmd.exe";
+                        psi.Arguments = $"/c {command}";
+                    }
 
                     using var process = Process.Start(psi);
                     if (process != null)
@@ -405,15 +421,15 @@ namespace HotKeyCommandApp.ViewModels
                 {
                     try
                     {
-                        CurrentBranch = RunGitCommand("branch --show-current");
+                        CurrentBranch = GetCurrentBranchName();
                     }
                     catch { }
 
                     if (string.IsNullOrWhiteSpace(resultOutput))
                     {
                         // 出力がないコマンドの場合は最新のstatusを表示
-                        string status = RunGitCommand("status -s");
-                        SetConsoleOutput(command, string.IsNullOrWhiteSpace(status) ? "完了 (出力なし / No output)" : status);
+                        string status = GetGitStatusSummary();
+                        SetConsoleOutput(command, status);
                     }
                     else
                     {
@@ -510,7 +526,7 @@ namespace HotKeyCommandApp.ViewModels
                         // {current} プレースホルダーを現在のブランチ名に置換
                         if (command.Contains("{current}"))
                         {
-                            string currentBranch = RunGitCommand("branch --show-current");
+                            string currentBranch = GetCurrentBranchName();
                             if (string.IsNullOrEmpty(currentBranch) || currentBranch == "unknown")
                             {
                                 currentBranch = CurrentBranch;
@@ -576,16 +592,31 @@ namespace HotKeyCommandApp.ViewModels
                             continue; // 外部プロセスの起動はスキップして次のコマンドへ
                         }
 
+                        bool isGitDirect = command.StartsWith("git ", StringComparison.OrdinalIgnoreCase) 
+                                           && !command.Contains("|") 
+                                           && !command.Contains(">") 
+                                           && !command.Contains("<") 
+                                           && !command.Contains("&");
+
                         var psi = new ProcessStartInfo
                         {
-                            FileName = "cmd.exe",
-                            Arguments = $"/c {command}",
                             WorkingDirectory = _repositoryPath,
                             UseShellExecute = false,
                             CreateNoWindow = true,
                             RedirectStandardOutput = true,
                             RedirectStandardError = true
                         };
+
+                        if (isGitDirect)
+                        {
+                            psi.FileName = "git";
+                            psi.Arguments = command.Substring(4).Trim();
+                        }
+                        else
+                        {
+                            psi.FileName = "cmd.exe";
+                            psi.Arguments = $"/c {command}";
+                        }
 
                         using var process = Process.Start(psi);
                         if (process != null)
@@ -753,6 +784,50 @@ namespace HotKeyCommandApp.ViewModels
                 args.Add(currentArg);
             }
             return args;
+        }
+
+        private string GetCurrentBranchName()
+        {
+            try
+            {
+                if (LibGit2Sharp.Repository.IsValid(_repositoryPath))
+                {
+                    using var repo = new LibGit2Sharp.Repository(_repositoryPath);
+                    return repo.Head.FriendlyName;
+                }
+            }
+            catch { }
+            return "unknown";
+        }
+
+        private string GetGitStatusSummary()
+        {
+            try
+            {
+                if (LibGit2Sharp.Repository.IsValid(_repositoryPath))
+                {
+                    using var repo = new LibGit2Sharp.Repository(_repositoryPath);
+                    var status = repo.RetrieveStatus();
+                    if (!status.IsDirty) return "変更はありません";
+                    
+                    var lines = new List<string>();
+                    foreach (var item in status)
+                    {
+                        if (item.State == LibGit2Sharp.FileStatus.Ignored || item.State == LibGit2Sharp.FileStatus.Unaltered) continue;
+                        
+                        string stateStr = " *";
+                        if (item.State.HasFlag(LibGit2Sharp.FileStatus.NewInIndex) || item.State.HasFlag(LibGit2Sharp.FileStatus.NewInWorkdir)) stateStr = "??";
+                        else if (item.State.HasFlag(LibGit2Sharp.FileStatus.ModifiedInIndex) || item.State.HasFlag(LibGit2Sharp.FileStatus.ModifiedInWorkdir)) stateStr = " M";
+                        else if (item.State.HasFlag(LibGit2Sharp.FileStatus.DeletedFromIndex) || item.State.HasFlag(LibGit2Sharp.FileStatus.DeletedFromWorkdir)) stateStr = " D";
+                        
+                        lines.Add($"{stateStr} {item.FilePath}");
+                    }
+                    if (lines.Count == 0) return "変更はありません";
+                    return string.Join("\n", lines);
+                }
+            }
+            catch { }
+            return "unknown";
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
