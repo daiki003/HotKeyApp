@@ -122,7 +122,7 @@ namespace HotKeyCommandApp.ViewModels
         private ICommand? _executeCommand;
         public ICommand ExecuteCommand => _executeCommand ??= new RelayCommand<object>(_ => ExecuteGitCommand());
 
-        private void LoadGitInfo()
+        private void LoadGitInfo(bool includeStatus = true)
         {
             if (string.IsNullOrEmpty(_repositoryPath) || !Directory.Exists(_repositoryPath))
             {
@@ -144,8 +144,11 @@ namespace HotKeyCommandApp.ViewModels
                 CurrentBranch = GetCurrentBranchName();
                 ParentBranch = mapping != null ? mapping.BaseBranch : string.Empty;
 
-                string status = GetGitStatusSummary();
-                SetConsoleOutput("Git Status", status);
+                if (includeStatus)
+                {
+                    string status = GetGitStatusSummary();
+                    SetConsoleOutput("Git Status", status);
+                }
             }
             catch
             {
@@ -326,7 +329,7 @@ namespace HotKeyCommandApp.ViewModels
                 if (!string.IsNullOrEmpty(newRepoPath))
                 {
                     _repositoryPath = newRepoPath;
-                    LoadGitInfo();
+                    LoadGitInfo(includeStatus: false);
                     SetConsoleOutput("リポジトリ移動", $"移動先: {_repositoryPath}");
                 }
                 else
@@ -482,6 +485,8 @@ namespace HotKeyCommandApp.ViewModels
 
             string finalOutput = "";
 
+            bool executedCommand = false;
+
             try
             {
                 await Task.Run(async () =>
@@ -618,6 +623,7 @@ namespace HotKeyCommandApp.ViewModels
                             psi.Arguments = $"/c {command}";
                         }
 
+                        executedCommand = true;
                         using var process = Process.Start(psi);
                         if (process != null)
                         {
@@ -650,7 +656,7 @@ namespace HotKeyCommandApp.ViewModels
 
                 System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
-                    LoadGitInfo();
+                    LoadGitInfo(includeStatus: executedCommand);
                     SetConsoleOutput($"関数: {function.Name}", finalOutput.Trim());
                 });
             }
