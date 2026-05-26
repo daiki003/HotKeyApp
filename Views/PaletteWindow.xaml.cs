@@ -18,7 +18,6 @@ namespace HotKeyCommandApp.Views
         private readonly HashSet<Key> _pressedKeys = new HashSet<Key>();
         private TimeSpan _lastRenderingTime = TimeSpan.Zero;
         private Point _dragStartPoint;
-        private bool _isWaitingForAltRelease = false;
         private WindowSwitcherWindow? _activeSwitcherWindow;
         private GitCommandWindow? _activeGitWindow;
 
@@ -378,7 +377,6 @@ namespace HotKeyCommandApp.Views
                 // 個別コマンドのグローバルショートカット実行
                 if (DataContext is MainViewModel vm)
                 {
-                    // ウィンドウが非表示、かつ切替ウィンドウも開いていない場合は、ジャンプ前に状態をリセットする
                     if (!this.IsVisible && _activeSwitcherWindow == null)
                     {
                         vm.LoadCommands();
@@ -391,15 +389,7 @@ namespace HotKeyCommandApp.Views
                         return;
                     }
 
-                    // 通常コマンド（実行後にパレットを表示し続ける必要がある場合など）
-                    if (command != null)
-                    {
-                        OnRequestShow();
-                        if (command.Hotkey?.Contains("Alt") ?? false)
-                        {
-                            _isWaitingForAltRelease = true;
-                        }
-                    }
+                    // グローバルコマンド実行後は、ActionRunner 側の表示制御に任せる
                 }
             }
         }
@@ -870,23 +860,6 @@ namespace HotKeyCommandApp.Views
                     vm.EnterHierarchyWithSelectedItem();
                 }
 
-                // Altキーが離された場合、待機中であればウィンドウを閉じる
-                if (key == Key.LeftAlt || key == Key.RightAlt)
-                {
-                    if (_isWaitingForAltRelease)
-                    {
-                        _isWaitingForAltRelease = false;
-                        // Altを離した際に、現在選択されているアイテムを実行（確定）する
-                        if (vm.SelectedItem != null)
-                        {
-                            vm.Execute(vm.SelectedItem);
-                        }
-                        else
-                        {
-                            OnRequestHide();
-                        }
-                    }
-                }
             }
         }
 
