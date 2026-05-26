@@ -41,14 +41,28 @@ namespace HotKeyCommandApp.Models
     }
 
     /// <summary>定数定義情報</summary>
-    public class ConstantEntry
+    public class ConstantEntry : IPairEntryEditable
     {
         public string Name { get; set; } = string.Empty;
         public string Value { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string FirstValue
+        {
+            get => Name;
+            set => Name = value;
+        }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string SecondValue
+        {
+            get => Value;
+            set => Value = value;
+        }
     }
 
     /// <summary>選択式プレースホルダのテンプレート情報</summary>
-    public class SelectTemplate
+    public class SelectTemplate : IPairEntryEditable
     {
         public string Name { get; set; } = string.Empty;
         public List<string> Options { get; set; } = new();
@@ -71,6 +85,20 @@ namespace HotKeyCommandApp.Models
                 _optionsString = value;
                 Options = new List<string>((value ?? "").Split(',').Select(s => s.Trim()).Where(s => !string.IsNullOrEmpty(s)));
             }
+        }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string FirstValue
+        {
+            get => Name;
+            set => Name = value;
+        }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string SecondValue
+        {
+            get => OptionsString;
+            set => OptionsString = value;
         }
     }
 }

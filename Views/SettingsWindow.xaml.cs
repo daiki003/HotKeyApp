@@ -31,6 +31,8 @@ namespace HotKeyCommandApp.Views
             InitializeComponent();
             _viewModel = viewModel;
             this.DataContext = _viewModel;
+            ConstantsPairEditor.AddItemCommand = new RelayCommand<object>(_ => _viewModel.EditingConstants.Add(new ConstantEntry { Name = "NEW_CONSTANT", Value = string.Empty }));
+            SelectTemplatesPairEditor.AddItemCommand = new RelayCommand<object>(_ => _viewModel.EditingSelectTemplates.Add(new SelectTemplate { Name = "NEW_TEMPLATE", OptionsString = string.Empty }));
 
             this.Loaded += (s, e) =>
             {
@@ -91,9 +93,9 @@ namespace HotKeyCommandApp.Views
                     ConstantsPanel.Visibility = Visibility.Visible;
                     Dispatcher.BeginInvoke(new Action(() =>
                     {
-                        if (!FocusFirstPairTextBox(ConstantsItemsControl))
+                        if (!ConstantsPairEditor.FocusFirstTextBox())
                         {
-                            AddConstantButton.Focus();
+                            ConstantsPairEditor.FocusAddButton();
                         }
                     }), System.Windows.Threading.DispatcherPriority.Loaded);
                 }
@@ -103,9 +105,9 @@ namespace HotKeyCommandApp.Views
                     SelectTemplatesPanel.Visibility = Visibility.Visible;
                     Dispatcher.BeginInvoke(new Action(() =>
                     {
-                        if (!FocusFirstPairTextBox(SelectTemplatesItemsControl))
+                        if (!SelectTemplatesPairEditor.FocusFirstTextBox())
                         {
-                            AddSelectTemplateButton.Focus();
+                            SelectTemplatesPairEditor.FocusAddButton();
                         }
                     }), System.Windows.Threading.DispatcherPriority.Loaded);
                 }
@@ -231,6 +233,42 @@ namespace HotKeyCommandApp.Views
                 }
             }
 
+            if (actualKey == Key.Up)
+            {
+                if (_currentPage == SettingsPage.Constants)
+                {
+                    if (ConstantsPairEditor.IsAddButtonFocused)
+                    {
+                        ConstantsPairEditor.FocusLastRow(focusSecondColumn: false);
+                        e.Handled = true;
+                        return;
+                    }
+
+                    if (Keyboard.FocusedElement == SaveButton)
+                    {
+                        ConstantsPairEditor.FocusLastRow(focusSecondColumn: true);
+                        e.Handled = true;
+                        return;
+                    }
+                }
+                else if (_currentPage == SettingsPage.SelectTemplates)
+                {
+                    if (SelectTemplatesPairEditor.IsAddButtonFocused)
+                    {
+                        SelectTemplatesPairEditor.FocusLastRow(focusSecondColumn: false);
+                        e.Handled = true;
+                        return;
+                    }
+
+                    if (Keyboard.FocusedElement == SaveButton)
+                    {
+                        SelectTemplatesPairEditor.FocusLastRow(focusSecondColumn: true);
+                        e.Handled = true;
+                        return;
+                    }
+                }
+            }
+
             if (actualKey == Key.Enter)
             {
                 if (FocusManager.GetFocusedElement(this) is Button) return; // ボタン自身に処理させる
@@ -348,238 +386,5 @@ namespace HotKeyCommandApp.Views
             WindowHelper.EnableWindowDragMove(this);
         }
 
-        private TextBox? FindFirstTextBox(DependencyObject parent)
-        {
-            if (parent == null) return null;
-
-            for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
-            {
-                var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
-                if (child is TextBox textBox) return textBox;
-
-                var result = FindFirstTextBox(child);
-                if (result != null) return result;
-            }
-
-            return null;
-        }
-
-        private void FindAllTextBoxes(DependencyObject parent, List<TextBox> textBoxes)
-        {
-            if (parent == null) return;
-
-            for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
-            {
-                var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
-                if (child is TextBox textBox)
-                {
-                    textBoxes.Add(textBox);
-                }
-
-                FindAllTextBoxes(child, textBoxes);
-            }
-        }
-
-        private bool FocusFirstPairTextBox(ItemsControl itemsControl)
-        {
-            var textBox = FindFirstTextBox(itemsControl);
-            if (textBox == null) return false;
-
-            textBox.Focus();
-            textBox.SelectAll();
-            return true;
-        }
-
-        private void FocusPairTextBoxAtIndex(ItemsControl itemsControl, int index, bool focusSecondColumn, bool selectAll = false)
-        {
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                itemsControl.UpdateLayout();
-                if (index < 0 || index >= itemsControl.Items.Count) return;
-
-                if (itemsControl.ItemContainerGenerator.ContainerFromIndex(index) is not DependencyObject container)
-                {
-                    return;
-                }
-
-                var textBoxes = new List<TextBox>();
-                FindAllTextBoxes(container, textBoxes);
-
-                int textBoxIndex = focusSecondColumn ? 1 : 0;
-                if (textBoxes.Count <= textBoxIndex) return;
-
-                textBoxes[textBoxIndex].Focus();
-                if (selectAll)
-                {
-                    textBoxes[textBoxIndex].SelectAll();
-                }
-                else
-                {
-                    textBoxes[textBoxIndex].CaretIndex = textBoxes[textBoxIndex].Text.Length;
-                }
-            }), System.Windows.Threading.DispatcherPriority.Loaded);
-        }
-
-        private void PairEntryTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
-        {
-            if (sender is not TextBox textBox) return;
-
-            if (Keyboard.Modifiers == ModifierKeys.Shift && (e.Key == Key.Up || e.Key == Key.Down))
-            {
-                bool moveUp = e.Key == Key.Up;
-                bool focusSecondColumn = Grid.GetColumn(textBox) == 2;
-
-                if (textBox.DataContext is ConstantEntry constantEntry)
-                {
-                    MovePairEntry(_viewModel.EditingConstants, constantEntry, ConstantsItemsControl, moveUp, focusSecondColumn);
-                    e.Handled = true;
-                    return;
-                }
-
-                if (textBox.DataContext is SelectTemplate selectTemplate)
-                {
-                    MovePairEntry(_viewModel.EditingSelectTemplates, selectTemplate, SelectTemplatesItemsControl, moveUp, focusSecondColumn);
-                    e.Handled = true;
-                    return;
-                }
-            }
-
-            if (e.Key == Key.Up)
-            {
-                textBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Up));
-                e.Handled = true;
-            }
-            else if (e.Key == Key.Down)
-            {
-                textBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Down));
-                e.Handled = true;
-            }
-            else if (e.Key == Key.Left && textBox.CaretIndex == 0 && textBox.SelectionLength == 0)
-            {
-                textBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Left));
-                e.Handled = true;
-            }
-            else if (e.Key == Key.Right && textBox.CaretIndex == textBox.Text.Length && textBox.SelectionLength == 0)
-            {
-                textBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Right));
-                e.Handled = true;
-            }
-        }
-
-        private void MovePairEntry<T>(System.Collections.ObjectModel.ObservableCollection<T> collection, T entry, ItemsControl itemsControl, bool moveUp, bool focusSecondColumn)
-        {
-            int currentIndex = collection.IndexOf(entry);
-            int targetIndex = moveUp ? currentIndex - 1 : currentIndex + 1;
-
-            if (currentIndex < 0 || targetIndex < 0 || targetIndex >= collection.Count) return;
-
-            collection.Move(currentIndex, targetIndex);
-            FocusPairTextBoxAtIndex(itemsControl, targetIndex, focusSecondColumn);
-        }
-
-        private Point _dragStartPoint;
-
-        private void PairDragHandle_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            _dragStartPoint = e.GetPosition(null);
-        }
-
-        private void PairDragHandle_PreviewMouseMove(object sender, MouseEventArgs e)
-        {
-            if (e.LeftButton != MouseButtonState.Pressed) return;
-
-            Point currentPosition = e.GetPosition(null);
-            Vector diff = _dragStartPoint - currentPosition;
-
-            if (Math.Abs(diff.X) <= SystemParameters.MinimumHorizontalDragDistance &&
-                Math.Abs(diff.Y) <= SystemParameters.MinimumVerticalDragDistance)
-            {
-                return;
-            }
-
-            if (sender is FrameworkElement element && element.DataContext != null)
-            {
-                DragDrop.DoDragDrop(element, new DataObject("PairEntry", element.DataContext), DragDropEffects.Move);
-            }
-        }
-
-        private void PairRow_DragOver(object sender, DragEventArgs e)
-        {
-            if (!e.Data.GetDataPresent("PairEntry")) return;
-
-            e.Effects = DragDropEffects.Move;
-            e.Handled = true;
-        }
-
-        private void PairRow_Drop(object sender, DragEventArgs e)
-        {
-            if (!e.Data.GetDataPresent("PairEntry")) return;
-            if (sender is not FrameworkElement row || row.DataContext == null) return;
-
-            object? draggedItem = e.Data.GetData("PairEntry");
-            object targetItem = row.DataContext;
-
-            if (draggedItem is ConstantEntry sourceConstant && targetItem is ConstantEntry targetConstant)
-            {
-                ReorderPairEntry(_viewModel.EditingConstants, sourceConstant, targetConstant, ConstantsItemsControl);
-            }
-            else if (draggedItem is SelectTemplate sourceTemplate && targetItem is SelectTemplate targetTemplate)
-            {
-                ReorderPairEntry(_viewModel.EditingSelectTemplates, sourceTemplate, targetTemplate, SelectTemplatesItemsControl);
-            }
-
-            e.Handled = true;
-        }
-
-        private void ReorderPairEntry<T>(System.Collections.ObjectModel.ObservableCollection<T> collection, T source, T target, ItemsControl itemsControl)
-        {
-            int sourceIndex = collection.IndexOf(source);
-            int targetIndex = collection.IndexOf(target);
-
-            if (sourceIndex < 0 || targetIndex < 0 || sourceIndex == targetIndex) return;
-
-            collection.Move(sourceIndex, targetIndex);
-            FocusPairTextBoxAtIndex(itemsControl, targetIndex, false);
-        }
-
-        private void AddConstant_Click(object sender, RoutedEventArgs e)
-        {
-            _viewModel.EditingConstants.Add(new ConstantEntry { Name = "NEW_CONSTANT", Value = string.Empty });
-            FocusPairTextBoxAtIndex(ConstantsItemsControl, _viewModel.EditingConstants.Count - 1, false, selectAll: true);
-        }
-
-        private void DeleteConstant_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is Button btn && btn.DataContext is ConstantEntry entry)
-            {
-                int index = _viewModel.EditingConstants.IndexOf(entry);
-                if (index < 0) return;
-
-                _viewModel.EditingConstants.RemoveAt(index);
-
-                int targetIndex = index < _viewModel.EditingConstants.Count ? index : index - 1;
-                FocusPairTextBoxAtIndex(ConstantsItemsControl, targetIndex, true);
-            }
-        }
-
-        private void AddSelectTemplate_Click(object sender, RoutedEventArgs e)
-        {
-            _viewModel.EditingSelectTemplates.Add(new SelectTemplate { Name = "NEW_TEMPLATE", OptionsString = string.Empty });
-            FocusPairTextBoxAtIndex(SelectTemplatesItemsControl, _viewModel.EditingSelectTemplates.Count - 1, false, selectAll: true);
-        }
-
-        private void DeleteSelectTemplate_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is Button btn && btn.DataContext is SelectTemplate entry)
-            {
-                int index = _viewModel.EditingSelectTemplates.IndexOf(entry);
-                if (index < 0) return;
-
-                _viewModel.EditingSelectTemplates.RemoveAt(index);
-
-                int targetIndex = index < _viewModel.EditingSelectTemplates.Count ? index : index - 1;
-                FocusPairTextBoxAtIndex(SelectTemplatesItemsControl, targetIndex, true);
-            }
-        }
     }
 }

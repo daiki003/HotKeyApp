@@ -1,6 +1,7 @@
 <Window x:Class="HotKeyCommandApp.Views.GitSettingsDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:HotKeyCommandApp.Views.Controls"
         Title="Git設定" Height="600" Width="700"
         Background="#1E1E1E" Foreground="White"
         WindowStyle="None" AllowsTransparency="True" ResizeMode="CanResize"
@@ -55,9 +56,6 @@
             <Setter Property="Padding" Value="5"/>
         </Style>
 
-        <Style TargetType="TextBox" x:Key="AliasTextBoxStyle" BasedOn="{StaticResource InputTextBoxStyle}">
-            <EventSetter Event="PreviewKeyDown" Handler="AliasTextBox_PreviewKeyDown" />
-        </Style>
     </Window.Resources>
 
     <Border x:Name="RootBorder" Focusable="True" BorderBrush="#333333" BorderThickness="1" CornerRadius="8">
@@ -127,50 +125,10 @@
                 <!-- エイリアス タブ -->
                 <TabItem Header="エイリアス">
                     <Grid Margin="0,10,0,0">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-
-                        <Grid Margin="0,0,10,5">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="24"/>
-                                <ColumnDefinition Width="150"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="50"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="1" Text="エイリアス名" Foreground="#AAAAAA" />
-                            <TextBlock Grid.Column="2" Text="実行コマンド" Foreground="#AAAAAA" Margin="10,0,0,0" />
-                        </Grid>
-
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                            <ItemsControl x:Name="AliasesItemsControl">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid Margin="0,0,10,5" AllowDrop="True" DragOver="Row_DragOver" Drop="Row_Drop">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="24"/>
-                                                <ColumnDefinition Width="150"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="50"/>
-                                            </Grid.ColumnDefinitions>
-                                            
-                                            <TextBlock Text="☰" Foreground="#666666" VerticalAlignment="Center" HorizontalAlignment="Center" Cursor="SizeAll" 
-                                                       PreviewMouseLeftButtonDown="DragHandle_PreviewMouseLeftButtonDown"
-                                                       PreviewMouseMove="DragHandle_PreviewMouseMove"/>
-                                            
-                                            <TextBox Grid.Column="1" Text="{Binding Alias, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource AliasTextBoxStyle}" />
-                                            <TextBox Grid.Column="2" Text="{Binding TargetCommand, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource AliasTextBoxStyle}" Margin="10,0,0,0" />
-                                            
-                                            <Button Content="削除" Grid.Column="3" Margin="10,0,0,0" Style="{StaticResource InlineDeleteButtonStyle}" Click="DeleteAliasInline_Click" />
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
-
-                        <Button x:Name="AddAliasButton" Grid.Row="2" Content="新規追加" Style="{StaticResource ActionButtonStyle}" Background="#007ACC" HorizontalAlignment="Left" Margin="0,10,0,0" Click="AddAlias_Click" />
+                        <controls:AliasPairEditorControl x:Name="AliasesPairEditor"
+                                                         ItemsSource="{Binding Aliases}"
+                                                         FirstHeader="エイリアス名"
+                                                         SecondHeader="実行コマンド"/>
                     </Grid>
                 </TabItem>
 
@@ -203,50 +161,11 @@
                 <!-- リポジトリ名 タブ -->
                 <TabItem Header="リポジトリ名">
                     <Grid Margin="0,10,0,0">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-
-                        <Grid Margin="0,0,10,5">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="24"/>
-                                <ColumnDefinition Width="250"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="50"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="1" Text="リポジトリパス" Foreground="#AAAAAA" />
-                            <TextBlock Grid.Column="2" Text="表示名" Foreground="#AAAAAA" Margin="10,0,0,0" />
-                        </Grid>
-
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                            <ItemsControl x:Name="MappingsItemsControl">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid Margin="0,0,10,5" AllowDrop="True" DragOver="Row_DragOver" Drop="Row_Drop">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="24"/>
-                                                <ColumnDefinition Width="250"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="50"/>
-                                            </Grid.ColumnDefinitions>
-                                            
-                                            <TextBlock Text="☰" Foreground="#666666" VerticalAlignment="Center" HorizontalAlignment="Center" Cursor="SizeAll" 
-                                                       PreviewMouseLeftButtonDown="DragHandle_PreviewMouseLeftButtonDown"
-                                                       PreviewMouseMove="DragHandle_PreviewMouseMove"/>
-                                            
-                                            <TextBox Grid.Column="1" Text="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource AliasTextBoxStyle}" />
-                                            <TextBox Grid.Column="2" Text="{Binding OverwrittenName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource AliasTextBoxStyle}" Margin="10,0,0,0" />
-                                            
-                                            <Button Content="削除" Grid.Column="3" Margin="10,0,0,0" Style="{StaticResource InlineDeleteButtonStyle}" Click="DeleteMappingInline_Click" />
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
-
-                        <Button x:Name="AddMappingButton" Grid.Row="2" Content="新規追加" Style="{StaticResource ActionButtonStyle}" Background="#007ACC" HorizontalAlignment="Left" Margin="0,10,0,0" Click="AddMapping_Click" />
+                        <controls:AliasPairEditorControl x:Name="MappingsPairEditor"
+                                                         ItemsSource="{Binding RepositoryNameMappings}"
+                                                         FirstHeader="リポジトリパス"
+                                                         SecondHeader="表示名"
+                                                         FirstColumnWidth="250"/>
                     </Grid>
                 </TabItem>
             </TabControl>

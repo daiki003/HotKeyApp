@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using LibGit2Sharp;
@@ -364,7 +365,9 @@ namespace HotKeyCommandApp.ViewModels
                         UseShellExecute = false,
                         CreateNoWindow = true,
                         RedirectStandardOutput = true,
-                        RedirectStandardError = true
+                        RedirectStandardError = true,
+                        StandardOutputEncoding = Encoding.UTF8,
+                        StandardErrorEncoding = Encoding.UTF8
                     };
 
                     if (isGitDirect)
@@ -609,7 +612,9 @@ namespace HotKeyCommandApp.ViewModels
                             UseShellExecute = false,
                             CreateNoWindow = true,
                             RedirectStandardOutput = true,
-                            RedirectStandardError = true
+                            RedirectStandardError = true,
+                            StandardOutputEncoding = Encoding.UTF8,
+                            StandardErrorEncoding = Encoding.UTF8
                         };
 
                         if (isGitDirect)
@@ -676,6 +681,9 @@ namespace HotKeyCommandApp.ViewModels
                     Arguments = args,
                     WorkingDirectory = _repositoryPath,
                     RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
