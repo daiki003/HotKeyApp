@@ -3,7 +3,7 @@ using System.Linq;
 
 namespace HotKeyCommandApp.Models
 {
-    /// <summary>よく使うアプリとして登録された情報</summary>
+    /// <summary>繧医￥菴ｿ縺・い繝励Μ縺ｨ縺励※逋ｻ骭ｲ縺輔ｌ縺滓ュ蝣ｱ</summary>
     public class RegisteredApp
     {
         public string Name { get; set; } = string.Empty;
@@ -28,23 +28,20 @@ namespace HotKeyCommandApp.Models
         public string SettingsShortcut { get; set; } = "Ctrl+Comma";
         public string CreateButtonShortcut { get; set; } = "Ctrl+Plus";
 
-        /// <summary>アプリ選択画面に表示する登録済みアプリ一覧</summary>
         public List<RegisteredApp> RegisteredApps { get; set; } = new();
-
-        /// <summary>Slack of Team ID history</summary>
         public List<string> SlackTeamIdHistory { get; set; } = new();
-
-        /// <summary>定数定義一覧</summary>
         public List<ConstantEntry> Constants { get; set; } = new();
-        /// <summary>選択式プレースホルダのテンプレート一覧</summary>
+        public List<PairEntryFolder> ConstantFolders { get; set; } = new();
         public List<SelectTemplate> SelectTemplates { get; set; } = new();
+        public List<PairEntryFolder> SelectTemplateFolders { get; set; } = new();
     }
 
-    /// <summary>定数定義情報</summary>
     public class ConstantEntry : IPairEntryEditable
     {
         public string Name { get; set; } = string.Empty;
         public string Value { get; set; } = string.Empty;
+        public string ParentFolderId { get; set; } = string.Empty;
+        public int SortOrder { get; set; }
 
         [System.Text.Json.Serialization.JsonIgnore]
         public string FirstValue
@@ -59,20 +56,24 @@ namespace HotKeyCommandApp.Models
             get => Value;
             set => Value = value;
         }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsFolder => false;
     }
 
-    /// <summary>選択式プレースホルダのテンプレート情報</summary>
     public class SelectTemplate : IPairEntryEditable
     {
         public string Name { get; set; } = string.Empty;
         public List<string> Options { get; set; } = new();
+        public string ParentFolderId { get; set; } = string.Empty;
+        public int SortOrder { get; set; }
 
         private string? _optionsString;
 
         [System.Text.Json.Serialization.JsonIgnore]
         public string OptionsString
         {
-            get 
+            get
             {
                 if (_optionsString == null)
                 {
@@ -100,5 +101,8 @@ namespace HotKeyCommandApp.Models
             get => OptionsString;
             set => OptionsString = value;
         }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsFolder => false;
     }
 }

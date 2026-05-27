@@ -1,9 +1,13 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using HotKeyCommandApp.Models;
 
 namespace HotKeyCommandApp.Views.Controls
 {
@@ -11,14 +15,22 @@ namespace HotKeyCommandApp.Views.Controls
     {
         private const string ReorderDataFormat = "AliasPairEditorItem";
         private Point _dragStartPoint;
+        private string _currentFolderId = string.Empty;
+        private string _folderIdToFocusAfterNavigateUp = string.Empty;
 
         public AliasPairEditorControl()
         {
             InitializeComponent();
+            UpdateFolderHeader();
         }
 
+        public ObservableCollection<IPairEntryEditable> VisibleItems { get; } = new();
+
         public static readonly DependencyProperty ItemsSourceProperty =
-            DependencyProperty.Register(nameof(ItemsSource), typeof(IList), typeof(AliasPairEditorControl), new PropertyMetadata(null));
+            DependencyProperty.Register(nameof(ItemsSource), typeof(IList), typeof(AliasPairEditorControl), new PropertyMetadata(null, OnSourceChanged));
+
+        public static readonly DependencyProperty FolderItemsSourceProperty =
+            DependencyProperty.Register(nameof(FolderItemsSource), typeof(IList), typeof(AliasPairEditorControl), new PropertyMetadata(null, OnSourceChanged));
 
         public static readonly DependencyProperty AddItemCommandProperty =
             DependencyProperty.Register(nameof(AddItemCommand), typeof(ICommand), typeof(AliasPairEditorControl), new PropertyMetadata(null));
@@ -32,13 +44,28 @@ namespace HotKeyCommandApp.Views.Controls
         public static readonly DependencyProperty AddButtonTextProperty =
             DependencyProperty.Register(nameof(AddButtonText), typeof(string), typeof(AliasPairEditorControl), new PropertyMetadata("新規追加"));
 
+        public static readonly DependencyProperty AddFolderButtonTextProperty =
+            DependencyProperty.Register(nameof(AddFolderButtonText), typeof(string), typeof(AliasPairEditorControl), new PropertyMetadata("フォルダ作成"));
+
         public static readonly DependencyProperty FirstColumnWidthProperty =
             DependencyProperty.Register(nameof(FirstColumnWidth), typeof(GridLength), typeof(AliasPairEditorControl), new PropertyMetadata(new GridLength(150)));
+
+        public static readonly DependencyProperty DisplayValueOffsetProperty =
+            DependencyProperty.Register(nameof(DisplayValueOffset), typeof(GridLength), typeof(AliasPairEditorControl), new PropertyMetadata(new GridLength(120)));
+
+        public static readonly DependencyProperty CurrentEditingItemProperty =
+            DependencyProperty.Register(nameof(CurrentEditingItem), typeof(object), typeof(AliasPairEditorControl), new PropertyMetadata(null));
 
         public IList? ItemsSource
         {
             get => (IList?)GetValue(ItemsSourceProperty);
             set => SetValue(ItemsSourceProperty, value);
+        }
+
+        public IList? FolderItemsSource
+        {
+            get => (IList?)GetValue(FolderItemsSourceProperty);
+            set => SetValue(FolderItemsSourceProperty, value);
         }
 
         public ICommand? AddItemCommand
@@ -65,10 +92,28 @@ namespace HotKeyCommandApp.Views.Controls
             set => SetValue(AddButtonTextProperty, value);
         }
 
+        public string AddFolderButtonText
+        {
+            get => (string)GetValue(AddFolderButtonTextProperty);
+            set => SetValue(AddFolderButtonTextProperty, value);
+        }
+
         public GridLength FirstColumnWidth
         {
             get => (GridLength)GetValue(FirstColumnWidthProperty);
             set => SetValue(FirstColumnWidthProperty, value);
+        }
+
+        public GridLength DisplayValueOffset
+        {
+            get => (GridLength)GetValue(DisplayValueOffsetProperty);
+            set => SetValue(DisplayValueOffsetProperty, value);
+        }
+
+        public object? CurrentEditingItem
+        {
+            get => GetValue(CurrentEditingItemProperty);
+            set => SetValue(CurrentEditingItemProperty, value);
         }
 
         public bool IsAddButtonFocused => Keyboard.FocusedElement == AddItemButton;
@@ -78,22 +123,25 @@ namespace HotKeyCommandApp.Views.Controls
             AddItemButton.Focus();
         }
 
-        public bool FocusFirstTextBox()
+        public bool FocusFirstRowButton()
         {
-            var textBox = FindFirstTextBox(PairItemsControl);
-            if (textBox == null)
-            {
-                return false;
-            }
-
-            textBox.Focus();
-            textBox.SelectAll();
-            return true;
+            return FocusRowButtonAtIndex(0);
         }
 
-        public void FocusLastRow(bool focusSecondColumn, bool selectAll = false)
+        public bool FocusLastRowButton()
         {
-            FocusTextBoxAtIndex((ItemsSource?.Count ?? 0) - 1, focusSecondColumn, selectAll);
+            return FocusRowButtonAtIndex(VisibleItems.Count - 1);
+        }
+
+        public bool FocusBottomButton()
+        {
+            if (VisibleItems.Count > 0)
+            {
+                return FocusLastRowButton();
+            }
+
+            FocusAddButton();
+            return true;
         }
 
         public void AddNewItem()
@@ -103,45 +151,31 @@ namespace HotKeyCommandApp.Views.Controls
                 return;
             }
 
+            int previousCount = ItemsSource?.Count ?? 0;
             AddItemCommand.Execute(null);
-            RefreshItems();
-            FocusLastRow(focusSecondColumn: false, selectAll: true);
+            if (ItemsSource == null || ItemsSource.Count <= previousCount)
+            {
+                return;
+            }
+
+            if (ItemsSource[ItemsSource.Count - 1] is IPairEntryEditable newItem)
+            {
+                newItem.ParentFolderId = _currentFolderId;
+                newItem.SortOrder = VisibleItems.Count;
+                RefreshVisibleItems();
+                NormalizeCurrentFolderSortOrder();
+                RefreshVisibleItems();
+                ScrollToBottom();
+                EnterEditMode(newItem, focusSecondColumn: false, selectAll: true);
+            }
         }
 
-        public void FocusTextBoxAtIndex(int index, bool focusSecondColumn, bool selectAll = false)
+        private static void OnSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
-            Dispatcher.BeginInvoke(new Action(() =>
+            if (d is AliasPairEditorControl control)
             {
-                PairItemsControl.UpdateLayout();
-                if (index < 0 || index >= PairItemsControl.Items.Count)
-                {
-                    return;
-                }
-
-                if (PairItemsControl.ItemContainerGenerator.ContainerFromIndex(index) is not DependencyObject container)
-                {
-                    return;
-                }
-
-                var textBoxes = new List<TextBox>();
-                FindAllTextBoxes(container, textBoxes);
-
-                int textBoxIndex = focusSecondColumn ? 1 : 0;
-                if (textBoxes.Count <= textBoxIndex)
-                {
-                    return;
-                }
-
-                textBoxes[textBoxIndex].Focus();
-                if (selectAll)
-                {
-                    textBoxes[textBoxIndex].SelectAll();
-                }
-                else
-                {
-                    textBoxes[textBoxIndex].CaretIndex = textBoxes[textBoxIndex].Text.Length;
-                }
-            }), System.Windows.Threading.DispatcherPriority.Loaded);
+                control.RefreshVisibleItems();
+            }
         }
 
         private void AddItemButton_Click(object sender, RoutedEventArgs e)
@@ -149,24 +183,149 @@ namespace HotKeyCommandApp.Views.Controls
             AddNewItem();
         }
 
+        private void AddFolderButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (FolderItemsSource == null)
+            {
+                return;
+            }
+
+            var newFolder = new PairEntryFolder
+            {
+                Name = "新しいフォルダ",
+                ParentFolderId = _currentFolderId,
+                SortOrder = VisibleItems.Count
+            };
+            FolderItemsSource.Add(newFolder);
+            RefreshVisibleItems();
+            NormalizeCurrentFolderSortOrder();
+            RefreshVisibleItems();
+            ScrollToBottom();
+            EnterEditMode(newFolder, focusSecondColumn: false, selectAll: true);
+        }
+
+        private void AddItemButton_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if ((e.Key == Key.Up || e.Key == Key.Down) && FocusFirstRowButton())
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Left && !string.IsNullOrEmpty(_currentFolderId))
+            {
+                NavigateUp();
+                e.Handled = true;
+            }
+        }
+
+        private void AddFolderButton_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Up && FocusBottomButton())
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Left && !string.IsNullOrEmpty(_currentFolderId))
+            {
+                NavigateUp();
+                e.Handled = true;
+            }
+        }
+
+        private void RowButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button button || button.DataContext is not IPairEntryEditable item)
+            {
+                return;
+            }
+
+            if (item.IsFolder)
+            {
+                NavigateIntoFolder((PairEntryFolder)item);
+                return;
+            }
+
+            EnterEditMode(item, focusSecondColumn: false, selectAll: false);
+        }
+
+        private void RowButton_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (sender is not Button button || button.DataContext is not IPairEntryEditable item)
+            {
+                return;
+            }
+
+            if (Keyboard.Modifiers == ModifierKeys.Shift && (e.Key == Key.Up || e.Key == Key.Down))
+            {
+                MoveItem(item, moveUp: e.Key == Key.Up, focusSecondColumn: false, enterEditMode: false);
+                e.Handled = true;
+                return;
+            }
+
+            if (item.IsFolder && e.Key == Key.F2)
+            {
+                EnterEditMode(item, focusSecondColumn: false, selectAll: true);
+                e.Handled = true;
+                return;
+            }
+
+            if (item.IsFolder && e.Key == Key.Right)
+            {
+                NavigateIntoFolder((PairEntryFolder)item);
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Left)
+            {
+                NavigateUp();
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Enter)
+            {
+                if (item.IsFolder)
+                {
+                    NavigateIntoFolder((PairEntryFolder)item);
+                }
+                else
+                {
+                    EnterEditMode(item, focusSecondColumn: false, selectAll: true);
+                }
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Delete)
+            {
+                DeleteItem(item, preferSecondColumnAfterDelete: false);
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Up)
+            {
+                FocusAdjacentRowButton(item, moveUp: true, fallbackToAddButton: true);
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Down)
+            {
+                FocusAdjacentRowButton(item, moveUp: false, fallbackToAddButton: true);
+                e.Handled = true;
+            }
+        }
+
         private void DeleteInline_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is not Button button || button.DataContext == null || ItemsSource == null)
+            if (sender is Button button && button.DataContext is IPairEntryEditable item)
             {
-                return;
+                DeleteItem(item, preferSecondColumnAfterDelete: !item.IsFolder);
             }
-
-            int index = ItemsSource.IndexOf(button.DataContext);
-            if (index < 0)
-            {
-                return;
-            }
-
-            ItemsSource.RemoveAt(index);
-            RefreshItems();
-
-            int targetIndex = index < ItemsSource.Count ? index : index - 1;
-            FocusTextBoxAtIndex(targetIndex, focusSecondColumn: true);
         }
 
         private void EntryTextBox_GotFocus(object sender, RoutedEventArgs e)
@@ -186,62 +345,387 @@ namespace HotKeyCommandApp.Views.Controls
             }), System.Windows.Threading.DispatcherPriority.Background);
         }
 
-        private void EntryTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        private void EntryTextBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
         {
-            if (sender is not TextBox textBox || textBox.DataContext == null || ItemsSource == null)
+            if (sender is not TextBox textBox || textBox.DataContext is not IPairEntryEditable item)
             {
                 return;
             }
 
-            if (Keyboard.Modifiers == ModifierKeys.Shift && (e.Key == Key.Up || e.Key == Key.Down))
+            DependencyObject? nextFocus = e.NewFocus as DependencyObject;
+            if (IsFocusWithinSameItem(nextFocus, item))
+            {
+                return;
+            }
+
+            ExitEditMode(item, focusSameRowButton: false);
+        }
+
+        private void EntryTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (sender is not TextBox textBox || textBox.DataContext is not IPairEntryEditable item)
+            {
+                return;
+            }
+
+            if (!item.IsFolder && Keyboard.Modifiers == ModifierKeys.Shift && (e.Key == Key.Up || e.Key == Key.Down))
             {
                 bool moveUp = e.Key == Key.Up;
                 bool focusSecondColumn = Grid.GetColumn(textBox) == 2;
-                MoveItem(textBox.DataContext, moveUp, focusSecondColumn);
+                MoveItem(item, moveUp, focusSecondColumn, enterEditMode: true);
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Enter)
+            {
+                ExitEditMode(item, focusSameRowButton: true);
+                e.Handled = true;
+                return;
+            }
+
+            if (!item.IsFolder && e.Key == Key.Delete && string.IsNullOrEmpty(textBox.SelectedText) && string.IsNullOrEmpty(textBox.Text))
+            {
+                DeleteItem(item, preferSecondColumnAfterDelete: true);
                 e.Handled = true;
                 return;
             }
 
             if (e.Key == Key.Up)
             {
-                textBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Up));
+                FocusAdjacentRowButton(item, moveUp: true, fallbackToAddButton: false);
                 e.Handled = true;
             }
             else if (e.Key == Key.Down)
             {
-                textBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Down));
+                FocusAdjacentRowButton(item, moveUp: false, fallbackToAddButton: false);
                 e.Handled = true;
             }
-            else if (e.Key == Key.Left && textBox.CaretIndex == 0 && textBox.SelectionLength == 0)
+            else if (!item.IsFolder && e.Key == Key.Left && textBox.CaretIndex == 0 && textBox.SelectionLength == 0)
             {
                 textBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Left));
                 e.Handled = true;
             }
-            else if (e.Key == Key.Right && textBox.CaretIndex == textBox.Text.Length && textBox.SelectionLength == 0)
+            else if (!item.IsFolder && e.Key == Key.Right && textBox.CaretIndex == textBox.Text.Length && textBox.SelectionLength == 0)
             {
                 textBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Right));
                 e.Handled = true;
             }
+            else if (e.Key == Key.Escape)
+            {
+                ExitEditMode(item, focusSameRowButton: true);
+                e.Handled = true;
+            }
         }
 
-        private void MoveItem(object item, bool moveUp, bool focusSecondColumn)
+        private void MoveItem(IPairEntryEditable item, bool moveUp, bool focusSecondColumn, bool enterEditMode)
         {
-            if (ItemsSource == null)
-            {
-                return;
-            }
-
-            int currentIndex = ItemsSource.IndexOf(item);
+            List<IPairEntryEditable> orderedItems = VisibleItems.ToList();
+            int currentIndex = orderedItems.IndexOf(item);
             int targetIndex = moveUp ? currentIndex - 1 : currentIndex + 1;
-            if (currentIndex < 0 || targetIndex < 0 || targetIndex >= ItemsSource.Count)
+            if (currentIndex < 0 || targetIndex < 0 || targetIndex >= orderedItems.Count)
             {
                 return;
             }
 
-            ItemsSource.RemoveAt(currentIndex);
-            ItemsSource.Insert(targetIndex, item);
-            RefreshItems();
-            FocusTextBoxAtIndex(targetIndex, focusSecondColumn);
+            orderedItems.RemoveAt(currentIndex);
+            orderedItems.Insert(targetIndex, item);
+            NormalizeCurrentFolderSortOrder(orderedItems);
+            RefreshVisibleItems();
+
+            if (enterEditMode)
+            {
+                EnterEditMode(item, focusSecondColumn, selectAll: false);
+                return;
+            }
+
+            ExitEditMode(item, focusSameRowButton: false);
+            FocusRowButtonAtIndex(targetIndex);
+        }
+
+        private void DeleteItem(IPairEntryEditable item, bool preferSecondColumnAfterDelete)
+        {
+            int index = VisibleItems.IndexOf(item);
+            if (index < 0)
+            {
+                return;
+            }
+
+            bool wasEditing = ReferenceEquals(CurrentEditingItem, item);
+
+            if (item.IsFolder)
+            {
+                DeleteFolderRecursive((PairEntryFolder)item);
+            }
+            else
+            {
+                ItemsSource?.Remove(item);
+            }
+
+            if (wasEditing)
+            {
+                CurrentEditingItem = null;
+            }
+
+            RefreshVisibleItems();
+            NormalizeCurrentFolderSortOrder();
+            RefreshVisibleItems();
+
+            if (VisibleItems.Count == 0)
+            {
+                FocusAddButton();
+                return;
+            }
+
+            int targetIndex = index < VisibleItems.Count ? index : index - 1;
+            if (wasEditing && preferSecondColumnAfterDelete && !VisibleItems[targetIndex].IsFolder)
+            {
+                EnterEditMode(VisibleItems[targetIndex], focusSecondColumn: true, selectAll: false);
+                return;
+            }
+
+            FocusRowButtonAtIndex(targetIndex);
+        }
+
+        private void DeleteFolderRecursive(PairEntryFolder folder)
+        {
+            foreach (PairEntryFolder childFolder in GetFolders().Where(f => f.ParentFolderId == folder.Id).ToList())
+            {
+                DeleteFolderRecursive(childFolder);
+            }
+
+            foreach (IPairEntryEditable record in GetRecordItems().Where(i => i.ParentFolderId == folder.Id).ToList())
+            {
+                ItemsSource?.Remove(record);
+            }
+
+            FolderItemsSource?.Remove(folder);
+        }
+
+        private void EnterEditMode(IPairEntryEditable item, bool focusSecondColumn, bool selectAll)
+        {
+            CurrentEditingItem = item;
+            RefreshVisibleItems();
+            FocusEditorTextBox(item, item.IsFolder ? 0 : (focusSecondColumn ? 1 : 0), selectAll);
+        }
+
+        private void ExitEditMode(IPairEntryEditable item, bool focusSameRowButton)
+        {
+            if (!ReferenceEquals(CurrentEditingItem, item))
+            {
+                return;
+            }
+
+            int itemIndex = VisibleItems.IndexOf(item);
+            CurrentEditingItem = null;
+            RefreshVisibleItems();
+
+            if (focusSameRowButton && itemIndex >= 0)
+            {
+                RestoreRowButtonFocus(itemIndex);
+            }
+        }
+
+        private void RestoreRowButtonFocus(int index)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                PairItemsControl.UpdateLayout();
+                if (TryFocusRowButtonAtIndex(index))
+                {
+                    return;
+                }
+
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    PairItemsControl.UpdateLayout();
+                    TryFocusRowButtonAtIndex(index);
+                }), System.Windows.Threading.DispatcherPriority.Input);
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        private void FocusAdjacentRowButton(IPairEntryEditable item, bool moveUp, bool fallbackToAddButton)
+        {
+            int currentIndex = VisibleItems.IndexOf(item);
+            int targetIndex = moveUp ? currentIndex - 1 : currentIndex + 1;
+            if (currentIndex < 0)
+            {
+                return;
+            }
+
+            ExitEditMode(item, focusSameRowButton: false);
+
+            if (targetIndex < 0 || targetIndex >= VisibleItems.Count)
+            {
+                if (fallbackToAddButton)
+                {
+                    FocusAddButton();
+                }
+                return;
+            }
+
+            FocusRowButtonAtIndex(targetIndex);
+        }
+
+        private bool FocusRowButtonAtIndex(int index)
+        {
+            PairItemsControl.UpdateLayout();
+            if (TryFocusRowButtonAtIndex(index))
+            {
+                return true;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                TryFocusRowButtonAtIndex(index);
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+            return false;
+        }
+
+        private bool TryFocusRowButtonAtIndex(int index)
+        {
+            if (index < 0 || index >= PairItemsControl.Items.Count)
+            {
+                return false;
+            }
+
+            if (PairItemsControl.ItemContainerGenerator.ContainerFromIndex(index) is not DependencyObject container)
+            {
+                return false;
+            }
+
+            Button? rowButton = FindNamedChild<Button>(container, "RowButton");
+            return rowButton?.Focus() == true;
+        }
+
+        private bool FocusFolderButtonById(string folderId)
+        {
+            if (string.IsNullOrEmpty(folderId))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < VisibleItems.Count; i++)
+            {
+                if (VisibleItems[i] is not PairEntryFolder folder || folder.Id != folderId)
+                {
+                    continue;
+                }
+
+                return FocusRowButtonAtIndex(i);
+            }
+
+            return false;
+        }
+
+        private void FocusEditorTextBox(IPairEntryEditable item, int targetIndex, bool selectAll)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                PairItemsControl.UpdateLayout();
+
+                int index = VisibleItems.IndexOf(item);
+                if (index < 0 || index >= PairItemsControl.Items.Count)
+                {
+                    return;
+                }
+
+                if (PairItemsControl.ItemContainerGenerator.ContainerFromIndex(index) is not DependencyObject container)
+                {
+                    return;
+                }
+
+                TextBox? targetTextBox = FindEditorTextBox(container, targetIndex);
+                if (targetTextBox == null)
+                {
+                    return;
+                }
+
+                targetTextBox.Focus();
+                if (selectAll)
+                {
+                    targetTextBox.SelectAll();
+                }
+                else
+                {
+                    targetTextBox.CaretIndex = targetTextBox.Text.Length;
+                }
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        private TextBox? FindEditorTextBox(DependencyObject parent, int targetIndex)
+        {
+            int currentIndex = 0;
+            return FindEditorTextBoxInternal(parent, targetIndex, ref currentIndex);
+        }
+
+        private TextBox? FindEditorTextBoxInternal(DependencyObject parent, int targetIndex, ref int currentIndex)
+        {
+            int childCount = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < childCount; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(parent, i);
+                if (child is FrameworkElement frameworkElement && frameworkElement.Visibility != Visibility.Visible)
+                {
+                    continue;
+                }
+
+                if (child is TextBox textBox)
+                {
+                    if (currentIndex == targetIndex)
+                    {
+                        return textBox;
+                    }
+
+                    currentIndex++;
+                }
+
+                TextBox? result = FindEditorTextBoxInternal(child, targetIndex, ref currentIndex);
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+
+            return null;
+        }
+
+        private void NavigateIntoFolder(PairEntryFolder folder)
+        {
+            ExitCurrentEditWithoutFocusRestore();
+            _folderIdToFocusAfterNavigateUp = string.Empty;
+            _currentFolderId = folder.Id;
+            RefreshVisibleItems();
+            FocusFirstRowButton();
+        }
+
+        private void NavigateUp()
+        {
+            ExitCurrentEditWithoutFocusRestore();
+            PairEntryFolder? currentFolder = GetCurrentFolder();
+            _folderIdToFocusAfterNavigateUp = currentFolder?.Id ?? string.Empty;
+            _currentFolderId = currentFolder?.ParentFolderId ?? string.Empty;
+            RefreshVisibleItems();
+            if (!FocusFolderButtonById(_folderIdToFocusAfterNavigateUp))
+            {
+                FocusFirstRowButton();
+            }
+            _folderIdToFocusAfterNavigateUp = string.Empty;
+        }
+
+        public void ResetToRoot()
+        {
+            ExitCurrentEditWithoutFocusRestore();
+            _currentFolderId = string.Empty;
+            RefreshVisibleItems();
+        }
+
+        private void ExitCurrentEditWithoutFocusRestore()
+        {
+            if (CurrentEditingItem is IPairEntryEditable item)
+            {
+                ExitEditMode(item, focusSameRowButton: false);
+            }
         }
 
         private void DragHandle_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -264,9 +748,9 @@ namespace HotKeyCommandApp.Views.Controls
                 return;
             }
 
-            if (sender is FrameworkElement element && element.DataContext != null)
+            if (sender is FrameworkElement element && element.DataContext is IPairEntryEditable item)
             {
-                DragDrop.DoDragDrop(element, new DataObject(ReorderDataFormat, element.DataContext), DragDropEffects.Move);
+                DragDrop.DoDragDrop(element, new DataObject(ReorderDataFormat, item), DragDropEffects.Move);
             }
         }
 
@@ -283,49 +767,160 @@ namespace HotKeyCommandApp.Views.Controls
 
         private void Row_Drop(object sender, DragEventArgs e)
         {
-            if (!e.Data.GetDataPresent(ReorderDataFormat) || sender is not FrameworkElement row || row.DataContext == null || ItemsSource == null)
+            if (!e.Data.GetDataPresent(ReorderDataFormat) || sender is not FrameworkElement row || row.DataContext is not IPairEntryEditable targetItem)
             {
                 return;
             }
 
             object? draggedItem = e.Data.GetData(ReorderDataFormat);
-            object targetItem = row.DataContext;
-            if (draggedItem == null || ReferenceEquals(draggedItem, targetItem))
+            if (draggedItem is not IPairEntryEditable dragged || ReferenceEquals(dragged, targetItem))
             {
                 return;
             }
 
-            int sourceIndex = ItemsSource.IndexOf(draggedItem);
-            int targetIndex = ItemsSource.IndexOf(targetItem);
+            List<IPairEntryEditable> orderedItems = VisibleItems.ToList();
+            int sourceIndex = orderedItems.IndexOf(dragged);
+            int targetIndex = orderedItems.IndexOf(targetItem);
             if (sourceIndex < 0 || targetIndex < 0 || sourceIndex == targetIndex)
             {
                 return;
             }
 
-            ItemsSource.RemoveAt(sourceIndex);
-            ItemsSource.Insert(targetIndex, draggedItem);
-            RefreshItems();
-            FocusTextBoxAtIndex(targetIndex, focusSecondColumn: false);
+            bool draggedWasEditing = ReferenceEquals(CurrentEditingItem, dragged);
+            orderedItems.RemoveAt(sourceIndex);
+            orderedItems.Insert(targetIndex, dragged);
+            NormalizeCurrentFolderSortOrder(orderedItems);
+            RefreshVisibleItems();
+
+            if (draggedWasEditing)
+            {
+                EnterEditMode(dragged, focusSecondColumn: false, selectAll: false);
+            }
+            else
+            {
+                FocusRowButtonAtIndex(targetIndex);
+            }
+
             e.Handled = true;
         }
 
-        private void RefreshItems()
+        private void RefreshVisibleItems()
         {
+            if (!FolderExists(_currentFolderId))
+            {
+                _currentFolderId = string.Empty;
+            }
+
+            List<IPairEntryEditable> currentItems = GetCurrentFolderItems().OrderBy(i => i.SortOrder).ToList();
+            VisibleItems.Clear();
+            foreach (IPairEntryEditable item in currentItems)
+            {
+                VisibleItems.Add(item);
+            }
+
+            PairItemsControl.ItemsSource = VisibleItems;
             PairItemsControl.Items.Refresh();
             PairItemsControl.UpdateLayout();
+            UpdateFolderHeader();
         }
 
-        private TextBox? FindFirstTextBox(DependencyObject parent)
+        private void NormalizeCurrentFolderSortOrder()
         {
-            for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+            NormalizeCurrentFolderSortOrder(VisibleItems.ToList());
+        }
+
+        private void NormalizeCurrentFolderSortOrder(IList<IPairEntryEditable> orderedItems)
+        {
+            for (int i = 0; i < orderedItems.Count; i++)
             {
-                var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
-                if (child is TextBox textBox)
+                orderedItems[i].SortOrder = i;
+                orderedItems[i].ParentFolderId = _currentFolderId;
+            }
+        }
+
+        private IEnumerable<PairEntryFolder> GetFolders()
+        {
+            return FolderItemsSource?.Cast<PairEntryFolder>() ?? Enumerable.Empty<PairEntryFolder>();
+        }
+
+        private IEnumerable<IPairEntryEditable> GetRecordItems()
+        {
+            return ItemsSource?.Cast<object>().OfType<IPairEntryEditable>() ?? Enumerable.Empty<IPairEntryEditable>();
+        }
+
+        private IEnumerable<IPairEntryEditable> GetCurrentFolderItems()
+        {
+            return GetFolders().Where(f => f.ParentFolderId == _currentFolderId).Cast<IPairEntryEditable>()
+                .Concat(GetRecordItems().Where(i => i.ParentFolderId == _currentFolderId));
+        }
+
+        private PairEntryFolder? GetCurrentFolder()
+        {
+            return GetFolders().FirstOrDefault(f => f.Id == _currentFolderId);
+        }
+
+        private bool FolderExists(string folderId)
+        {
+            return string.IsNullOrEmpty(folderId) || GetFolders().Any(f => f.Id == folderId);
+        }
+
+        private void UpdateFolderHeader()
+        {
+            CurrentFolderTextBlock.Text = $"現在のフォルダ: {BuildCurrentPathText()}";
+            BackHintTextBlock.Visibility = string.IsNullOrEmpty(_currentFolderId) ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        private string BuildCurrentPathText()
+        {
+            var names = new List<string> { "ルート" };
+            PairEntryFolder? folder = GetCurrentFolder();
+            while (folder != null)
+            {
+                names.Insert(1, folder.Name);
+                folder = string.IsNullOrEmpty(folder.ParentFolderId)
+                    ? null
+                    : GetFolders().FirstOrDefault(f => f.Id == folder.ParentFolderId);
+            }
+
+            return string.Join(" / ", names);
+        }
+
+        private void ScrollToBottom()
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                ItemsScrollViewer.UpdateLayout();
+                ItemsScrollViewer.ScrollToEnd();
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        private bool IsFocusWithinSameItem(DependencyObject? focusedElement, IPairEntryEditable item)
+        {
+            while (focusedElement != null)
+            {
+                if (focusedElement is FrameworkElement element && ReferenceEquals(element.DataContext, item))
                 {
-                    return textBox;
+                    return true;
                 }
 
-                var result = FindFirstTextBox(child);
+                focusedElement = VisualTreeHelper.GetParent(focusedElement);
+            }
+
+            return false;
+        }
+
+        private T? FindNamedChild<T>(DependencyObject parent, string name) where T : FrameworkElement
+        {
+            int childCount = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < childCount; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T typedChild && typedChild.Name == name)
+                {
+                    return typedChild;
+                }
+
+                T? result = FindNamedChild<T>(child, name);
                 if (result != null)
                 {
                     return result;
@@ -333,20 +928,6 @@ namespace HotKeyCommandApp.Views.Controls
             }
 
             return null;
-        }
-
-        private void FindAllTextBoxes(DependencyObject parent, List<TextBox> textBoxes)
-        {
-            for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
-            {
-                var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
-                if (child is TextBox textBox)
-                {
-                    textBoxes.Add(textBox);
-                }
-
-                FindAllTextBoxes(child, textBoxes);
-            }
         }
     }
 }

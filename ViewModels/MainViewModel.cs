@@ -371,11 +371,25 @@ namespace HotKeyCommandApp.ViewModels
             set { _editingConstants = value; OnPropertyChanged(); }
         }
 
+        private ObservableCollection<PairEntryFolder> _editingConstantFolders = new();
+        public ObservableCollection<PairEntryFolder> EditingConstantFolders
+        {
+            get => _editingConstantFolders;
+            set { _editingConstantFolders = value; OnPropertyChanged(); }
+        }
+
         private ObservableCollection<SelectTemplate> _editingSelectTemplates = new();
         public ObservableCollection<SelectTemplate> EditingSelectTemplates
         {
             get => _editingSelectTemplates;
             set { _editingSelectTemplates = value; OnPropertyChanged(); }
+        }
+
+        private ObservableCollection<PairEntryFolder> _editingSelectTemplateFolders = new();
+        public ObservableCollection<PairEntryFolder> EditingSelectTemplateFolders
+        {
+            get => _editingSelectTemplateFolders;
+            set { _editingSelectTemplateFolders = value; OnPropertyChanged(); }
         }
 
 
@@ -1750,10 +1764,16 @@ namespace HotKeyCommandApp.ViewModels
             EditingSettingsShortcut = SettingsShortcut;
             EditingCreateButtonShortcut = CreateButtonShortcut;
             EditingConstants = new ObservableCollection<ConstantEntry>(
-                (_appSettings.Constants ?? new System.Collections.Generic.List<ConstantEntry>()).Select(c => new ConstantEntry { Name = c.Name, Value = c.Value })
+                (_appSettings.Constants ?? new System.Collections.Generic.List<ConstantEntry>()).Select(c => new ConstantEntry { Name = c.Name, Value = c.Value, ParentFolderId = c.ParentFolderId, SortOrder = c.SortOrder })
+            );
+            EditingConstantFolders = new ObservableCollection<PairEntryFolder>(
+                (_appSettings.ConstantFolders ?? new System.Collections.Generic.List<PairEntryFolder>()).Select(f => new PairEntryFolder { Id = f.Id, Name = f.Name, ParentFolderId = f.ParentFolderId, SortOrder = f.SortOrder })
             );
             EditingSelectTemplates = new ObservableCollection<SelectTemplate>(
-                (_appSettings.SelectTemplates ?? new System.Collections.Generic.List<SelectTemplate>()).Select(t => new SelectTemplate { Name = t.Name, Options = new System.Collections.Generic.List<string>(t.Options) })
+                (_appSettings.SelectTemplates ?? new System.Collections.Generic.List<SelectTemplate>()).Select(t => new SelectTemplate { Name = t.Name, Options = new System.Collections.Generic.List<string>(t.Options), ParentFolderId = t.ParentFolderId, SortOrder = t.SortOrder })
+            );
+            EditingSelectTemplateFolders = new ObservableCollection<PairEntryFolder>(
+                (_appSettings.SelectTemplateFolders ?? new System.Collections.Generic.List<PairEntryFolder>()).Select(f => new PairEntryFolder { Id = f.Id, Name = f.Name, ParentFolderId = f.ParentFolderId, SortOrder = f.SortOrder })
             );
             IsCapturingHotkey = false;
             CaptureTarget = string.Empty;
@@ -1771,8 +1791,10 @@ namespace HotKeyCommandApp.ViewModels
             GlobalHotkey = EditingGlobalHotkey;
             SettingsShortcut = EditingSettingsShortcut;
             CreateButtonShortcut = EditingCreateButtonShortcut;
-            _appSettings.Constants = EditingConstants.Select(c => new ConstantEntry { Name = c.Name, Value = c.Value }).ToList();
-            _appSettings.SelectTemplates = EditingSelectTemplates.Select(t => new SelectTemplate { Name = t.Name, Options = new System.Collections.Generic.List<string>(t.Options) }).ToList();
+            _appSettings.Constants = EditingConstants.Select(c => new ConstantEntry { Name = c.Name, Value = c.Value, ParentFolderId = c.ParentFolderId, SortOrder = c.SortOrder }).ToList();
+            _appSettings.ConstantFolders = EditingConstantFolders.Select(f => new PairEntryFolder { Id = f.Id, Name = f.Name, ParentFolderId = f.ParentFolderId, SortOrder = f.SortOrder }).ToList();
+            _appSettings.SelectTemplates = EditingSelectTemplates.Select(t => new SelectTemplate { Name = t.Name, Options = new System.Collections.Generic.List<string>(t.Options), ParentFolderId = t.ParentFolderId, SortOrder = t.SortOrder }).ToList();
+            _appSettings.SelectTemplateFolders = EditingSelectTemplateFolders.Select(f => new PairEntryFolder { Id = f.Id, Name = f.Name, ParentFolderId = f.ParentFolderId, SortOrder = f.SortOrder }).ToList();
 
             _configService.SaveSettings(_appSettings);
             RequestSync?.Invoke();

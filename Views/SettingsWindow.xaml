@@ -306,6 +306,7 @@
                     <Grid Margin="5,5,5,10">
                         <controls:AliasPairEditorControl x:Name="ConstantsPairEditor"
                                                          ItemsSource="{Binding EditingConstants}"
+                                                         FolderItemsSource="{Binding EditingConstantFolders}"
                                                          FirstHeader="定数名"
                                                          SecondHeader="値"/>
                     </Grid>
@@ -316,6 +317,7 @@
                     <Grid Margin="5,5,5,10">
                         <controls:AliasPairEditorControl x:Name="SelectTemplatesPairEditor"
                                                          ItemsSource="{Binding EditingSelectTemplates}"
+                                                         FolderItemsSource="{Binding EditingSelectTemplateFolders}"
                                                          FirstHeader="テンプレート名"
                                                          SecondHeader="選択肢 (カンマ区切り)"/>
                     </Grid>

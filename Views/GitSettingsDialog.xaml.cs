@@ -28,13 +28,17 @@ namespace HotKeyCommandApp.Views
             _workingSettings = System.Text.Json.JsonSerializer.Deserialize<GitSettings>(json) ?? new GitSettings();
             DataContext = _workingSettings;
             AliasesPairEditor.AddItemCommand = new ViewModels.RelayCommand<object>(_ => _workingSettings.Aliases.Add(new GitAliasEntry { Alias = "new_alias", TargetCommand = "command" }));
+            AliasesPairEditor.FolderItemsSource = _workingSettings.AliasFolders;
             MappingsPairEditor.AddItemCommand = new ViewModels.RelayCommand<object>(_ => _workingSettings.RepositoryNameMappings.Add(new RepositoryNameMapping { Path = "C:\\path\\to\\repo", OverwrittenName = "MyRepo" }));
+            MappingsPairEditor.FolderItemsSource = _workingSettings.RepositoryNameMappingFolders;
 
             this.Loaded += (s, e) =>
             {
                 WindowHelper.EnableWindowDragMove(this);
                 WindowHelper.EnableWindowMoveShortcut(this);
-                FocusFirstAliasTextBox();
+                AliasesPairEditor.ResetToRoot();
+                MappingsPairEditor.ResetToRoot();
+                FocusFirstAliasRow();
             };
 
             MainTabControl.SelectionChanged += (s, e) =>
@@ -44,13 +48,15 @@ namespace HotKeyCommandApp.Views
                     switch (MainTabControl.SelectedIndex)
                     {
                         case 0:
-                            FocusFirstAliasTextBox();
+                            AliasesPairEditor.ResetToRoot();
+                            FocusFirstAliasRow();
                             break;
                         case 1:
                             Dispatcher.BeginInvoke(() => FunctionNameTextBox.Focus(), System.Windows.Threading.DispatcherPriority.Loaded);
                             break;
                         case 2:
-                            FocusFirstMappingTextBox();
+                            MappingsPairEditor.ResetToRoot();
+                            FocusFirstMappingRow();
                             break;
                     }
                 }
@@ -64,15 +70,25 @@ namespace HotKeyCommandApp.Views
 
                 if (e.Key == Key.Escape)
                 {
+                    if (IsAliasEditorTextInputFocused())
+                    {
+                        return;
+                    }
+
+                    if (IsAliasEditorButtonFocused())
+                    {
+                        this.Close();
+                        e.Handled = true;
+                        return;
+                    }
+
                     if (!isInteractiveFocused)
                     {
                         this.Close();
                     }
                     else
                     {
-                        FocusManager.SetFocusedElement(this, null);
-                        Keyboard.ClearFocus();
-                        RootBorder.Focus();
+                        this.Close();
                     }
                     e.Handled = true;
                     return;
@@ -126,7 +142,7 @@ namespace HotKeyCommandApp.Views
                 {
                     if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Left || e.Key == Key.Right)
                     {
-                        FocusFirstAliasTextBox();
+                        FocusFirstAliasRow();
                         e.Handled = true;
                         return;
                     }
@@ -152,28 +168,28 @@ namespace HotKeyCommandApp.Views
                 {
                     if ((currentFocus == SaveAndCloseButton || currentFocus == CancelButton) && MainTabControl.SelectedIndex == 0)
                     {
-                        AliasesPairEditor.FocusLastRow(focusSecondColumn: true);
+                        AliasesPairEditor.FocusLastRowButton();
                         e.Handled = true;
                         return;
                     }
 
                     if (AliasesPairEditor.IsAddButtonFocused && MainTabControl.SelectedIndex == 0)
                     {
-                        AliasesPairEditor.FocusLastRow(focusSecondColumn: false);
+                        AliasesPairEditor.FocusLastRowButton();
                         e.Handled = true;
                         return;
                     }
 
                     if ((currentFocus == SaveAndCloseButton || currentFocus == CancelButton) && MainTabControl.SelectedIndex == 2)
                     {
-                        MappingsPairEditor.FocusLastRow(focusSecondColumn: true);
+                        MappingsPairEditor.FocusLastRowButton();
                         e.Handled = true;
                         return;
                     }
 
                     if (MappingsPairEditor.IsAddButtonFocused && MainTabControl.SelectedIndex == 2)
                     {
-                        MappingsPairEditor.FocusLastRow(focusSecondColumn: false);
+                        MappingsPairEditor.FocusLastRowButton();
                         e.Handled = true;
                         return;
                     }
@@ -204,11 +220,11 @@ namespace HotKeyCommandApp.Views
             RefreshFunctionsList();
         }
 
-        private void FocusFirstAliasTextBox()
+        private void FocusFirstAliasRow()
         {
             Dispatcher.BeginInvoke(() =>
             {
-                if (AliasesPairEditor.FocusFirstTextBox())
+                if (AliasesPairEditor.FocusFirstRowButton())
                 {
                     return;
                 }
@@ -216,11 +232,11 @@ namespace HotKeyCommandApp.Views
             }, System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
-        private void FocusFirstMappingTextBox()
+        private void FocusFirstMappingRow()
         {
             Dispatcher.BeginInvoke(() =>
             {
-                if (MappingsPairEditor.FocusFirstTextBox())
+                if (MappingsPairEditor.FocusFirstRowButton())
                 {
                     return;
                 }
@@ -305,8 +321,10 @@ namespace HotKeyCommandApp.Views
         private void SaveAndClose_Click(object? sender, RoutedEventArgs? e)
         {
             _settingsManager.CurrentSettings.Aliases = _workingSettings.Aliases;
+            _settingsManager.CurrentSettings.AliasFolders = _workingSettings.AliasFolders;
             _settingsManager.CurrentSettings.Functions = _workingSettings.Functions;
             _settingsManager.CurrentSettings.RepositoryNameMappings = _workingSettings.RepositoryNameMappings;
+            _settingsManager.CurrentSettings.RepositoryNameMappingFolders = _workingSettings.RepositoryNameMappingFolders;
             _settingsManager.SaveSettings();
 
             this.Close();
@@ -339,6 +357,44 @@ namespace HotKeyCommandApp.Views
         private void Close_Click(object sender, RoutedEventArgs e)
         {
             this.Close();
+        }
+
+        private bool IsAliasEditorButtonFocused()
+        {
+            if (Keyboard.FocusedElement is not DependencyObject focusedElement ||
+                Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase)
+            {
+                return false;
+            }
+
+            return IsDescendantOf(focusedElement, AliasesPairEditor) || IsDescendantOf(focusedElement, MappingsPairEditor);
+        }
+
+        private bool IsAliasEditorTextInputFocused()
+        {
+            if (Keyboard.FocusedElement is not DependencyObject focusedElement ||
+                Keyboard.FocusedElement is not System.Windows.Controls.Primitives.TextBoxBase)
+            {
+                return false;
+            }
+
+            return IsDescendantOf(focusedElement, AliasesPairEditor) || IsDescendantOf(focusedElement, MappingsPairEditor);
+        }
+
+        private bool IsDescendantOf(DependencyObject child, DependencyObject ancestor)
+        {
+            DependencyObject? current = child;
+            while (current != null)
+            {
+                if (ReferenceEquals(current, ancestor))
+                {
+                    return true;
+                }
+
+                current = System.Windows.Media.VisualTreeHelper.GetParent(current);
+            }
+
+            return false;
         }
     }
 }

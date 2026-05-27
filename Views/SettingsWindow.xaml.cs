@@ -91,9 +91,10 @@ namespace HotKeyCommandApp.Views
                 {
                     TitleTextBlock.Text = "定数定義";
                     ConstantsPanel.Visibility = Visibility.Visible;
-                    Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        if (!ConstantsPairEditor.FocusFirstTextBox())
+                    ConstantsPairEditor.ResetToRoot();
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                        if (!ConstantsPairEditor.FocusFirstRowButton())
                         {
                             ConstantsPairEditor.FocusAddButton();
                         }
@@ -103,9 +104,10 @@ namespace HotKeyCommandApp.Views
                 {
                     TitleTextBlock.Text = "選択式テンプレート";
                     SelectTemplatesPanel.Visibility = Visibility.Visible;
+                    SelectTemplatesPairEditor.ResetToRoot();
                     Dispatcher.BeginInvoke(new Action(() =>
                     {
-                        if (!SelectTemplatesPairEditor.FocusFirstTextBox())
+                        if (!SelectTemplatesPairEditor.FocusFirstRowButton())
                         {
                             SelectTemplatesPairEditor.FocusAddButton();
                         }
@@ -239,14 +241,14 @@ namespace HotKeyCommandApp.Views
                 {
                     if (ConstantsPairEditor.IsAddButtonFocused)
                     {
-                        ConstantsPairEditor.FocusLastRow(focusSecondColumn: false);
+                        ConstantsPairEditor.FocusLastRowButton();
                         e.Handled = true;
                         return;
                     }
 
                     if (Keyboard.FocusedElement == SaveButton)
                     {
-                        ConstantsPairEditor.FocusLastRow(focusSecondColumn: true);
+                        ConstantsPairEditor.FocusLastRowButton();
                         e.Handled = true;
                         return;
                     }
@@ -255,14 +257,14 @@ namespace HotKeyCommandApp.Views
                 {
                     if (SelectTemplatesPairEditor.IsAddButtonFocused)
                     {
-                        SelectTemplatesPairEditor.FocusLastRow(focusSecondColumn: false);
+                        SelectTemplatesPairEditor.FocusLastRowButton();
                         e.Handled = true;
                         return;
                     }
 
                     if (Keyboard.FocusedElement == SaveButton)
                     {
-                        SelectTemplatesPairEditor.FocusLastRow(focusSecondColumn: true);
+                        SelectTemplatesPairEditor.FocusLastRowButton();
                         e.Handled = true;
                         return;
                     }
@@ -271,6 +273,12 @@ namespace HotKeyCommandApp.Views
 
             if (actualKey == Key.Enter)
             {
+                if (Keyboard.FocusedElement is DependencyObject focusedElement &&
+                    (IsDescendantOf(focusedElement, ConstantsPairEditor) || IsDescendantOf(focusedElement, SelectTemplatesPairEditor)))
+                {
+                    return;
+                }
+
                 if (FocusManager.GetFocusedElement(this) is Button) return; // ボタン自身に処理させる
 
                 if (_currentPage == SettingsPage.List)
@@ -288,6 +296,13 @@ namespace HotKeyCommandApp.Views
             }
             else if (actualKey == Key.Escape)
             {
+                if (IsAliasEditorButtonFocused())
+                {
+                    CancelAndClose();
+                    e.Handled = true;
+                    return;
+                }
+
                 if (_currentPage == SettingsPage.List)
                 {
                     CancelAndClose();
@@ -384,6 +399,33 @@ namespace HotKeyCommandApp.Views
             WindowHelper.DisableSystemMenu(this);
             WindowHelper.EnableWindowMoveShortcut(this, () => !_viewModel.IsCapturingHotkey);
             WindowHelper.EnableWindowDragMove(this);
+        }
+
+        private bool IsDescendantOf(DependencyObject child, DependencyObject ancestor)
+        {
+            DependencyObject? current = child;
+            while (current != null)
+            {
+                if (ReferenceEquals(current, ancestor))
+                {
+                    return true;
+                }
+
+                current = System.Windows.Media.VisualTreeHelper.GetParent(current);
+            }
+
+            return false;
+        }
+
+        private bool IsAliasEditorButtonFocused()
+        {
+            if (Keyboard.FocusedElement is not DependencyObject focusedElement ||
+                Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase)
+            {
+                return false;
+            }
+
+            return IsDescendantOf(focusedElement, ConstantsPairEditor) || IsDescendantOf(focusedElement, SelectTemplatesPairEditor);
         }
 
     }
