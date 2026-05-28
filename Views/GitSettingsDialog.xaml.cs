@@ -168,28 +168,14 @@ namespace HotKeyCommandApp.Views
                 {
                     if ((currentFocus == SaveAndCloseButton || currentFocus == CancelButton) && MainTabControl.SelectedIndex == 0)
                     {
-                        AliasesPairEditor.FocusLastRowButton();
-                        e.Handled = true;
-                        return;
-                    }
-
-                    if (AliasesPairEditor.IsAddButtonFocused && MainTabControl.SelectedIndex == 0)
-                    {
-                        AliasesPairEditor.FocusLastRowButton();
+                        AliasesPairEditor.FocusFirstNavigableButton();
                         e.Handled = true;
                         return;
                     }
 
                     if ((currentFocus == SaveAndCloseButton || currentFocus == CancelButton) && MainTabControl.SelectedIndex == 2)
                     {
-                        MappingsPairEditor.FocusLastRowButton();
-                        e.Handled = true;
-                        return;
-                    }
-
-                    if (MappingsPairEditor.IsAddButtonFocused && MainTabControl.SelectedIndex == 2)
-                    {
-                        MappingsPairEditor.FocusLastRowButton();
+                        MappingsPairEditor.FocusFirstNavigableButton();
                         e.Handled = true;
                         return;
                     }

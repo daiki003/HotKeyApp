@@ -239,32 +239,18 @@ namespace HotKeyCommandApp.Views
             {
                 if (_currentPage == SettingsPage.Constants)
                 {
-                    if (ConstantsPairEditor.IsAddButtonFocused)
-                    {
-                        ConstantsPairEditor.FocusLastRowButton();
-                        e.Handled = true;
-                        return;
-                    }
-
                     if (Keyboard.FocusedElement == SaveButton)
                     {
-                        ConstantsPairEditor.FocusLastRowButton();
+                        ConstantsPairEditor.FocusFirstNavigableButton();
                         e.Handled = true;
                         return;
                     }
                 }
                 else if (_currentPage == SettingsPage.SelectTemplates)
                 {
-                    if (SelectTemplatesPairEditor.IsAddButtonFocused)
-                    {
-                        SelectTemplatesPairEditor.FocusLastRowButton();
-                        e.Handled = true;
-                        return;
-                    }
-
                     if (Keyboard.FocusedElement == SaveButton)
                     {
-                        SelectTemplatesPairEditor.FocusLastRowButton();
+                        SelectTemplatesPairEditor.FocusFirstNavigableButton();
                         e.Handled = true;
                         return;
                     }

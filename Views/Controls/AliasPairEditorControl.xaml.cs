@@ -125,7 +125,22 @@ namespace HotKeyCommandApp.Views.Controls
 
         public bool FocusFirstRowButton()
         {
-            return FocusRowButtonAtIndex(0);
+            if (VisibleItems.Count > 0)
+            {
+                return FocusRowButtonAtIndex(0);
+            }
+
+            if (BackRowButton.Visibility == Visibility.Visible)
+            {
+                return FocusBackRowButton();
+            }
+
+            return false;
+        }
+
+        public bool FocusFirstNavigableButton()
+        {
+            return FocusFirstRowButton();
         }
 
         public bool FocusLastRowButton()
@@ -141,6 +156,41 @@ namespace HotKeyCommandApp.Views.Controls
             }
 
             FocusAddButton();
+            return true;
+        }
+
+        public bool FocusLastNavigableButton()
+        {
+            if (VisibleItems.Count > 0)
+            {
+                return FocusLastRowButton();
+            }
+
+            if (BackRowButton.Visibility == Visibility.Visible)
+            {
+                return FocusBackRowButton();
+            }
+
+            return false;
+        }
+
+        private bool FocusBackRowButton()
+        {
+            if (BackRowButton.Focus())
+            {
+                return true;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                BackRowButton.Focus();
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                BackRowButton.Focus();
+            }), System.Windows.Threading.DispatcherPriority.Input);
+
             return true;
         }
 
@@ -206,30 +256,60 @@ namespace HotKeyCommandApp.Views.Controls
 
         private void AddItemButton_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if ((e.Key == Key.Up || e.Key == Key.Down) && FocusFirstRowButton())
+            if (e.Key == Key.Up && FocusLastNavigableButton())
             {
                 e.Handled = true;
                 return;
             }
 
-            if (e.Key == Key.Left && !string.IsNullOrEmpty(_currentFolderId))
+            if (e.Key == Key.Down && FocusFirstNavigableButton())
             {
-                NavigateUp();
                 e.Handled = true;
+                return;
             }
         }
 
         private void AddFolderButton_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Up && FocusBottomButton())
+            if (e.Key == Key.Up && FocusLastNavigableButton())
             {
                 e.Handled = true;
                 return;
             }
+        }
 
-            if (e.Key == Key.Left && !string.IsNullOrEmpty(_currentFolderId))
+        private void BackRowButton_Click(object sender, RoutedEventArgs e)
+        {
+            NavigateUp();
+        }
+
+        private void BackRowButton_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter || e.Key == Key.Left)
             {
                 NavigateUp();
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Down)
+            {
+                if (VisibleItems.Count > 0)
+                {
+                    FocusRowButtonAtIndex(0);
+                }
+                else
+                {
+                    FocusAddButton();
+                }
+
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Up)
+            {
+                FocusAddButton();
                 e.Handled = true;
             }
         }
@@ -308,7 +388,15 @@ namespace HotKeyCommandApp.Views.Controls
 
             if (e.Key == Key.Up)
             {
-                FocusAdjacentRowButton(item, moveUp: true, fallbackToAddButton: true);
+                int currentIndex = VisibleItems.IndexOf(item);
+                if (currentIndex == 0 && BackRowButton.Visibility == Visibility.Visible)
+                {
+                    BackRowButton.Focus();
+                }
+                else
+                {
+                    FocusAdjacentRowButton(item, moveUp: true, fallbackToAddButton: true);
+                }
                 e.Handled = true;
                 return;
             }
@@ -866,8 +954,8 @@ namespace HotKeyCommandApp.Views.Controls
 
         private void UpdateFolderHeader()
         {
-            CurrentFolderTextBlock.Text = $"現在のフォルダ: {BuildCurrentPathText()}";
-            BackHintTextBlock.Visibility = string.IsNullOrEmpty(_currentFolderId) ? Visibility.Collapsed : Visibility.Visible;
+            CurrentFolderTextBlock.Text = BuildCurrentPathText();
+            BackRowButton.Visibility = string.IsNullOrEmpty(_currentFolderId) ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private string BuildCurrentPathText()

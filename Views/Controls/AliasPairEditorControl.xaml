@@ -104,29 +104,51 @@
         <Grid Grid.Row="1" Margin="10,0,10,5">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="24"/>
-                <ColumnDefinition Width="24"/>
                 <ColumnDefinition Width="{Binding ElementName=Root, Path=DisplayValueOffset}"/>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="50"/>
             </Grid.ColumnDefinitions>
-            <TextBlock x:Name="BackHintTextBlock"
-                       Grid.Column="0"
-                       Text="←"
-                       Foreground="#AAAAAA"
-                       HorizontalAlignment="Center"
-                       Visibility="Collapsed"/>
             <TextBlock Grid.Column="1"
                        Text="{Binding ElementName=Root, Path=FirstHeader}"
                        Foreground="#AAAAAA"
-                       HorizontalAlignment="Left"/>
+                       HorizontalAlignment="Left"
+                       TextTrimming="CharacterEllipsis"
+                       TextWrapping="NoWrap"/>
             <TextBlock Grid.Column="2"
                        Text="{Binding ElementName=Root, Path=SecondHeader}"
                        Foreground="#AAAAAA"
-                       HorizontalAlignment="Left"/>
+                       HorizontalAlignment="Left"
+                       TextTrimming="CharacterEllipsis"
+                       TextWrapping="NoWrap"/>
         </Grid>
 
         <ScrollViewer x:Name="ItemsScrollViewer" Grid.Row="2" VerticalScrollBarVisibility="Auto">
             <StackPanel>
+                <Button x:Name="BackRowButton"
+                        Style="{StaticResource RowButtonStyle}"
+                        Click="BackRowButton_Click"
+                        PreviewKeyDown="BackRowButton_PreviewKeyDown"
+                        Visibility="Collapsed"
+                        Margin="0,0,10,5">
+                    <Grid Margin="10,0,10,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="24"/>
+                            <ColumnDefinition Width="{Binding ElementName=Root, Path=DisplayValueOffset}"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Text="←"
+                                   Foreground="#AAAAAA"
+                                   VerticalAlignment="Center"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="戻る"
+                                   Foreground="White"
+                                   HorizontalAlignment="Left"
+                                   VerticalAlignment="Center"
+                                   Margin="0,8,0,8"/>
+                    </Grid>
+                </Button>
+
                 <ItemsControl x:Name="PairItemsControl"
                               ItemsSource="{Binding ElementName=Root, Path=VisibleItems}">
                     <ItemsControl.ItemTemplate>
