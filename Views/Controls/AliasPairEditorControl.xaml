@@ -2,12 +2,9 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:HotKeyCommandApp.Views.Controls"
-             xmlns:views="clr-namespace:HotKeyCommandApp.Views"
              x:Name="Root">
     <UserControl.Resources>
         <local:PairItemVisibilityConverter x:Key="PairItemVisibilityConverter"/>
-        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
-        <views:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter"/>
 
         <Style x:Key="ActionButtonStyle" TargetType="Button">
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -49,6 +46,14 @@
             <Setter Property="FontSize" Value="12"/>
         </Style>
 
+        <Style x:Key="PrimaryActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ActionButtonStyle}">
+            <Style.Triggers>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="White"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <Style x:Key="RowButtonStyle" TargetType="Button" BasedOn="{StaticResource ActionButtonStyle}">
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -81,6 +86,53 @@
             <EventSetter Event="GotFocus" Handler="EntryTextBox_GotFocus"/>
             <EventSetter Event="LostKeyboardFocus" Handler="EntryTextBox_LostKeyboardFocus"/>
         </Style>
+
+        <Style x:Key="AliasTabButtonStyle" TargetType="ListBoxItem">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="Margin" Value="0,0,1,0"/>
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}"
+                                CornerRadius="6,6,0,0">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#3E3E42"/>
+                                <Setter Property="Foreground" Value="#A0C4E2"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#333337"/>
+                                <Setter Property="Foreground" Value="#D4D4D4"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#007ACC"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsSelected" Value="True"/>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Border" Property="Background" Value="#3E3E42"/>
+                                <Setter Property="Foreground" Value="#A0C4E2"/>
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
     <Grid>
@@ -92,17 +144,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Margin="0,0,0,8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock x:Name="CurrentFolderTextBlock"
-                       Foreground="#D4D4D4"
-                       VerticalAlignment="Center"
-                       TextTrimming="CharacterEllipsis"/>
-        </Grid>
-
-        <Grid Grid.Row="1" Margin="10,0,10,5">
+        <Grid Grid.Row="0" Margin="10,0,10,5">
             <Grid.Style>
                 <Style TargetType="Grid">
                     <Setter Property="Visibility" Value="Visible"/>
@@ -115,8 +157,8 @@
             </Grid.Style>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="24"/>
-                <ColumnDefinition Width="{Binding ElementName=Root, Path=DisplayValueOffset}"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="{Binding ElementName=Root, Path=FirstColumnWidth}"/>
+                <ColumnDefinition Width="{Binding ElementName=Root, Path=SecondColumnWidth}"/>
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="1"
                        Text="{Binding ElementName=Root, Path=FirstHeader}"
@@ -132,48 +174,126 @@
                        TextWrapping="NoWrap"/>
         </Grid>
 
+        <StackPanel Grid.Row="1"
+                    Margin="0,0,10,4"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Left">
+            <ListBox x:Name="TabsListBox"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     SelectionChanged="TabsListBox_SelectionChanged"
+                     PreviewKeyDown="TabsListBox_PreviewKeyDown"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                     ItemsSource="{Binding ElementName=Root, Path=TabHost.Tabs}"
+                     ItemContainerStyle="{StaticResource AliasTabButtonStyle}">
+                <ListBox.Style>
+                    <Style TargetType="ListBox">
+                        <Setter Property="Visibility" Value="Visible"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ElementName=Root, Path=TabHost}" Value="{x:Null}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ListBox.Style>
+                <ListBox.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal"/>
+                    </ItemsPanelTemplate>
+                </ListBox.ItemsPanel>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid MinWidth="60">
+                            <TextBlock Text="{Binding Name}"
+                                       VerticalAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsEditing}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                                     VerticalContentAlignment="Center"
+                                     VerticalAlignment="Center"
+                                     Padding="0"
+                                     Margin="0"
+                                     MinHeight="0"
+                                     BorderThickness="1"
+                                     PreviewKeyDown="TabNameTextBox_PreviewKeyDown"
+                                     LostKeyboardFocus="TabNameTextBox_LostKeyboardFocus">
+                                <TextBox.Style>
+                                    <Style TargetType="TextBox" BasedOn="{StaticResource PairEntryTextBoxStyle}">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Setter Property="Padding" Value="0"/>
+                                        <Setter Property="MinHeight" Value="0"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsEditing}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBox.Style>
+                            </TextBox>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <Button x:Name="AddTabButton"
+                    Content="+"
+                    Width="32"
+                    Height="32"
+                    Margin="2,0,0,0"
+                    PreviewKeyDown="AddTabButton_PreviewKeyDown"
+                    Click="AddTabButton_Click">
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource ActionButtonStyle}">
+                        <Setter Property="Visibility" Value="Visible"/>
+                        <Setter Property="Background" Value="#3E3E42"/>
+                        <Setter Property="FontSize" Value="18"/>
+                        <Setter Property="Padding" Value="0"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ElementName=Root, Path=TabHost}" Value="{x:Null}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+        </StackPanel>
+
         <ContentPresenter Grid.Row="2"
-                          Margin="0,0,10,8"
+                          Margin="0,0,10,4"
                           HorizontalAlignment="Left"
-                          Content="{Binding ElementName=Root, Path=HeaderBottomContent}"/>
+                          Content="{Binding ElementName=Root, Path=HeaderBottomContent}">
+            <ContentPresenter.Style>
+                <Style TargetType="ContentPresenter">
+                    <Setter Property="Visibility" Value="Visible"/>
+                    <Style.Triggers>
+                        <Trigger Property="Content" Value="{x:Null}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </ContentPresenter.Style>
+        </ContentPresenter>
 
         <ScrollViewer x:Name="ItemsScrollViewer" Grid.Row="3" VerticalScrollBarVisibility="Auto">
-            <StackPanel>
-                <Button x:Name="BackRowButton"
-                        Style="{StaticResource RowButtonStyle}"
-                        Click="BackRowButton_Click"
-                        PreviewKeyDown="BackRowButton_PreviewKeyDown"
-                        Visibility="Collapsed"
-                        Margin="0,0,10,5">
-                    <Grid Margin="10,0,10,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="24"/>
-                            <ColumnDefinition Width="{Binding ElementName=Root, Path=DisplayValueOffset}"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <TextBlock Text="←"
-                                   Foreground="#AAAAAA"
-                                   VerticalAlignment="Center"
-                                   HorizontalAlignment="Center"/>
-                        <TextBlock Grid.Column="1"
-                                   Text="戻る"
-                                   Foreground="White"
-                                   HorizontalAlignment="Left"
-                                   VerticalAlignment="Center"
-                                   Margin="0,8,0,8"/>
-                    </Grid>
-                </Button>
-
-                <ItemsControl x:Name="PairItemsControl"
-                              ItemsSource="{Binding ElementName=Root, Path=VisibleItems}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Margin="0,0,10,5" AllowDrop="True" DragOver="Row_DragOver" Drop="Row_Drop">
+            <ItemsControl x:Name="PairItemsControl"
+                          ItemsSource="{Binding ElementName=Root, Path=VisibleItems}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="0,0,10,5" AllowDrop="True" DragOver="Row_DragOver" Drop="Row_Drop">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="24"/>
-                                <ColumnDefinition Width="{Binding ElementName=Root, Path=DisplayValueOffset}"/>
-                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="{Binding ElementName=Root, Path=FirstColumnWidth}"/>
+                                <ColumnDefinition Width="{Binding ElementName=Root, Path=SecondColumnWidth}"/>
                                 <ColumnDefinition Width="50"/>
                             </Grid.ColumnDefinitions>
 
@@ -189,11 +309,11 @@
                                         <Binding Path="IsFolder"/>
                                     </MultiBinding>
                                 </Button.Visibility>
-                                <Grid Margin="10,0,10,0">
+                                <Grid Margin="2,0,10,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="24"/>
-                                        <ColumnDefinition Width="{Binding ElementName=Root, Path=DisplayValueOffset}"/>
-                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="{Binding ElementName=Root, Path=FirstColumnWidth}"/>
+                                        <ColumnDefinition Width="{Binding ElementName=Root, Path=SecondColumnWidth}"/>
                                     </Grid.ColumnDefinitions>
 
                                     <TextBlock Text="☰"
@@ -217,15 +337,7 @@
                                                HorizontalAlignment="Left"
                                                VerticalAlignment="Center"
                                                Margin="0,8,0,8"
-                                               TextTrimming="CharacterEllipsis"
-                                               Visibility="{Binding IsFolder, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
-                                    <TextBlock Grid.Column="2"
-                                               Text="▶"
-                                               Foreground="#AAAAAA"
-                                               HorizontalAlignment="Right"
-                                               VerticalAlignment="Center"
-                                               Margin="0,0,4,0"
-                                               Visibility="{Binding IsFolder, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                               TextTrimming="CharacterEllipsis"/>
                                 </Grid>
                             </Button>
 
@@ -239,8 +351,8 @@
                                 </Grid.Visibility>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="24"/>
-                                    <ColumnDefinition Width="{Binding ElementName=Root, Path=DisplayValueOffset}"/>
-                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="{Binding ElementName=Root, Path=FirstColumnWidth}"/>
+                                    <ColumnDefinition Width="{Binding ElementName=Root, Path=SecondColumnWidth}"/>
                                     <ColumnDefinition Width="50"/>
                                 </Grid.ColumnDefinitions>
 
@@ -266,64 +378,20 @@
                                         Style="{StaticResource InlineDeleteButtonStyle}"
                                         Click="DeleteInline_Click"/>
                             </Grid>
-
-                            <Grid Grid.ColumnSpan="4">
-                                <Grid.Visibility>
-                                    <MultiBinding Converter="{StaticResource PairItemVisibilityConverter}" ConverterParameter="FolderEdit">
-                                        <Binding/>
-                                        <Binding ElementName="Root" Path="CurrentEditingItem"/>
-                                        <Binding Path="IsFolder"/>
-                                    </MultiBinding>
-                                </Grid.Visibility>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="24"/>
-                                    <ColumnDefinition Width="{Binding ElementName=Root, Path=DisplayValueOffset}"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="50"/>
-                                </Grid.ColumnDefinitions>
-
-                                <TextBlock Text="☰"
-                                           Foreground="#666666"
-                                           VerticalAlignment="Center"
-                                           HorizontalAlignment="Center"
-                                           Cursor="SizeAll"
-                                           PreviewMouseLeftButtonDown="DragHandle_PreviewMouseLeftButtonDown"
-                                           PreviewMouseMove="DragHandle_PreviewMouseMove"/>
-
-                                <TextBox Grid.Column="1"
-                                         Grid.ColumnSpan="2"
-                                         Text="{Binding FirstValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                         Style="{StaticResource PairEntryTextBoxStyle}"/>
-
-                                <Button Content="削除"
-                                        Grid.Column="3"
-                                        Margin="10,0,0,0"
-                                        Style="{StaticResource InlineDeleteButtonStyle}"
-                                        Click="DeleteInline_Click"/>
-                            </Grid>
-                            </Grid>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
         </ScrollViewer>
 
         <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,10,0,0">
             <Button x:Name="AddItemButton"
                     Content="{Binding ElementName=Root, Path=AddButtonText}"
-                    Style="{StaticResource ActionButtonStyle}"
+                    Style="{StaticResource PrimaryActionButtonStyle}"
                     Background="#007ACC"
                     HorizontalAlignment="Left"
                     PreviewKeyDown="AddItemButton_PreviewKeyDown"
                     Click="AddItemButton_Click"/>
-            <Button x:Name="AddFolderButton"
-                    Content="{Binding ElementName=Root, Path=AddFolderButtonText}"
-                    Style="{StaticResource ActionButtonStyle}"
-                    Background="#4C6A92"
-                    HorizontalAlignment="Left"
-                    Margin="10,0,0,0"
-                    PreviewKeyDown="AddFolderButton_PreviewKeyDown"
-                    Click="AddFolderButton_Click"/>
         </StackPanel>
     </Grid>
 </UserControl>

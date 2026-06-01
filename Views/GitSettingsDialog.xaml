@@ -2,15 +2,21 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:HotKeyCommandApp.Views.Controls"
-        Title="Git設定" Height="600" Width="700"
-        Background="#1E1E1E" Foreground="White"
-        WindowStyle="None" AllowsTransparency="True" ResizeMode="CanResize"
-        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+        Title="Git設定"
+        Height="600"
+        Width="700"
+        Background="#1E1E1E"
+        Foreground="White"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        ResizeMode="CanResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
     <WindowChrome.WindowChrome>
         <WindowChrome GlassFrameThickness="0" CornerRadius="0" CaptionHeight="0" ResizeBorderThickness="6"/>
     </WindowChrome.WindowChrome>
+
     <Window.Resources>
-        <!-- Buttons -->
         <Style TargetType="Button" x:Key="ActionButtonStyle">
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="Background" Value="#333333"/>
@@ -22,7 +28,11 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                     </ControlTemplate>
@@ -46,8 +56,15 @@
             <Setter Property="Padding" Value="3,2"/>
             <Setter Property="FontSize" Value="12"/>
         </Style>
-        
-        <!-- TextBoxes -->
+
+        <Style TargetType="Button" x:Key="PrimaryActionButtonStyle" BasedOn="{StaticResource ActionButtonStyle}">
+            <Style.Triggers>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="White"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <Style TargetType="TextBox" x:Key="InputTextBoxStyle">
             <Setter Property="Background" Value="#252526"/>
             <Setter Property="Foreground" Value="#D4D4D4"/>
@@ -55,55 +72,6 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="5"/>
         </Style>
-
-        <Style x:Key="AliasTabButtonStyle" TargetType="ListBoxItem">
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-            <Setter Property="Background" Value="#2D2D30"/>
-            <Setter Property="Foreground" Value="#888888"/>
-            <Setter Property="Margin" Value="0,0,1,0"/>
-            <Setter Property="Padding" Value="14,7"/>
-            <Setter Property="BorderThickness" Value="2"/>
-            <Setter Property="BorderBrush" Value="Transparent"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ListBoxItem">
-                        <Border x:Name="Border"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                Padding="{TemplateBinding Padding}"
-                                CornerRadius="6,6,0,0">
-                            <ContentPresenter
-                                              HorizontalAlignment="Center"
-                                              VerticalAlignment="Center"
-                                              RecognizesAccessKey="True"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Border" Property="Background" Value="#3E3E42"/>
-                                <Setter Property="Foreground" Value="#A0C4E2"/>
-                            </Trigger>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Border" Property="Background" Value="#333337"/>
-                                <Setter Property="Foreground" Value="#D4D4D4"/>
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Border" Property="BorderBrush" Value="#007ACC"/>
-                            </Trigger>
-                            <MultiTrigger>
-                                <MultiTrigger.Conditions>
-                                    <Condition Property="IsSelected" Value="True"/>
-                                    <Condition Property="IsMouseOver" Value="True"/>
-                                </MultiTrigger.Conditions>
-                                <Setter TargetName="Border" Property="Background" Value="#3E3E42"/>
-                                <Setter Property="Foreground" Value="#A0C4E2"/>
-                            </MultiTrigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
     </Window.Resources>
 
     <Border x:Name="RootBorder" Focusable="True" BorderBrush="#333333" BorderThickness="1" CornerRadius="8">
@@ -120,7 +88,14 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="Git 設定" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
-                <Button Grid.Column="1" Content="git_settings.jsonを開く" Style="{StaticResource ActionButtonStyle}" Background="#333333" Padding="8,4" FontSize="12" Click="OpenGitSettings_Click" VerticalAlignment="Center"/>
+                <Button Grid.Column="1"
+                        Content="git_settings.jsonを開く"
+                        Style="{StaticResource ActionButtonStyle}"
+                        Background="#333333"
+                        Padding="8,4"
+                        FontSize="12"
+                        Click="OpenGitSettings_Click"
+                        VerticalAlignment="Center"/>
             </Grid>
 
             <TabControl x:Name="MainTabControl" Grid.Row="1" Background="Transparent" BorderThickness="0" Margin="0,0,0,10">
@@ -134,11 +109,11 @@
                         <Setter Property="Template">
                             <Setter.Value>
                                 <ControlTemplate TargetType="TabItem">
-                                    <Border x:Name="Border" 
-                                            Background="{TemplateBinding Background}" 
-                                            BorderThickness="{TemplateBinding BorderThickness}" 
-                                            BorderBrush="{TemplateBinding BorderBrush}" 
-                                            Padding="{TemplateBinding Padding}" 
+                                    <Border x:Name="Border"
+                                            Background="{TemplateBinding Background}"
+                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                            Padding="{TemplateBinding Padding}"
                                             CornerRadius="4,4,0,0">
                                         <ContentPresenter x:Name="ContentSite"
                                                           ContentSource="Header"
@@ -170,78 +145,66 @@
                     </Style>
                 </TabControl.Resources>
 
-                <!-- エイリアス タブ -->
                 <TabItem Header="エイリアス">
                     <Grid Margin="0,10,0,0">
                         <controls:AliasPairEditorControl x:Name="AliasesPairEditor"
+                                                         TabHost="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=AliasTabHost}"
                                                          FirstHeader="エイリアス名"
-                                                         SecondHeader="実行コマンド"
-                                                         ShowColumnHeaders="False">
-                            <controls:AliasPairEditorControl.HeaderBottomContent>
-                                <StackPanel Orientation="Horizontal">
-                                    <ListBox Background="Transparent"
-                                             BorderThickness="0"
-                                             SelectionChanged="AliasTabsControl_SelectionChanged"
-                                             PreviewKeyDown="AliasTabsControl_PreviewKeyDown"
-                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                             ItemsSource="{Binding AliasTabs}"
-                                             ItemContainerStyle="{StaticResource AliasTabButtonStyle}">
-                                        <ListBox.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <StackPanel Orientation="Horizontal"/>
-                                            </ItemsPanelTemplate>
-                                        </ListBox.ItemsPanel>
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="{Binding Name}"/>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
-
-                                    <Button Content="+"
-                                            Width="32"
-                                            Height="32"
-                                            Margin="2,0,0,0"
-                                            Style="{StaticResource ActionButtonStyle}"
-                                            Background="#3E3E42"
-                                            FontSize="18"
-                                            Padding="0"
-                                            PreviewKeyDown="AddAliasTabButton_PreviewKeyDown"
-                                            Click="AddAliasTabButton_Click"/>
-                                </StackPanel>
-                            </controls:AliasPairEditorControl.HeaderBottomContent>
-                        </controls:AliasPairEditorControl>
+                                                         SecondHeader="対象コマンド"
+                                                         ShowColumnHeaders="False"/>
                     </Grid>
                 </TabItem>
 
-                <!-- 関数 タブ -->
                 <TabItem Header="関数">
                     <Grid Margin="0,10,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="250"/>
                         </Grid.ColumnDefinitions>
-                        
-                        <ListBox x:Name="FunctionsListBox" Background="#252526" Foreground="White" BorderBrush="#333333" SelectionChanged="FunctionsListBox_SelectionChanged" DisplayMemberPath="Name" />
-                        
+
+                        <ListBox x:Name="FunctionsListBox"
+                                 Background="#252526"
+                                 Foreground="White"
+                                 BorderBrush="#333333"
+                                 SelectionChanged="FunctionsListBox_SelectionChanged"
+                                 DisplayMemberPath="Name"/>
+
                         <StackPanel Grid.Column="1" Margin="10,0,0,0">
                             <TextBlock Text="関数名" Foreground="#AAAAAA" Margin="0,0,0,5"/>
-                            <TextBox x:Name="FunctionNameTextBox" Style="{StaticResource InputTextBoxStyle}" Margin="0,0,0,10" TextChanged="FunctionTextBox_TextChanged"/>
-                            
+                            <TextBox x:Name="FunctionNameTextBox"
+                                     Style="{StaticResource InputTextBoxStyle}"
+                                     Margin="0,0,0,10"
+                                     TextChanged="FunctionTextBox_TextChanged"/>
+
                             <TextBlock Text="説明" Foreground="#AAAAAA" Margin="0,0,0,5"/>
-                            <TextBox x:Name="FunctionDescTextBox" Style="{StaticResource InputTextBoxStyle}" Margin="0,0,0,10" TextChanged="FunctionTextBox_TextChanged"/>
-                            
-                            <TextBlock Text="コマンド群 (1行1コマンド)" Foreground="#AAAAAA" Margin="0,0,0,5"/>
-                            <TextBox x:Name="FunctionCommandsTextBox" Style="{StaticResource InputTextBoxStyle}" Height="120" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,0,0,15" TextChanged="FunctionTextBox_TextChanged"/>
-                            
-                            <Button Content="新規追加" Style="{StaticResource ActionButtonStyle}" Background="#007ACC" Click="AddFunction_Click" Margin="0,0,0,10"/>
-                            <Button Content="削除" Style="{StaticResource ActionButtonStyle}" Background="#A80000" Click="DeleteFunction_Click"/>
+                            <TextBox x:Name="FunctionDescTextBox"
+                                     Style="{StaticResource InputTextBoxStyle}"
+                                     Margin="0,0,0,10"
+                                     TextChanged="FunctionTextBox_TextChanged"/>
+
+                            <TextBlock Text="コマンド列 (1行1コマンド)" Foreground="#AAAAAA" Margin="0,0,0,5"/>
+                            <TextBox x:Name="FunctionCommandsTextBox"
+                                     Style="{StaticResource InputTextBoxStyle}"
+                                     Height="120"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     Margin="0,0,0,15"
+                                     TextChanged="FunctionTextBox_TextChanged"/>
+
+                            <Button Content="新規追加"
+                                    Style="{StaticResource PrimaryActionButtonStyle}"
+                                    Background="#007ACC"
+                                    Click="AddFunction_Click"
+                                    Margin="0,0,0,10"/>
+                            <Button Content="削除"
+                                    Style="{StaticResource ActionButtonStyle}"
+                                    Background="#A80000"
+                                    Click="DeleteFunction_Click"/>
                         </StackPanel>
                     </Grid>
                 </TabItem>
 
-                <!-- リポジトリ名 タブ -->
                 <TabItem Header="リポジトリ名">
                     <Grid Margin="0,10,0,0">
                         <controls:AliasPairEditorControl x:Name="MappingsPairEditor"
@@ -249,14 +212,22 @@
                                                          FirstHeader="リポジトリパス"
                                                          SecondHeader="表示名"
                                                          ShowColumnHeaders="False"
-                                                         FirstColumnWidth="250"/>
+                                                         FirstColumnWidth="280"/>
                     </Grid>
                 </TabItem>
             </TabControl>
 
             <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button x:Name="CancelButton" Content="キャンセル" Style="{StaticResource ActionButtonStyle}" Click="Close_Click" Margin="0,0,10,0"/>
-                <Button x:Name="SaveAndCloseButton" Content="保存して閉じる" Style="{StaticResource ActionButtonStyle}" Background="#007ACC" Click="SaveAndClose_Click"/>
+                <Button x:Name="CancelButton"
+                        Content="キャンセル"
+                        Style="{StaticResource ActionButtonStyle}"
+                        Click="Close_Click"
+                        Margin="0,0,10,0"/>
+                <Button x:Name="SaveAndCloseButton"
+                        Content="保存して閉じる"
+                        Style="{StaticResource PrimaryActionButtonStyle}"
+                        Background="#007ACC"
+                        Click="SaveAndClose_Click"/>
             </StackPanel>
         </Grid>
     </Border>

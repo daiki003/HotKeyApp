@@ -1791,10 +1791,10 @@ namespace HotKeyCommandApp.ViewModels
             GlobalHotkey = EditingGlobalHotkey;
             SettingsShortcut = EditingSettingsShortcut;
             CreateButtonShortcut = EditingCreateButtonShortcut;
-            _appSettings.Constants = EditingConstants.Select(c => new ConstantEntry { Name = c.Name, Value = c.Value, ParentFolderId = c.ParentFolderId, SortOrder = c.SortOrder }).ToList();
-            _appSettings.ConstantFolders = EditingConstantFolders.Select(f => new PairEntryFolder { Id = f.Id, Name = f.Name, ParentFolderId = f.ParentFolderId, SortOrder = f.SortOrder }).ToList();
-            _appSettings.SelectTemplates = EditingSelectTemplates.Select(t => new SelectTemplate { Name = t.Name, Options = new System.Collections.Generic.List<string>(t.Options), ParentFolderId = t.ParentFolderId, SortOrder = t.SortOrder }).ToList();
-            _appSettings.SelectTemplateFolders = EditingSelectTemplateFolders.Select(f => new PairEntryFolder { Id = f.Id, Name = f.Name, ParentFolderId = f.ParentFolderId, SortOrder = f.SortOrder }).ToList();
+            _appSettings.Constants = EditingConstants.Select((c, index) => new ConstantEntry { Name = c.Name, Value = c.Value, ParentFolderId = string.Empty, SortOrder = index }).ToList();
+            _appSettings.ConstantFolders = new System.Collections.Generic.List<PairEntryFolder>();
+            _appSettings.SelectTemplates = EditingSelectTemplates.Select((t, index) => new SelectTemplate { Name = t.Name, Options = new System.Collections.Generic.List<string>(t.Options), ParentFolderId = string.Empty, SortOrder = index }).ToList();
+            _appSettings.SelectTemplateFolders = new System.Collections.Generic.List<PairEntryFolder>();
 
             _configService.SaveSettings(_appSettings);
             RequestSync?.Invoke();

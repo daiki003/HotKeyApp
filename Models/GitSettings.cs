@@ -1,5 +1,8 @@
+using System.Collections;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace HotKeyCommandApp.Models
 {
@@ -63,12 +66,62 @@ namespace HotKeyCommandApp.Models
         }
     }
 
-    public class GitAliasTab
+    public class GitAliasTab : INotifyPropertyChanged, IPairEditorTab
     {
+        private string _name = "一般";
+        private bool _isEditing;
+
         public string Id { get; set; } = System.Guid.NewGuid().ToString("N");
-        public string Name { get; set; } = "一般";
+        public string Name
+        {
+            get => _name;
+            set
+            {
+                if (_name == value)
+                {
+                    return;
+                }
+
+                _name = value;
+                OnPropertyChanged();
+            }
+        }
         public List<GitAliasEntry> Aliases { get; set; } = new();
         public List<PairEntryFolder> Folders { get; set; } = new();
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        IList IPairEditorTab.Items => Aliases;
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        IList IPairEditorTab.Folders => Folders;
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsEditing
+        {
+            get => _isEditing;
+            set
+            {
+                if (_isEditing == value)
+                {
+                    return;
+                }
+
+                _isEditing = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public IPairEntryEditable CreateNewItem()
+        {
+            return new GitAliasEntry { Alias = "new_alias", TargetCommand = "command" };
+        }
+
+        private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
     }
 
     public class GitAliasEntry : IPairEntryEditable
