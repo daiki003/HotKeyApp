@@ -56,6 +56,12 @@ namespace HotKeyCommandApp.Views.Controls
         public static readonly DependencyProperty CurrentEditingItemProperty =
             DependencyProperty.Register(nameof(CurrentEditingItem), typeof(object), typeof(AliasPairEditorControl), new PropertyMetadata(null));
 
+        public static readonly DependencyProperty HeaderBottomContentProperty =
+            DependencyProperty.Register(nameof(HeaderBottomContent), typeof(object), typeof(AliasPairEditorControl), new PropertyMetadata(null));
+
+        public static readonly DependencyProperty ShowColumnHeadersProperty =
+            DependencyProperty.Register(nameof(ShowColumnHeaders), typeof(bool), typeof(AliasPairEditorControl), new PropertyMetadata(true));
+
         public IList? ItemsSource
         {
             get => (IList?)GetValue(ItemsSourceProperty);
@@ -116,6 +122,18 @@ namespace HotKeyCommandApp.Views.Controls
             set => SetValue(CurrentEditingItemProperty, value);
         }
 
+        public object? HeaderBottomContent
+        {
+            get => GetValue(HeaderBottomContentProperty);
+            set => SetValue(HeaderBottomContentProperty, value);
+        }
+
+        public bool ShowColumnHeaders
+        {
+            get => (bool)GetValue(ShowColumnHeadersProperty);
+            set => SetValue(ShowColumnHeadersProperty, value);
+        }
+
         public bool IsAddButtonFocused => Keyboard.FocusedElement == AddItemButton;
 
         public void FocusAddButton()
@@ -172,6 +190,22 @@ namespace HotKeyCommandApp.Views.Controls
             }
 
             return false;
+        }
+
+        public bool FocusTopButton()
+        {
+            if (BackRowButton.Visibility == Visibility.Visible)
+            {
+                return FocusBackRowButton();
+            }
+
+            if (VisibleItems.Count > 0)
+            {
+                return FocusRowButtonAtIndex(0);
+            }
+
+            FocusAddButton();
+            return true;
         }
 
         private bool FocusBackRowButton()
@@ -256,6 +290,18 @@ namespace HotKeyCommandApp.Views.Controls
 
         private void AddItemButton_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.Home && FocusTopButton())
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.End && FocusLastNavigableButton())
+            {
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key == Key.Up && FocusLastNavigableButton())
             {
                 e.Handled = true;
@@ -271,6 +317,18 @@ namespace HotKeyCommandApp.Views.Controls
 
         private void AddFolderButton_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.Home && FocusTopButton())
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.End && FocusLastNavigableButton())
+            {
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key == Key.Up && FocusLastNavigableButton())
             {
                 e.Handled = true;
@@ -285,6 +343,18 @@ namespace HotKeyCommandApp.Views.Controls
 
         private void BackRowButton_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.Home && FocusTopButton())
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.End && FocusLastNavigableButton())
+            {
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key == Key.Enter || e.Key == Key.Left)
             {
                 NavigateUp();
@@ -334,6 +404,18 @@ namespace HotKeyCommandApp.Views.Controls
         {
             if (sender is not Button button || button.DataContext is not IPairEntryEditable item)
             {
+                return;
+            }
+
+            if (e.Key == Key.Home && FocusTopButton())
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.End && FocusLastNavigableButton())
+            {
+                e.Handled = true;
                 return;
             }
 

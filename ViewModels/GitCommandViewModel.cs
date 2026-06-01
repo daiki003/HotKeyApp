@@ -189,7 +189,7 @@ namespace HotKeyCommandApp.ViewModels
                 }
 
                 // 関数でなければエイリアスチェック
-                var matchedAlias = _gitSettingsManager.CurrentSettings.Aliases.FirstOrDefault(a => string.Equals(a.Alias, cmdWord, StringComparison.OrdinalIgnoreCase));
+                var matchedAlias = _gitSettingsManager.CurrentSettings.AllAliases.FirstOrDefault(a => string.Equals(a.Alias, cmdWord, StringComparison.OrdinalIgnoreCase));
                 if (matchedAlias != null && !string.IsNullOrWhiteSpace(matchedAlias.TargetCommand))
                 {
                     string targetCmd = matchedAlias.TargetCommand;
@@ -505,7 +505,7 @@ namespace HotKeyCommandApp.ViewModels
                         {
                             string subCmdWord = parts[0];
                             string subCmdArgs = parts.Length > 1 ? parts[1] : "";
-                            var matchedAlias = _gitSettingsManager.CurrentSettings.Aliases.FirstOrDefault(a => string.Equals(a.Alias, subCmdWord, StringComparison.OrdinalIgnoreCase));
+                            var matchedAlias = _gitSettingsManager.CurrentSettings.AllAliases.FirstOrDefault(a => string.Equals(a.Alias, subCmdWord, StringComparison.OrdinalIgnoreCase));
                             if (matchedAlias != null && !string.IsNullOrWhiteSpace(matchedAlias.TargetCommand))
                             {
                                 commandToRun = matchedAlias.TargetCommand + (string.IsNullOrEmpty(subCmdArgs) ? "" : " " + subCmdArgs);

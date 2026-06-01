@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace HotKeyCommandApp.Models
 {
@@ -14,6 +15,7 @@ namespace HotKeyCommandApp.Models
         };
 
         public List<PairEntryFolder> AliasFolders { get; set; } = new();
+        public List<GitAliasTab> AliasTabs { get; set; } = new();
 
         public List<GitFunctionEntry> Functions { get; set; } = new()
         {
@@ -27,6 +29,46 @@ namespace HotKeyCommandApp.Models
 
         public List<RepositoryNameMapping> RepositoryNameMappings { get; set; } = new();
         public List<PairEntryFolder> RepositoryNameMappingFolders { get; set; } = new();
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public IEnumerable<GitAliasEntry> AllAliases => GetAllAliasTabs().SelectMany(tab => tab.Aliases);
+
+        public List<GitAliasTab> GetAllAliasTabs()
+        {
+            EnsureAliasTabs();
+            return AliasTabs;
+        }
+
+        public void EnsureAliasTabs()
+        {
+            if (AliasTabs.Count > 0)
+            {
+                foreach (var tab in AliasTabs)
+                {
+                    tab.Name = string.IsNullOrWhiteSpace(tab.Name) ? "タブ" : tab.Name;
+                    tab.Aliases ??= new List<GitAliasEntry>();
+                    tab.Folders ??= new List<PairEntryFolder>();
+                }
+
+                return;
+            }
+
+            AliasTabs.Add(new GitAliasTab
+            {
+                Id = "general",
+                Name = "一般",
+                Aliases = Aliases ?? new List<GitAliasEntry>(),
+                Folders = AliasFolders ?? new List<PairEntryFolder>()
+            });
+        }
+    }
+
+    public class GitAliasTab
+    {
+        public string Id { get; set; } = System.Guid.NewGuid().ToString("N");
+        public string Name { get; set; } = "一般";
+        public List<GitAliasEntry> Aliases { get; set; } = new();
+        public List<PairEntryFolder> Folders { get; set; } = new();
     }
 
     public class GitAliasEntry : IPairEntryEditable

@@ -29,6 +29,7 @@ namespace HotKeyCommandApp.Services
                     var settings = JsonSerializer.Deserialize<GitSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                     if (settings != null)
                     {
+                        settings.EnsureAliasTabs();
                         _currentSettings = settings;
                     }
                 }
@@ -44,6 +45,7 @@ namespace HotKeyCommandApp.Services
         {
             try
             {
+                _currentSettings.EnsureAliasTabs();
                 string json = JsonSerializer.Serialize(_currentSettings, new JsonSerializerOptions 
                 { 
                     WriteIndented = true,

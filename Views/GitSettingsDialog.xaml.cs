@@ -6,6 +6,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using HotKeyCommandApp.Models;
 using HotKeyCommandApp.Services;
 
@@ -15,7 +16,15 @@ namespace HotKeyCommandApp.Views
     {
         private GitSettingsManager _settingsManager;
         private GitSettings _workingSettings;
+        private GitAliasTab? _selectedAliasTab;
         private bool _isUpdatingUI = false;
+        private bool _keepFocusOnAliasTabs;
+
+        private ListBox? AliasTabsControl =>
+            (AliasesPairEditor.HeaderBottomContent as StackPanel)?.Children.OfType<ListBox>().FirstOrDefault();
+
+        private Button? AddAliasTabButton =>
+            (AliasesPairEditor.HeaderBottomContent as StackPanel)?.Children.OfType<Button>().FirstOrDefault();
 
         public GitSettingsDialog()
         {
@@ -26,9 +35,8 @@ namespace HotKeyCommandApp.Views
             // クローンを作成して編集用にする
             var json = System.Text.Json.JsonSerializer.Serialize(_settingsManager.CurrentSettings);
             _workingSettings = System.Text.Json.JsonSerializer.Deserialize<GitSettings>(json) ?? new GitSettings();
+            _workingSettings.EnsureAliasTabs();
             DataContext = _workingSettings;
-            AliasesPairEditor.AddItemCommand = new ViewModels.RelayCommand<object>(_ => _workingSettings.Aliases.Add(new GitAliasEntry { Alias = "new_alias", TargetCommand = "command" }));
-            AliasesPairEditor.FolderItemsSource = _workingSettings.AliasFolders;
             MappingsPairEditor.AddItemCommand = new ViewModels.RelayCommand<object>(_ => _workingSettings.RepositoryNameMappings.Add(new RepositoryNameMapping { Path = "C:\\path\\to\\repo", OverwrittenName = "MyRepo" }));
             MappingsPairEditor.FolderItemsSource = _workingSettings.RepositoryNameMappingFolders;
 
@@ -36,7 +44,11 @@ namespace HotKeyCommandApp.Views
             {
                 WindowHelper.EnableWindowDragMove(this);
                 WindowHelper.EnableWindowMoveShortcut(this);
-                AliasesPairEditor.ResetToRoot();
+                if (AliasTabsControl != null)
+                {
+                    AliasTabsControl.SelectedIndex = 0;
+                }
+                BindSelectedAliasTab();
                 MappingsPairEditor.ResetToRoot();
                 FocusFirstAliasRow();
             };
@@ -168,7 +180,14 @@ namespace HotKeyCommandApp.Views
                 {
                     if ((currentFocus == SaveAndCloseButton || currentFocus == CancelButton) && MainTabControl.SelectedIndex == 0)
                     {
-                        AliasesPairEditor.FocusFirstNavigableButton();
+                        if (ShouldFocusAliasTabsOnUp())
+                        {
+                            FocusSelectedAliasTab();
+                        }
+                        else
+                        {
+                            AliasesPairEditor.FocusFirstNavigableButton();
+                        }
                         e.Handled = true;
                         return;
                     }
@@ -176,6 +195,16 @@ namespace HotKeyCommandApp.Views
                     if ((currentFocus == SaveAndCloseButton || currentFocus == CancelButton) && MainTabControl.SelectedIndex == 2)
                     {
                         MappingsPairEditor.FocusFirstNavigableButton();
+                        e.Handled = true;
+                        return;
+                    }
+                }
+
+                if (e.Key == Key.Up && MainTabControl.SelectedIndex == 0 && IsFocusInAliasEditor())
+                {
+                    if (ShouldFocusAliasTabsOnUp() || TryFocusAliasTabsFromTopRow())
+                    {
+                        FocusSelectedAliasTab();
                         e.Handled = true;
                         return;
                     }
@@ -210,12 +239,120 @@ namespace HotKeyCommandApp.Views
         {
             Dispatcher.BeginInvoke(() =>
             {
+                AliasesPairEditor.ResetToRoot();
                 if (AliasesPairEditor.FocusFirstRowButton())
                 {
                     return;
                 }
                 AliasesPairEditor.FocusAddButton();
             }, System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        private void BindSelectedAliasTab()
+        {
+            _selectedAliasTab = AliasTabsControl?.SelectedItem as GitAliasTab ?? _workingSettings.GetAllAliasTabs().FirstOrDefault();
+
+            if (_selectedAliasTab == null)
+            {
+                return;
+            }
+
+            AliasesPairEditor.ItemsSource = _selectedAliasTab.Aliases;
+            AliasesPairEditor.FolderItemsSource = _selectedAliasTab.Folders;
+            AliasesPairEditor.AddItemCommand = new ViewModels.RelayCommand<object>(_ =>
+                _selectedAliasTab.Aliases.Add(new GitAliasEntry { Alias = "new_alias", TargetCommand = "command" }));
+        }
+
+        private bool TryFocusAliasTabsFromTopRow()
+        {
+            if (Keyboard.FocusedElement is not DependencyObject focusedElement)
+            {
+                return false;
+            }
+
+            var rowButton = FindAncestor<Button>(focusedElement);
+            if (rowButton == null || rowButton.Name != "RowButton")
+            {
+                return false;
+            }
+
+            if (rowButton.DataContext is not IPairEntryEditable item)
+            {
+                return false;
+            }
+
+            if (AliasesPairEditor.VisibleItems.FirstOrDefault() != item)
+            {
+                return false;
+            }
+
+            return FocusSelectedAliasTab();
+        }
+
+        private bool FocusSelectedAliasTab()
+        {
+            if (AliasTabsControl == null)
+            {
+                return false;
+            }
+
+            if (AliasTabsControl.SelectedIndex < 0)
+            {
+                AliasTabsControl.SelectedIndex = 0;
+            }
+
+            if (AliasTabsControl.ItemContainerGenerator.ContainerFromIndex(AliasTabsControl.SelectedIndex) is ListBoxItem item)
+            {
+                return item.Focus();
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (AliasTabsControl.ItemContainerGenerator.ContainerFromIndex(AliasTabsControl.SelectedIndex) is ListBoxItem generatedItem)
+                {
+                    generatedItem.Focus();
+                }
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+
+            return true;
+        }
+
+        private bool ShouldFocusAliasTabsOnUp()
+        {
+            if (MainTabControl.SelectedIndex != 0 || !IsAliasTabEmpty())
+            {
+                return false;
+            }
+
+            return Keyboard.FocusedElement == SaveAndCloseButton ||
+                   Keyboard.FocusedElement == CancelButton ||
+                   Keyboard.FocusedElement == AliasesPairEditor.FindName("AddItemButton") ||
+                   Keyboard.FocusedElement == AliasesPairEditor.FindName("AddFolderButton");
+        }
+
+        private bool IsAliasTabEmpty()
+        {
+            return AliasesPairEditor.VisibleItems.Count == 0;
+        }
+
+        private bool IsFocusInAliasEditor()
+        {
+            return Keyboard.FocusedElement is DependencyObject focusedElement && IsDescendantOf(focusedElement, AliasesPairEditor);
+        }
+
+        private static T? FindAncestor<T>(DependencyObject? current) where T : DependencyObject
+        {
+            while (current != null)
+            {
+                if (current is T matched)
+                {
+                    return matched;
+                }
+
+                current = VisualTreeHelper.GetParent(current);
+            }
+
+            return null;
         }
 
         private void FocusFirstMappingRow()
@@ -295,6 +432,185 @@ namespace HotKeyCommandApp.Views
             FunctionNameTextBox.SelectAll();
         }
 
+        private void AliasTabsControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (e.Source != AliasTabsControl)
+            {
+                return;
+            }
+
+            BindSelectedAliasTab();
+            if (_keepFocusOnAliasTabs)
+            {
+                _keepFocusOnAliasTabs = false;
+                FocusSelectedAliasTab();
+                return;
+            }
+
+            FocusFirstAliasRow();
+        }
+
+        private void AddAliasTabButton_Click(object sender, RoutedEventArgs e)
+        {
+            var aliasTabs = _workingSettings.GetAllAliasTabs();
+            var newTab = new GitAliasTab
+            {
+                Name = $"タブ{aliasTabs.Count + 1}"
+            };
+
+            aliasTabs.Add(newTab);
+            if (AliasTabsControl != null)
+            {
+                _keepFocusOnAliasTabs = true;
+                AliasTabsControl.Items.Refresh();
+                AliasTabsControl.SelectedItem = newTab;
+            }
+            BindSelectedAliasTab();
+            FocusSelectedAliasTab();
+        }
+
+        private void AliasTabsControl_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (Keyboard.FocusedElement is not ListBoxItem focusedItem)
+            {
+                return;
+            }
+
+            if (AliasTabsControl == null)
+            {
+                return;
+            }
+
+            int currentIndex = AliasTabsControl.ItemContainerGenerator.IndexFromContainer(focusedItem);
+            if (currentIndex < 0)
+            {
+                return;
+            }
+
+            if (e.Key == Key.Right)
+            {
+                if (currentIndex == AliasTabsControl.Items.Count - 1)
+                {
+                    AddAliasTabButton?.Focus();
+                }
+                else if (AliasTabsControl.ItemContainerGenerator.ContainerFromIndex(currentIndex + 1) is ListBoxItem nextItem)
+                {
+                    _keepFocusOnAliasTabs = true;
+                    nextItem.Focus();
+                    nextItem.IsSelected = true;
+                }
+
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Home && AliasesPairEditor.FocusTopButton())
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.End && AliasesPairEditor.FocusBottomButton())
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Delete)
+            {
+                DeleteSelectedAliasTab();
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Left && currentIndex > 0)
+            {
+                if (AliasTabsControl.ItemContainerGenerator.ContainerFromIndex(currentIndex - 1) is ListBoxItem previousItem)
+                {
+                    _keepFocusOnAliasTabs = true;
+                    previousItem.Focus();
+                    previousItem.IsSelected = true;
+                }
+
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Down)
+            {
+                FocusFirstAliasRow();
+                e.Handled = true;
+            }
+        }
+
+        private void DeleteSelectedAliasTab()
+        {
+            if (_selectedAliasTab == null)
+            {
+                return;
+            }
+
+            var dialog = new DeleteConfirmationWindow(_selectedAliasTab.Name)
+            {
+                Owner = this
+            };
+
+            if (dialog.ShowDialog() != true)
+            {
+                FocusSelectedAliasTab();
+                return;
+            }
+
+            var aliasTabs = _workingSettings.GetAllAliasTabs();
+            int currentIndex = aliasTabs.IndexOf(_selectedAliasTab);
+            if (currentIndex < 0)
+            {
+                return;
+            }
+
+            if (aliasTabs.Count == 1)
+            {
+                aliasTabs[0] = new GitAliasTab
+                {
+                    Id = "general",
+                    Name = "一般"
+                };
+                currentIndex = 0;
+            }
+            else
+            {
+                aliasTabs.RemoveAt(currentIndex);
+                currentIndex = currentIndex > 0 ? currentIndex - 1 : 0;
+            }
+
+            if (AliasTabsControl != null)
+            {
+                _keepFocusOnAliasTabs = true;
+                AliasTabsControl.Items.Refresh();
+                AliasTabsControl.SelectedIndex = currentIndex;
+            }
+
+            BindSelectedAliasTab();
+            FocusSelectedAliasTab();
+        }
+
+        private void AddAliasTabButton_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (AliasTabsControl != null && e.Key == Key.Left && AliasTabsControl.Items.Count > 0)
+            {
+                AliasTabsControl.SelectedIndex = AliasTabsControl.Items.Count - 1;
+                FocusSelectedAliasTab();
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Down)
+            {
+                FocusFirstAliasRow();
+                e.Handled = true;
+            }
+        }
+
         private void DeleteFunction_Click(object sender, RoutedEventArgs e)
         {
             if (FunctionsListBox.SelectedItem is GitFunctionEntry entry)
@@ -306,8 +622,14 @@ namespace HotKeyCommandApp.Views
 
         private void SaveAndClose_Click(object? sender, RoutedEventArgs? e)
         {
+            _workingSettings.EnsureAliasTabs();
+            var generalTab = _workingSettings.GetAllAliasTabs().First();
+            _workingSettings.Aliases = generalTab.Aliases;
+            _workingSettings.AliasFolders = generalTab.Folders;
+
             _settingsManager.CurrentSettings.Aliases = _workingSettings.Aliases;
             _settingsManager.CurrentSettings.AliasFolders = _workingSettings.AliasFolders;
+            _settingsManager.CurrentSettings.AliasTabs = _workingSettings.AliasTabs;
             _settingsManager.CurrentSettings.Functions = _workingSettings.Functions;
             _settingsManager.CurrentSettings.RepositoryNameMappings = _workingSettings.RepositoryNameMappings;
             _settingsManager.CurrentSettings.RepositoryNameMappingFolders = _workingSettings.RepositoryNameMappingFolders;
