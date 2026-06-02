@@ -207,12 +207,10 @@ namespace HotKeyCommandApp.ViewModels
 
                 // プリセットを推測する
                 var allPresets = _configService.LoadPresets();
-                
-                // 特定の ID でマッチさせるロジックがないため、挙動から推測
-                // Category が一致し、かつ Behavior が矛盾しないプリセットを探す
-                var matchedPreset = allPresets
-                    .Where(p => p.Category == command.Category && p.Id != "custom")
-                    .FirstOrDefault(p => p.ActionOptions == null || p.ActionOptions.IsCompatible(command.Behavior));
+
+                // Category と Behavior だけだと「ファイルを開く」と「フォルダを開く」を区別できないため、
+                // value の実体からファイル/フォルダの候補を優先する。
+                var matchedPreset = GetMatchedPresetForEditing(command, allPresets);
 
                 // 一致するものがあればそのプリセットを使用、なければ custom にフォールバック
                 NewEntryTemplateId = matchedPreset?.Id ?? "custom";
@@ -230,6 +228,49 @@ namespace HotKeyCommandApp.ViewModels
                 };
             }
             UpdateStepSequence();
+        }
+
+        private CommandPreset? GetMatchedPresetForEditing(CommandEntry command, IReadOnlyList<CommandPreset> allPresets)
+        {
+            var candidates = allPresets
+                .Where(p => p.Category == command.Category && p.Id != "custom")
+                .Where(p => p.ActionOptions == null || p.ActionOptions.IsCompatible(command.Behavior))
+                .ToList();
+
+            if (candidates.Count <= 1) return candidates.FirstOrDefault();
+
+            var value = command.Value?.Trim();
+            if (string.IsNullOrEmpty(value)) return candidates.FirstOrDefault();
+
+            var looksLikeFolder = Directory.Exists(value) ||
+                                  value.EndsWith("\\", StringComparison.Ordinal) ||
+                                  value.EndsWith("/", StringComparison.Ordinal);
+            if (looksLikeFolder)
+            {
+                var folderPreset = candidates.FirstOrDefault(IsFolderOpenPreset);
+                if (folderPreset != null) return folderPreset;
+            }
+            else
+            {
+                var filePreset = candidates.FirstOrDefault(IsFileOpenPreset);
+                if (filePreset != null) return filePreset;
+            }
+
+            return candidates.FirstOrDefault();
+        }
+
+        private static bool IsFileOpenPreset(CommandPreset preset)
+        {
+            return preset.Steps.Any(step =>
+                step.DataKey == "value" &&
+                string.Equals(step.BrowseFileType, "File", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool IsFolderOpenPreset(CommandPreset preset)
+        {
+            return preset.Steps.Any(step =>
+                step.DataKey == "value" &&
+                string.Equals(step.BrowseFileType, "Folder", StringComparison.OrdinalIgnoreCase));
         }
 
         private void UpdateStepSequence()

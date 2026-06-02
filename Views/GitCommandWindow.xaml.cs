@@ -93,6 +93,11 @@ namespace HotKeyCommandApp.Views
 
             this.Closing += (s, e) =>
             {
+                if (DataContext is GitCommandViewModel vm)
+                {
+                    vm.CancelCurrentExecution();
+                }
+
                 CompositionTarget.Rendering -= OnRendering;
                 _mainVm.SaveWindowBounds();
             };
@@ -110,7 +115,6 @@ namespace HotKeyCommandApp.Views
                     if (DataContext is GitCommandViewModel vmMove && !vmMove.IsMoveMode)
                     {
                         vmMove.IsMoveMode = true;
-                        vmMove.SetConsoleOutput("ウィンドウ移動モード", "・矢印: ウィンドウ移動\n・Shift+矢印: サイズ変更\n・Esc: 移動モード終了");
                         e.Handled = true;
                         _lastShiftPressTime = DateTime.MinValue;
                         return;
@@ -121,40 +125,23 @@ namespace HotKeyCommandApp.Views
 
             if (DataContext is GitCommandViewModel vm)
             {
-                if (vm.IsHistoryMode)
+                if (e.Key == Key.Escape)
                 {
-                    if (e.Key == Key.Escape)
+                    if (vm.IsMoveMode)
                     {
-                        vm.IsHistoryMode = false;
-                        Dispatcher.BeginInvoke(() => CommandInputBox.Focus(), System.Windows.Threading.DispatcherPriority.Input);
+                        vm.IsMoveMode = false;
                         e.Handled = true;
                         return;
                     }
-                }
 
-                if (vm.IsFrontMode)
-                {
-                    if (e.Key == Key.Escape)
-                    {
-                        vm.IsFrontMode = false;
-                        vm.ConsoleOutput = "[最前面固定モード終了]\n\n" + vm.ConsoleOutput;
-                        Dispatcher.BeginInvoke(() => CommandInputBox.Focus(), System.Windows.Threading.DispatcherPriority.Input);
-                        e.Handled = true;
-                        return;
-                    }
+                    vm.CancelCurrentExecution();
+                    this.Close();
+                    e.Handled = true;
+                    return;
                 }
 
                 if (vm.IsMoveMode)
                 {
-                    if (e.Key == Key.Escape)
-                    {
-                        vm.IsMoveMode = false;
-                        vm.ConsoleOutput = "[ウィンドウ移動モード終了]\n\n" + vm.ConsoleOutput;
-                        Dispatcher.BeginInvoke(() => CommandInputBox.Focus(), System.Windows.Threading.DispatcherPriority.Input);
-                        e.Handled = true;
-                        return;
-                    }
-
                     if (Keyboard.Modifiers == ModifierKeys.Shift)
                     {
                         const double step = 10.0;

@@ -320,6 +320,12 @@ namespace HotKeyCommandApp.Views.Controls
                 return false;
             }
 
+            if (CurrentEditingItem is IPairEntryEditable editingItem &&
+                IsFocusWithinSameItem(focusedElement, editingItem))
+            {
+                return false;
+            }
+
             if (Keyboard.Modifiers == ModifierKeys.Shift &&
                 (e.Key == Key.Left || e.Key == Key.Right) &&
                 TryMoveFocusedItemToAdjacentTab(moveRight: e.Key == Key.Right))

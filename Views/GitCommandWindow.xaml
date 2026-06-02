@@ -12,18 +12,18 @@
     </WindowChrome.WindowChrome>
     <Border Background="#1E1E1E" CornerRadius="8">
         <Border.Style>
-            <Style TargetType="Border">
-                <Setter Property="BorderBrush" Value="#333333"/>
-                <Setter Property="BorderThickness" Value="1"/>
-                <Style.Triggers>
-                    <DataTrigger Binding="{Binding IsMoveMode}" Value="True">
-                        <Setter Property="BorderBrush" Value="#007ACC"/>
-                        <Setter Property="BorderThickness" Value="2"/>
-                    </DataTrigger>
-                    <DataTrigger Binding="{Binding IsHistoryMode}" Value="True">
-                        <Setter Property="BorderBrush" Value="#E5A93C"/>
-                        <Setter Property="BorderThickness" Value="2"/>
-                    </DataTrigger>
+                <Style TargetType="Border">
+                    <Setter Property="BorderBrush" Value="#333333"/>
+                    <Setter Property="BorderThickness" Value="1"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsMoveMode}" Value="True">
+                            <Setter Property="BorderBrush" Value="#007ACC"/>
+                            <Setter Property="BorderThickness" Value="4"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsHistoryMode}" Value="True">
+                            <Setter Property="BorderBrush" Value="#E5A93C"/>
+                            <Setter Property="BorderThickness" Value="2"/>
+                        </DataTrigger>
                 </Style.Triggers>
             </Style>
         </Border.Style>
@@ -99,6 +99,42 @@
                     <KeyBinding Key="Return" Command="{Binding ExecuteCommand}"/>
                 </TextBox.InputBindings>
             </TextBox>
+
+            <Border Grid.RowSpan="4"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    Margin="0,12,12,0"
+                    Padding="10"
+                    Background="#121212"
+                    BorderBrush="#007ACC"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    MaxWidth="240"
+                    Panel.ZIndex="10">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsMoveMode}" Value="True">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <StackPanel>
+                    <TextBlock Text="ウィンドウ移動モード"
+                               Foreground="White"
+                               FontSize="13"
+                               FontWeight="Bold"
+                               Margin="0,0,0,6"/>
+                    <TextBlock Text="・矢印: ウィンドウ移動&#x0a;・Shift+矢印: サイズ変更&#x0a;・Esc: 移動モード終了"
+                               Foreground="#D4D4D4"
+                               FontFamily="Consolas"
+                               FontSize="11"
+                               LineHeight="16"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
         </Grid>
     </Border>
 </Window>
