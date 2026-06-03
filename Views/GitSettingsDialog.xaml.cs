@@ -16,6 +16,7 @@ namespace HotKeyCommandApp.Views
     public partial class GitSettingsDialog : Window
     {
         private readonly GitSettingsManager _settingsManager;
+        private readonly GitSettingsEditorSession _editorSession;
         private readonly GitSettings _workingSettings;
         private bool _isUpdatingUI;
 
@@ -26,9 +27,8 @@ namespace HotKeyCommandApp.Views
             InitializeComponent();
 
             _settingsManager = new GitSettingsManager();
-            string json = System.Text.Json.JsonSerializer.Serialize(_settingsManager.CurrentSettings);
-            _workingSettings = System.Text.Json.JsonSerializer.Deserialize<GitSettings>(json) ?? new GitSettings();
-            _workingSettings.EnsureAliasTabs();
+            _editorSession = new GitSettingsEditorSession(_settingsManager.CurrentSettings);
+            _workingSettings = _editorSession.WorkingCopy;
             AliasTabHost = new GitAliasTabHost(_workingSettings);
             DataContext = _workingSettings;
 
@@ -342,36 +342,8 @@ namespace HotKeyCommandApp.Views
 
         private void SaveAndClose_Click(object? sender, RoutedEventArgs? e)
         {
-            _workingSettings.EnsureAliasTabs();
-            foreach (GitAliasTab tab in _workingSettings.GetAllAliasTabs())
-            {
-                for (int i = 0; i < tab.Aliases.Count; i++)
-                {
-                    tab.Aliases[i].ParentFolderId = string.Empty;
-                    tab.Aliases[i].SortOrder = i;
-                }
-
-                tab.Folders = new List<PairEntryFolder>();
-            }
-
-            for (int i = 0; i < _workingSettings.RepositoryNameMappings.Count; i++)
-            {
-                _workingSettings.RepositoryNameMappings[i].ParentFolderId = string.Empty;
-                _workingSettings.RepositoryNameMappings[i].SortOrder = i;
-            }
-
-            _workingSettings.RepositoryNameMappingFolders = new List<PairEntryFolder>();
-            GitAliasTab generalTab = _workingSettings.GetAllAliasTabs().First();
-            _workingSettings.Aliases = generalTab.Aliases;
-            _workingSettings.AliasFolders = generalTab.Folders;
-
-            _settingsManager.CurrentSettings.Aliases = _workingSettings.Aliases;
-            _settingsManager.CurrentSettings.AliasFolders = _workingSettings.AliasFolders;
-            _settingsManager.CurrentSettings.AliasTabs = _workingSettings.AliasTabs;
-            _settingsManager.CurrentSettings.Functions = _workingSettings.Functions;
-            _settingsManager.CurrentSettings.RepositoryNameMappings = _workingSettings.RepositoryNameMappings;
-            _settingsManager.CurrentSettings.RepositoryNameMappingFolders = _workingSettings.RepositoryNameMappingFolders;
-            _settingsManager.SaveSettings();
+            GitSettings normalizedSettings = _editorSession.BuildSettingsForSave();
+            _settingsManager.SaveSettings(normalizedSettings);
 
             Close();
         }

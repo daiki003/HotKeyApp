@@ -12,7 +12,19 @@ namespace HotKeyCommandApp.Views
 {
     public partial class SettingsWindow : Window
     {
+        private sealed class SettingsSectionDefinition
+        {
+            public SettingsPage Page { get; init; }
+            public string Tag { get; init; } = string.Empty;
+            public string Title { get; init; } = string.Empty;
+            public FrameworkElement Panel { get; init; } = null!;
+            public Action FocusAction { get; init; } = null!;
+            public Action? BeforeShow { get; init; }
+        }
+
         private MainViewModel _viewModel;
+        private readonly Dictionary<SettingsPage, SettingsSectionDefinition> _sectionsByPage = new();
+        private readonly Dictionary<string, SettingsPage> _pagesByTag = new(StringComparer.Ordinal);
 
         private enum SettingsPage
         {
@@ -31,6 +43,7 @@ namespace HotKeyCommandApp.Views
             InitializeComponent();
             _viewModel = viewModel;
             this.DataContext = _viewModel;
+            InitializeSections();
             ConstantsPairEditor.AddItemCommand = new RelayCommand<object>(_ => _viewModel.EditingConstants.Add(new ConstantEntry { Name = "NEW_CONSTANT", Value = string.Empty }));
             SelectTemplatesPairEditor.AddItemCommand = new RelayCommand<object>(_ => _viewModel.EditingSelectTemplates.Add(new SelectTemplate { Name = "NEW_TEMPLATE", OptionsString = string.Empty }));
 
@@ -40,18 +53,92 @@ namespace HotKeyCommandApp.Views
             };
         }
 
+        private void InitializeSections()
+        {
+            RegisterSection(new SettingsSectionDefinition
+            {
+                Page = SettingsPage.Size,
+                Tag = "Size",
+                Title = "サイズ調整",
+                Panel = SizePanel,
+                FocusAction = () =>
+                {
+                    FontSizeTextBox.Focus();
+                    FontSizeTextBox.SelectAll();
+                }
+            });
+
+            RegisterSection(new SettingsSectionDefinition
+            {
+                Page = SettingsPage.Shortcuts,
+                Tag = "Shortcuts",
+                Title = "ショートカット",
+                Panel = ShortcutsPanel,
+                FocusAction = () => GlobalHotkeyButton.Focus()
+            });
+
+            RegisterSection(new SettingsSectionDefinition
+            {
+                Page = SettingsPage.Others,
+                Tag = "Others",
+                Title = "その他",
+                Panel = OthersPanel,
+                FocusAction = () =>
+                {
+                    MovementSpeedTextBox.Focus();
+                    MovementSpeedTextBox.SelectAll();
+                }
+            });
+
+            RegisterSection(new SettingsSectionDefinition
+            {
+                Page = SettingsPage.Constants,
+                Tag = "Constants",
+                Title = "定数定義",
+                Panel = ConstantsPanel,
+                BeforeShow = () => ConstantsPairEditor.ResetToRoot(),
+                FocusAction = () =>
+                {
+                    if (!ConstantsPairEditor.FocusFirstRowButton())
+                    {
+                        ConstantsPairEditor.FocusAddButton();
+                    }
+                }
+            });
+
+            RegisterSection(new SettingsSectionDefinition
+            {
+                Page = SettingsPage.SelectTemplates,
+                Tag = "SelectTemplates",
+                Title = "選択式テンプレート",
+                Panel = SelectTemplatesPanel,
+                BeforeShow = () => SelectTemplatesPairEditor.ResetToRoot(),
+                FocusAction = () =>
+                {
+                    if (!SelectTemplatesPairEditor.FocusFirstRowButton())
+                    {
+                        SelectTemplatesPairEditor.FocusAddButton();
+                    }
+                }
+            });
+        }
+
+        private void RegisterSection(SettingsSectionDefinition section)
+        {
+            _sectionsByPage[section.Page] = section;
+            _pagesByTag[section.Tag] = section.Page;
+        }
+
         private void SwitchPage(SettingsPage page)
         {
             _currentPage = page;
 
-            // 全パネル非表示
             CategoryListScrollViewer.Visibility = Visibility.Collapsed;
-            SizePanel.Visibility = Visibility.Collapsed;
-            ShortcutsPanel.Visibility = Visibility.Collapsed;
-            OthersPanel.Visibility = Visibility.Collapsed;
-            ConstantsPanel.Visibility = Visibility.Collapsed;
-            SelectTemplatesPanel.Visibility = Visibility.Collapsed;
             BackButton.Visibility = Visibility.Collapsed;
+            foreach (SettingsSectionDefinition section in _sectionsByPage.Values)
+            {
+                section.Panel.Visibility = Visibility.Collapsed;
+            }
 
             if (page == SettingsPage.List)
             {
@@ -69,62 +156,23 @@ namespace HotKeyCommandApp.Views
                 BackButton.Visibility = Visibility.Visible;
                 FooterHintTextBlock.Text = "Alt+← または Esc で一覧に戻る";
 
-                if (page == SettingsPage.Size)
+                if (_sectionsByPage.TryGetValue(page, out SettingsSectionDefinition section))
                 {
-                    TitleTextBlock.Text = "サイズ調整";
-                    SizePanel.Visibility = Visibility.Visible;
-                    Dispatcher.BeginInvoke(new Action(() => { FontSizeTextBox.Focus(); FontSizeTextBox.SelectAll(); }), System.Windows.Threading.DispatcherPriority.Loaded);
-                }
-                else if (page == SettingsPage.Shortcuts)
-                {
-                    TitleTextBlock.Text = "ショートカット";
-                    ShortcutsPanel.Visibility = Visibility.Visible;
-                    Dispatcher.BeginInvoke(new Action(() => { GlobalHotkeyButton.Focus(); }), System.Windows.Threading.DispatcherPriority.Loaded);
-                }
-                else if (page == SettingsPage.Others)
-                {
-                    TitleTextBlock.Text = "その他";
-                    OthersPanel.Visibility = Visibility.Visible;
-                    Dispatcher.BeginInvoke(new Action(() => { MovementSpeedTextBox.Focus(); MovementSpeedTextBox.SelectAll(); }), System.Windows.Threading.DispatcherPriority.Loaded);
-                }
-                else if (page == SettingsPage.Constants)
-                {
-                    TitleTextBlock.Text = "定数定義";
-                    ConstantsPanel.Visibility = Visibility.Visible;
-                    ConstantsPairEditor.ResetToRoot();
-                        Dispatcher.BeginInvoke(new Action(() =>
-                        {
-                        if (!ConstantsPairEditor.FocusFirstRowButton())
-                        {
-                            ConstantsPairEditor.FocusAddButton();
-                        }
-                    }), System.Windows.Threading.DispatcherPriority.Loaded);
-                }
-                else if (page == SettingsPage.SelectTemplates)
-                {
-                    TitleTextBlock.Text = "選択式テンプレート";
-                    SelectTemplatesPanel.Visibility = Visibility.Visible;
-                    SelectTemplatesPairEditor.ResetToRoot();
-                    Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        if (!SelectTemplatesPairEditor.FocusFirstRowButton())
-                        {
-                            SelectTemplatesPairEditor.FocusAddButton();
-                        }
-                    }), System.Windows.Threading.DispatcherPriority.Loaded);
+                    TitleTextBlock.Text = section.Title;
+                    section.Panel.Visibility = Visibility.Visible;
+                    section.BeforeShow?.Invoke();
+                    Dispatcher.BeginInvoke(section.FocusAction, System.Windows.Threading.DispatcherPriority.Loaded);
                 }
             }
         }
 
         private void CategoryButton_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is Button btn && btn.Tag is string tag)
+            if (sender is Button btn &&
+                btn.Tag is string tag &&
+                _pagesByTag.TryGetValue(tag, out SettingsPage page))
             {
-                if (tag == "Size") SwitchPage(SettingsPage.Size);
-                else if (tag == "Shortcuts") SwitchPage(SettingsPage.Shortcuts);
-                else if (tag == "Others") SwitchPage(SettingsPage.Others);
-                else if (tag == "Constants") SwitchPage(SettingsPage.Constants);
-                else if (tag == "SelectTemplates") SwitchPage(SettingsPage.SelectTemplates);
+                SwitchPage(page);
             }
         }
 

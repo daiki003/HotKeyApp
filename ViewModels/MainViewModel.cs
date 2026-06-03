@@ -1756,25 +1756,7 @@ namespace HotKeyCommandApp.ViewModels
 
         private void OpenSettings()
         {
-            EditingButtonWidth = ButtonWidth;
-            EditingButtonHeight = ButtonHeight;
-            EditingMovementSpeed = MovementSpeed;
-            EditingFontSize = FontSize;
-            EditingGlobalHotkey = GlobalHotkey;
-            EditingSettingsShortcut = SettingsShortcut;
-            EditingCreateButtonShortcut = CreateButtonShortcut;
-            EditingConstants = new ObservableCollection<ConstantEntry>(
-                (_appSettings.Constants ?? new System.Collections.Generic.List<ConstantEntry>()).Select(c => new ConstantEntry { Name = c.Name, Value = c.Value, ParentFolderId = c.ParentFolderId, SortOrder = c.SortOrder })
-            );
-            EditingConstantFolders = new ObservableCollection<PairEntryFolder>(
-                (_appSettings.ConstantFolders ?? new System.Collections.Generic.List<PairEntryFolder>()).Select(f => new PairEntryFolder { Id = f.Id, Name = f.Name, ParentFolderId = f.ParentFolderId, SortOrder = f.SortOrder })
-            );
-            EditingSelectTemplates = new ObservableCollection<SelectTemplate>(
-                (_appSettings.SelectTemplates ?? new System.Collections.Generic.List<SelectTemplate>()).Select(t => new SelectTemplate { Name = t.Name, Options = new System.Collections.Generic.List<string>(t.Options), ParentFolderId = t.ParentFolderId, SortOrder = t.SortOrder })
-            );
-            EditingSelectTemplateFolders = new ObservableCollection<PairEntryFolder>(
-                (_appSettings.SelectTemplateFolders ?? new System.Collections.Generic.List<PairEntryFolder>()).Select(f => new PairEntryFolder { Id = f.Id, Name = f.Name, ParentFolderId = f.ParentFolderId, SortOrder = f.SortOrder })
-            );
+            ApplyEditorSessionToEditingProperties(AppSettingsEditorSession.Create(_appSettings));
             IsCapturingHotkey = false;
             CaptureTarget = string.Empty;
             RequestSettings?.Invoke();
@@ -1784,21 +1766,50 @@ namespace HotKeyCommandApp.ViewModels
 
         private void SaveSettings()
         {
-            ButtonWidth = EditingButtonWidth;
-            ButtonHeight = EditingButtonHeight;
-            MovementSpeed = EditingMovementSpeed;
-            FontSize = EditingFontSize;
-            GlobalHotkey = EditingGlobalHotkey;
-            SettingsShortcut = EditingSettingsShortcut;
-            CreateButtonShortcut = EditingCreateButtonShortcut;
-            _appSettings.Constants = EditingConstants.Select((c, index) => new ConstantEntry { Name = c.Name, Value = c.Value, ParentFolderId = string.Empty, SortOrder = index }).ToList();
-            _appSettings.ConstantFolders = new System.Collections.Generic.List<PairEntryFolder>();
-            _appSettings.SelectTemplates = EditingSelectTemplates.Select((t, index) => new SelectTemplate { Name = t.Name, Options = new System.Collections.Generic.List<string>(t.Options), ParentFolderId = string.Empty, SortOrder = index }).ToList();
-            _appSettings.SelectTemplateFolders = new System.Collections.Generic.List<PairEntryFolder>();
-
+            BuildEditorSessionFromEditingProperties().ApplyTo(_appSettings);
+            ButtonWidth = _appSettings.ButtonWidth;
+            ButtonHeight = _appSettings.ButtonHeight;
+            MovementSpeed = _appSettings.MovementSpeed;
+            FontSize = _appSettings.FontSize;
+            GlobalHotkey = _appSettings.GlobalHotkey;
+            SettingsShortcut = _appSettings.SettingsShortcut;
+            CreateButtonShortcut = _appSettings.CreateButtonShortcut;
             _configService.SaveSettings(_appSettings);
             RequestSync?.Invoke();
             SettingsSaved?.Invoke();
+        }
+
+        private void ApplyEditorSessionToEditingProperties(AppSettingsEditorSession session)
+        {
+            EditingButtonWidth = session.ButtonWidth;
+            EditingButtonHeight = session.ButtonHeight;
+            EditingMovementSpeed = session.MovementSpeed;
+            EditingFontSize = session.FontSize;
+            EditingGlobalHotkey = session.GlobalHotkey;
+            EditingSettingsShortcut = session.SettingsShortcut;
+            EditingCreateButtonShortcut = session.CreateButtonShortcut;
+            EditingConstants = new ObservableCollection<ConstantEntry>(session.Constants);
+            EditingConstantFolders = new ObservableCollection<PairEntryFolder>(session.ConstantFolders);
+            EditingSelectTemplates = new ObservableCollection<SelectTemplate>(session.SelectTemplates);
+            EditingSelectTemplateFolders = new ObservableCollection<PairEntryFolder>(session.SelectTemplateFolders);
+        }
+
+        private AppSettingsEditorSession BuildEditorSessionFromEditingProperties()
+        {
+            return new AppSettingsEditorSession
+            {
+                ButtonWidth = EditingButtonWidth,
+                ButtonHeight = EditingButtonHeight,
+                MovementSpeed = EditingMovementSpeed,
+                FontSize = EditingFontSize,
+                GlobalHotkey = EditingGlobalHotkey,
+                SettingsShortcut = EditingSettingsShortcut,
+                CreateButtonShortcut = EditingCreateButtonShortcut,
+                Constants = EditingConstants.ToList(),
+                ConstantFolders = EditingConstantFolders.ToList(),
+                SelectTemplates = EditingSelectTemplates.ToList(),
+                SelectTemplateFolders = EditingSelectTemplateFolders.ToList()
+            };
         }
 
         public void SaveWindowBounds()
