@@ -43,6 +43,21 @@ namespace HotKeyCommandApp.ViewModels
         private readonly List<string> _consoleHistoryList = new();
         private string _latestConsoleOutput = string.Empty;
         private int _activeConsoleHistoryIndex = -1;
+        private readonly object _commandQueueLock = new();
+        private readonly Queue<string> _pendingCommands = new();
+        private readonly List<string> _waitingCommandInputs = new();
+        private bool _isProcessingCommandQueue = false;
+        private string _waitingCommandsText = string.Empty;
+
+        public string WaitingCommandsText
+        {
+            get => _waitingCommandsText;
+            private set
+            {
+                _waitingCommandsText = value;
+                OnPropertyChanged();
+            }
+        }
 
         private static void RunOnUiThread(Action action)
         {
@@ -57,22 +72,52 @@ namespace HotKeyCommandApp.ViewModels
             }
         }
 
+        private static string BuildConsoleEntry(string header, string content)
+        {
+            string body = content.TrimEnd();
+            if (string.IsNullOrEmpty(header))
+            {
+                return body;
+            }
+
+            if (string.IsNullOrEmpty(body))
+            {
+                return $"[{header}]";
+            }
+
+            return $"[{header}]\n{body}";
+        }
+
         private void UpdateConsoleOutputDisplay()
         {
+            string renderedOutput = _latestConsoleOutput;
+
+            if (_activeConsoleHistoryIndex >= 0 && _activeConsoleHistoryIndex < _consoleHistoryList.Count)
+            {
+                _consoleHistoryList[_activeConsoleHistoryIndex] = renderedOutput;
+            }
+
             if (!IsHistoryMode)
             {
-                ConsoleOutput = _latestConsoleOutput;
+                ConsoleOutput = renderedOutput;
                 return;
             }
 
             ConsoleOutput = "[コンソール履歴 (Console History)]\n=================================\n" + string.Join("\n\n---------------------------------\n", _consoleHistoryList);
         }
 
+        private void UpdateWaitingCommandsText()
+        {
+            WaitingCommandsText = _waitingCommandInputs.Count == 0
+                ? string.Empty
+                : "[待機中のコマンド]\n" + string.Join("\n", _waitingCommandInputs);
+        }
+
         public void SetConsoleOutput(string header, string content)
         {
             RunOnUiThread(() =>
             {
-                string entry = string.IsNullOrEmpty(header) ? content.TrimEnd() : $"[{header}]\n{content.TrimEnd()}";
+                string entry = BuildConsoleEntry(header, content);
                 _latestConsoleOutput = entry;
                 _consoleHistoryList.Add(entry);
                 _activeConsoleHistoryIndex = _consoleHistoryList.Count - 1;
@@ -84,7 +129,7 @@ namespace HotKeyCommandApp.ViewModels
         {
             RunOnUiThread(() =>
             {
-                string entry = string.IsNullOrEmpty(header) ? content.TrimEnd() : $"[{header}]\n{content.TrimEnd()}";
+                string entry = BuildConsoleEntry(header, content);
 
                 if (_activeConsoleHistoryIndex < 0 || _activeConsoleHistoryIndex >= _consoleHistoryList.Count)
                 {
@@ -123,6 +168,63 @@ namespace HotKeyCommandApp.ViewModels
                 _latestConsoleOutput = updated;
                 UpdateConsoleOutputDisplay();
             });
+        }
+
+        private void AppendWaitingCommandLine(string rawInput)
+        {
+            RunOnUiThread(() =>
+            {
+                _waitingCommandInputs.Add(rawInput);
+                UpdateWaitingCommandsText();
+                UpdateConsoleOutputDisplay();
+            });
+        }
+
+        private void RemoveWaitingCommandLine(string rawInput)
+        {
+            RunOnUiThread(() =>
+            {
+                int index = _waitingCommandInputs.FindIndex(cmd => string.Equals(cmd, rawInput, StringComparison.OrdinalIgnoreCase));
+                if (index >= 0)
+                {
+                    _waitingCommandInputs.RemoveAt(index);
+                }
+                UpdateWaitingCommandsText();
+                UpdateConsoleOutputDisplay();
+            });
+        }
+
+        private bool IsImmediateCancelCommand(string rawInput)
+        {
+            string input = rawInput.Trim();
+            if (string.Equals(input, "cancel", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            string[] parts = input.Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+            {
+                return false;
+            }
+
+            string cmdWord = parts[0];
+            string cmdArgs = parts.Length > 1 ? parts[1] : string.Empty;
+            var matchedAlias = _gitSettingsManager.CurrentSettings.AllAliases
+                .FirstOrDefault(a => string.Equals(a.Alias, cmdWord, StringComparison.OrdinalIgnoreCase));
+
+            if (matchedAlias == null || string.IsNullOrWhiteSpace(matchedAlias.TargetCommand))
+            {
+                return false;
+            }
+
+            if (matchedAlias.TargetCommand.Contains("{"))
+            {
+                return false;
+            }
+
+            input = matchedAlias.TargetCommand + (string.IsNullOrEmpty(cmdArgs) ? string.Empty : " " + cmdArgs);
+            return string.Equals(input.Trim(), "cancel", StringComparison.OrdinalIgnoreCase);
         }
 
         private bool _isHistoryMode = false;
@@ -192,6 +294,54 @@ namespace HotKeyCommandApp.ViewModels
         private ICommand? _executeCommand;
         public ICommand ExecuteCommand => _executeCommand ??= new RelayCommand<object>(_ => ExecuteGitCommand());
 
+        private async void ExecuteGitCommand()
+        {
+            if (string.IsNullOrWhiteSpace(InputText)) return;
+
+            string rawInput = InputText.Trim();
+            InputText = string.Empty;
+
+            if (IsImmediateCancelCommand(rawInput))
+            {
+                if (_currentProcess == null && _currentExecutionCts == null)
+                {
+                    SetConsoleOutput("キャンセル", "実行中のGit操作はありません");
+                }
+                else
+                {
+                    CancelCurrentExecution();
+                    SetConsoleOutput("キャンセル", "実行中のGit操作を中断しています");
+                }
+
+                return;
+            }
+
+            if (_commandHistory.Count == 0 || _commandHistory.Last() != rawInput)
+            {
+                _commandHistory.Add(rawInput);
+            }
+            _historyIndex = _commandHistory.Count;
+
+            bool shouldStartQueueProcessor = false;
+            lock (_commandQueueLock)
+            {
+                _pendingCommands.Enqueue(rawInput);
+                if (_isProcessingCommandQueue)
+                {
+                    AppendWaitingCommandLine(rawInput);
+                    return;
+                }
+
+                _isProcessingCommandQueue = true;
+                shouldStartQueueProcessor = true;
+            }
+
+            if (shouldStartQueueProcessor)
+            {
+                await ProcessQueuedCommandsAsync();
+            }
+        }
+
         public void CancelCurrentExecution()
         {
             _currentExecutionCts?.Cancel();
@@ -211,6 +361,7 @@ namespace HotKeyCommandApp.ViewModels
 
         private async Task<int> RunProcessAsync(ProcessStartInfo psi, CancellationToken cancellationToken, Action<string>? onStdOutLine = null, Action<string>? onStdErrLine = null)
         {
+            NativeMethods.AllowSetForegroundWindow(NativeMethods.ASFW_ANY);
             using var process = Process.Start(psi);
             if (process == null)
             {
@@ -307,13 +458,46 @@ namespace HotKeyCommandApp.ViewModels
             }
         }
 
-        private async void ExecuteGitCommand()
+        private async Task ProcessQueuedCommandsAsync()
         {
-            if (string.IsNullOrWhiteSpace(InputText)) return;
+            try
+            {
+                while (true)
+                {
+                    string? nextInput;
+                    lock (_commandQueueLock)
+                    {
+                        if (_pendingCommands.Count == 0)
+                        {
+                            _isProcessingCommandQueue = false;
+                            return;
+                        }
 
-            string rawInput = InputText.Trim();
-            InputText = string.Empty;
+                        nextInput = _pendingCommands.Dequeue();
+                    }
 
+                    if (nextInput != null)
+                    {
+                        RemoveWaitingCommandLine(nextInput);
+                    }
+
+                    await ProcessSingleGitCommandAsync(nextInput);
+                }
+            }
+            finally
+            {
+                lock (_commandQueueLock)
+                {
+                    if (_pendingCommands.Count == 0)
+                    {
+                        _isProcessingCommandQueue = false;
+                    }
+                }
+            }
+        }
+
+        private async Task ProcessSingleGitCommandAsync(string rawInput)
+        {
             if (string.Equals(rawInput, "cancel", StringComparison.OrdinalIgnoreCase))
             {
                 if (_currentProcess == null && _currentExecutionCts == null)
@@ -328,13 +512,6 @@ namespace HotKeyCommandApp.ViewModels
 
                 return;
             }
-
-            if (_commandHistory.Count == 0 || _commandHistory.Last() != rawInput)
-            {
-                _commandHistory.Add(rawInput);
-            }
-            _historyIndex = _commandHistory.Count;
-
             string input = rawInput;
             
             // 先頭の単語を取り出してエイリアス/関数の展開を最初に行う
@@ -422,6 +599,21 @@ namespace HotKeyCommandApp.ViewModels
                         // エイリアスの置換結果で input を上書きする
                         input = targetCmd + (string.IsNullOrEmpty(cmdArgs) ? "" : " " + cmdArgs);
                     }
+                }
+
+                if (string.Equals(input.Trim(), "cancel", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (_currentProcess == null && _currentExecutionCts == null)
+                    {
+                        SetConsoleOutput("キャンセル", "実行中のGit操作はありません");
+                    }
+                    else
+                    {
+                        CancelCurrentExecution();
+                        SetConsoleOutput("キャンセル", "実行中のGit操作を中断しています");
+                    }
+
+                    return;
                 }
             }
 
@@ -526,7 +718,7 @@ namespace HotKeyCommandApp.ViewModels
             var appSettings = configService.LoadSettings();
             var constants = appSettings?.Constants ?? new List<ConstantEntry>();
             string command = ConstantReplacer.ReplaceConstants(input, constants);
-            SetConsoleOutput(command, "実行中... (Running...)");
+            SetConsoleOutput(command, string.Empty);
 
             using var commandExecutionCts = new CancellationTokenSource();
             _currentExecutionCts = commandExecutionCts;
@@ -564,7 +756,8 @@ namespace HotKeyCommandApp.ViewModels
                         psi.Arguments = $"/c {command}";
                     }
 
-                    return await RunProcessAsync(
+                    NativeMethods.AllowSetForegroundWindow(NativeMethods.ASFW_ANY);
+                    int exitCode = await RunProcessAsync(
                         psi,
                         _currentExecutionCts?.Token ?? CancellationToken.None,
                         line =>
@@ -572,6 +765,8 @@ namespace HotKeyCommandApp.ViewModels
                             sawOutput = true;
                             AppendConsoleOutputLine(line);
                         });
+
+                    return exitCode;
                 });
 
                 System.Windows.Application.Current.Dispatcher.Invoke(() =>
@@ -590,14 +785,14 @@ namespace HotKeyCommandApp.ViewModels
                         }
                         else
                         {
-                            ReplaceConsoleOutput(command, $"エラーで終了しました。 (ExitCode: {exitCode})");
+                            ReplaceConsoleOutput(command, $"エラーで終了しました。 (終了コード: {exitCode})");
                         }
                     }
                     else
                     {
                         AppendConsoleOutputLine(exitCode == 0
                             ? "[成功] 正常に完了しました。"
-                            : $"[失敗] エラーで終了しました。 (ExitCode: {exitCode})");
+                            : $"[失敗] エラーで終了しました。 (終了コード: {exitCode})");
                     }
                 });
             }
@@ -653,7 +848,7 @@ namespace HotKeyCommandApp.ViewModels
                 parsedArgs = ParseArguments(argString);
             }
 
-            SetConsoleOutput($"関数: {function.Name}", "実行中... (Running...)");
+            SetConsoleOutput($"関数: {function.Name}", string.Empty);
 
             try
             {
@@ -705,6 +900,13 @@ namespace HotKeyCommandApp.ViewModels
                                 currentBranch = CurrentBranch;
                             }
                             command = command.Replace("{current}", currentBranch);
+                        }
+
+                        if (string.Equals(command.Trim(), "cancel", StringComparison.OrdinalIgnoreCase))
+                        {
+                            CancelCurrentExecution();
+                            AppendConsoleOutputLine("[キャンセル] 実行中のGit操作を中断しています");
+                            throw new OperationCanceledException();
                         }
 
                         if (command.StartsWith("base ", StringComparison.OrdinalIgnoreCase))
@@ -793,6 +995,7 @@ namespace HotKeyCommandApp.ViewModels
                             psi.Arguments = $"/c {command}";
                         }
 
+                        NativeMethods.AllowSetForegroundWindow(NativeMethods.ASFW_ANY);
                         int exitCode = await RunProcessAsync(
                             psi,
                             _currentExecutionCts?.Token ?? CancellationToken.None,

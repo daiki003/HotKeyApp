@@ -1,12 +1,16 @@
 <Window x:Class="HotKeyCommandApp.Views.GitCommandWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:HotKeyCommandApp.Views"
         Title="Git Command" Height="320" Width="450"
         MinWidth="300" MinHeight="200"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ResizeMode="CanResize"
         PreviewKeyDown="Window_PreviewKeyDown">
+    <Window.Resources>
+        <local:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
+    </Window.Resources>
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="0" ResizeBorderThickness="6" CornerRadius="8"/>
     </WindowChrome.WindowChrome>
@@ -64,9 +68,29 @@
             </StackPanel>
             
             <Border Grid.Row="2" Background="#121212" CornerRadius="4" BorderBrush="#2D2D2D" BorderThickness="1" Margin="0,0,0,12" Padding="8">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                    <TextBlock Text="{Binding ConsoleOutput}" Foreground="#D4D4D4" FontFamily="Consolas" FontSize="12" LineHeight="18" TextWrapping="Wrap"/>
-                </ScrollViewer>
+                <DockPanel LastChildFill="True">
+                    <Border DockPanel.Dock="Bottom"
+                            Margin="0,8,0,0"
+                            Padding="8"
+                            Background="#181818"
+                            BorderBrush="#2D2D2D"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Visibility="{Binding WaitingCommandsText, Converter={StaticResource StringToVisibilityConverter}}">
+                        <TextBlock Text="{Binding WaitingCommandsText}"
+                                   Foreground="#A6E3A1"
+                                   FontFamily="Consolas"
+                                   FontSize="11"
+                                   LineHeight="16"
+                                   TextWrapping="Wrap"/>
+                    </Border>
+                    <ScrollViewer x:Name="ConsoleScrollViewer"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  ScrollChanged="ConsoleScrollViewer_ScrollChanged">
+                        <TextBlock Text="{Binding ConsoleOutput}" Foreground="#D4D4D4" FontFamily="Consolas" FontSize="12" LineHeight="18" TextWrapping="Wrap"/>
+                    </ScrollViewer>
+                </DockPanel>
             </Border>
             
             <TextBox x:Name="CommandInputBox" Grid.Row="3" 

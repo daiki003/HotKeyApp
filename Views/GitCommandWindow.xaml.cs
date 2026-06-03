@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using HotKeyCommandApp.Services;
@@ -13,6 +14,7 @@ namespace HotKeyCommandApp.Views
     {
         private readonly MainViewModel _mainVm;
         private TimeSpan _lastRenderingTime = TimeSpan.Zero;
+        private bool _isConsoleAtBottom = true;
 
         public GitCommandWindow(string repositoryPath, MainViewModel mainVm)
         {
@@ -25,6 +27,10 @@ namespace HotKeyCommandApp.Views
                 if (e.PropertyName == nameof(GitCommandViewModel.IsFrontMode))
                 {
                     this.Topmost = vm.IsFrontMode;
+                }
+                else if (e.PropertyName == nameof(GitCommandViewModel.ConsoleOutput))
+                {
+                    TryAutoScrollConsole();
                 }
             };
 
@@ -61,6 +67,7 @@ namespace HotKeyCommandApp.Views
             {
                 CommandInputBox.Focus();
                 WindowHelper.EnableWindowDragMove(this);
+                Dispatcher.BeginInvoke(() => ConsoleScrollViewer.ScrollToEnd(), System.Windows.Threading.DispatcherPriority.Loaded);
             };
 
             this.Activated += (s, e) =>
@@ -105,6 +112,37 @@ namespace HotKeyCommandApp.Views
 
         private DateTime _lastShiftPressTime = DateTime.MinValue;
 
+        private void FocusCommandInputBox()
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                CommandInputBox.Focus();
+                CommandInputBox.CaretIndex = CommandInputBox.Text.Length;
+            }, System.Windows.Threading.DispatcherPriority.Input);
+        }
+
+        private void TryAutoScrollConsole()
+        {
+            if (!_isConsoleAtBottom)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(() =>
+            {
+                ConsoleScrollViewer.ScrollToEnd();
+                _isConsoleAtBottom = true;
+            }, System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        private void ConsoleScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
+        {
+            if (e.ExtentHeightChange == 0)
+            {
+                _isConsoleAtBottom = ConsoleScrollViewer.VerticalOffset + ConsoleScrollViewer.ViewportHeight >= ConsoleScrollViewer.ExtentHeight - 1.0;
+            }
+        }
+
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.LeftShift || e.Key == Key.RightShift)
@@ -130,6 +168,15 @@ namespace HotKeyCommandApp.Views
                     if (vm.IsMoveMode)
                     {
                         vm.IsMoveMode = false;
+                        FocusCommandInputBox();
+                        e.Handled = true;
+                        return;
+                    }
+
+                    if (vm.IsHistoryMode)
+                    {
+                        vm.IsHistoryMode = false;
+                        FocusCommandInputBox();
                         e.Handled = true;
                         return;
                     }
@@ -187,11 +234,6 @@ namespace HotKeyCommandApp.Views
                 e.Handled = true;
                 return;
             }
-
-            if (e.Key == Key.Escape)
-            {
-                this.Close();
-            }
         }
 
         private void SettingsButton_Click(object sender, RoutedEventArgs e)
@@ -221,13 +263,13 @@ namespace HotKeyCommandApp.Views
                 if (e.Key == Key.Up)
                 {
                     vm.NavigateHistory(up: true);
-                    Dispatcher.BeginInvoke(() => CommandInputBox.CaretIndex = CommandInputBox.Text.Length);
+                    FocusCommandInputBox();
                     e.Handled = true;
                 }
                 else if (e.Key == Key.Down)
                 {
                     vm.NavigateHistory(up: false);
-                    Dispatcher.BeginInvoke(() => CommandInputBox.CaretIndex = CommandInputBox.Text.Length);
+                    FocusCommandInputBox();
                     e.Handled = true;
                 }
             }

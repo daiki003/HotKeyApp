@@ -705,6 +705,13 @@ namespace HotKeyCommandApp.Views.Controls
                 return;
             }
 
+            if (e.Key == Key.Up)
+            {
+                FocusAddButton();
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key == Key.Home && FocusTopButton())
             {
                 e.Handled = true;
