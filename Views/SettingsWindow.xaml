@@ -3,367 +3,78 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:HotKeyCommandApp.Views.Controls"
         Title="Settings" 
-        Width="720" Height="560"
+        Width="700" Height="600"
+        Foreground="White"
         WindowStartupLocation="CenterOwner"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
         ShowInTaskbar="False"
-        Topmost="True"
         PreviewKeyDown="Window_PreviewKeyDown">
-    <Window.Resources>
-        <Style x:Key="HotkeyButtonStyle" TargetType="Button">
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-            <Setter Property="Background" Value="#3D3D3D"/>
-            <Setter Property="BorderBrush" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="2"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" 
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="4" Padding="10,5">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#505050"/>
-                </Trigger>
-                <Trigger Property="IsFocused" Value="True">
-                    <Setter Property="BorderBrush" Value="#007ACC"/>
-                    <Setter Property="Background" Value="#454545"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="CategoryButtonStyle" TargetType="Button">
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-            <Setter Property="Background" Value="#3D3D3D"/>
-            <Setter Property="BorderBrush" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="2"/>
-            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-            <Setter Property="Padding" Value="5"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" 
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="8" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#505050"/>
-                </Trigger>
-                <Trigger Property="IsFocused" Value="True">
-                    <Setter Property="BorderBrush" Value="#007ACC"/>
-                    <Setter Property="Background" Value="#454545"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="ActionButtonStyle" TargetType="Button">
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-            <Setter Property="Background" Value="#333333"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Padding" Value="15,8"/>
-            <Setter Property="BorderThickness" Value="2"/>
-            <Setter Property="BorderBrush" Value="Transparent"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="4"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#444444"/>
-                </Trigger>
-                <Trigger Property="IsPressed" Value="True">
-                    <Setter Property="Background" Value="#222222"/>
-                </Trigger>
-                <Trigger Property="IsKeyboardFocused" Value="True">
-                    <Setter Property="BorderBrush" Value="#007ACC"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="InlineDeleteButtonStyle" TargetType="Button" BasedOn="{StaticResource ActionButtonStyle}">
-            <Setter Property="Background" Value="#A80000"/>
-            <Setter Property="Padding" Value="3,2"/>
-            <Setter Property="FontSize" Value="12"/>
-        </Style>
-
-    </Window.Resources>
-    
-    <Border Background="#2D2D2D" 
-            CornerRadius="12" 
-            BorderBrush="#007ACC" 
-            BorderThickness="2"
-            Margin="10">
-        <Border.Effect>
-            <DropShadowEffect BlurRadius="15" Opacity="0.5" ShadowDepth="0" />
-        </Border.Effect>
-        <Grid Margin="20">
+    <controls:SettingsDialogShell x:Name="SettingsShell"
+                                  HeaderTitle="設定"
+                                  HeaderActionText="settings.jsonを開く">
+        <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            
-            <!-- タイトルバー -->
-            <Grid Grid.Row="0" Margin="0,0,0,15">
-                <TextBlock x:Name="TitleTextBlock" Text="設定" Foreground="White" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                <Button x:Name="BackButton" Content="← 戻る" Click="BackButton_Click"
-                        Visibility="Collapsed" Background="Transparent" Foreground="#007ACC" 
-                        BorderThickness="0" Cursor="Hand" FontSize="13" FontWeight="Bold"
-                        HorizontalAlignment="Left" VerticalAlignment="Center" Padding="5,2">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="Transparent" Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Foreground" Value="#0090FF"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-            </Grid>
-            
-            <!-- メインコンテンツ -->
-            <Grid Grid.Row="1">
-                <!-- 一覧画面 -->
-                <ScrollViewer x:Name="CategoryListScrollViewer" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Margin="0,0,0,5">
-                    <StackPanel x:Name="CategoryListPanel">
-                        <Button x:Name="SizeCategoryButton" Tag="Size" Click="CategoryButton_Click" Style="{StaticResource CategoryButtonStyle}">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Margin="10,8">
-                                    <TextBlock Text="サイズ調整" Foreground="White" FontSize="14" FontWeight="Bold" HorizontalAlignment="Left"/>
-                                    <TextBlock Text="フォントサイズやボタンの幅・高さを変更します" Foreground="#AAAAAA" FontSize="11" Margin="0,4,0,0" HorizontalAlignment="Left" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <TextBlock Grid.Column="1" Text="➔" Foreground="#007ACC" FontSize="16" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                            </Grid>
-                        </Button>
-                        
-                        <Button Tag="Shortcuts" Click="CategoryButton_Click" Style="{StaticResource CategoryButtonStyle}" Margin="0,10,0,0">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Margin="10,8">
-                                    <TextBlock Text="ショートカット" Foreground="White" FontSize="14" FontWeight="Bold" HorizontalAlignment="Left"/>
-                                    <TextBlock Text="アプリ起動やボタン作成のショートカットキーを設定します" Foreground="#AAAAAA" FontSize="11" Margin="0,4,0,0" HorizontalAlignment="Left" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <TextBlock Grid.Column="1" Text="➔" Foreground="#007ACC" FontSize="16" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                            </Grid>
-                        </Button>
 
-                        <Button Tag="Constants" x:Name="ConstantsCategoryButton" Click="CategoryButton_Click" Style="{StaticResource CategoryButtonStyle}" Margin="0,10,0,0">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Margin="10,8">
-                                    <TextBlock Text="定数定義" Foreground="White" FontSize="14" FontWeight="Bold" HorizontalAlignment="Left"/>
-                                    <TextBlock Text="コマンドやURL等で置換する定数ペアを定義します" Foreground="#AAAAAA" FontSize="11" Margin="0,4,0,0" HorizontalAlignment="Left" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <TextBlock Grid.Column="1" Text="➔" Foreground="#007ACC" FontSize="16" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                            </Grid>
-                        </Button>
+            <TabControl x:Name="MainTabControl"
+                        Grid.Row="0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Margin="0,0,0,10"
+                        ItemContainerStyle="{StaticResource SettingsDialogTabItemStyle}">
+                <TabItem Header="サイズ調整">
+                    <controls:SizeSettingsSectionControl x:Name="SizePanel"/>
+                </TabItem>
 
-                        <Button Tag="SelectTemplates" Click="CategoryButton_Click" Style="{StaticResource CategoryButtonStyle}" Margin="0,10,0,0">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Margin="10,8">
-                                    <TextBlock Text="選択式テンプレート" Foreground="White" FontSize="14" FontWeight="Bold" HorizontalAlignment="Left"/>
-                                    <TextBlock Text="{}{select:...}で展開される選択肢のリストを登録します" Foreground="#AAAAAA" FontSize="11" Margin="0,4,0,0" HorizontalAlignment="Left" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <TextBlock Grid.Column="1" Text="➔" Foreground="#007ACC" FontSize="16" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                            </Grid>
-                        </Button>
+                <TabItem Header="ショートカット">
+                    <controls:ShortcutSettingsSectionControl x:Name="ShortcutsPanel"/>
+                </TabItem>
 
-                        <Button Tag="Others" Click="CategoryButton_Click" Style="{StaticResource CategoryButtonStyle}" Margin="0,10,0,0">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Margin="10,8">
-                                    <TextBlock Text="その他" Foreground="White" FontSize="14" FontWeight="Bold" HorizontalAlignment="Left"/>
-                                    <TextBlock Text="移動速度などの詳細な動作を設定します" Foreground="#AAAAAA" FontSize="11" Margin="0,4,0,0" HorizontalAlignment="Left" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <TextBlock Grid.Column="1" Text="➔" Foreground="#007ACC" FontSize="16" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                            </Grid>
-                        </Button>
-                    </StackPanel>
-                </ScrollViewer>
+                <TabItem Header="定数定義">
+                    <controls:PairEditorSectionControl x:Name="ConstantsPanel"
+                                                       ItemsSource="{Binding EditingConstants}"
+                                                       FolderItemsSource="{Binding EditingConstantFolders}"
+                                                       FirstHeader="定数名"
+                                                       SecondHeader="値"/>
+                </TabItem>
 
-                <!-- サイズ調整詳細 -->
-                <ScrollViewer x:Name="SizePanel" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="5,5,5,10">
-                        <StackPanel Margin="0,0,0,15">
-                            <TextBlock Text="フォントサイズ" Foreground="#888888" FontSize="11" Margin="0,0,0,4"/>
-                            <TextBox x:Name="FontSizeTextBox" Text="{Binding EditingFontSize, UpdateSourceTrigger=PropertyChanged}" Background="#3D3D3D" Foreground="White" BorderThickness="0" Padding="8,6" GotFocus="TextBox_GotFocus" MinHeight="32" VerticalContentAlignment="Center"/>
-                        </StackPanel>
-                        <Grid Margin="0,0,0,15">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                                <TextBlock Text="ボタン幅" Foreground="#888888" FontSize="11" Margin="0,0,0,4"/>
-                                <TextBox Text="{Binding EditingButtonWidth, UpdateSourceTrigger=PropertyChanged}" Background="#3D3D3D" Foreground="White" BorderThickness="0" Padding="8,6" GotFocus="TextBox_GotFocus" MinHeight="32" VerticalContentAlignment="Center"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Margin="6,0,0,0">
-                                <TextBlock Text="ボタン高" Foreground="#888888" FontSize="11" Margin="0,0,0,4"/>
-                                <TextBox Text="{Binding EditingButtonHeight, UpdateSourceTrigger=PropertyChanged}" Background="#3D3D3D" Foreground="White" BorderThickness="0" Padding="8,6" GotFocus="TextBox_GotFocus" MinHeight="32" VerticalContentAlignment="Center"/>
-                            </StackPanel>
-                        </Grid>
-                    </StackPanel>
-                </ScrollViewer>
+                <TabItem Header="選択式テンプレート">
+                    <controls:PairEditorSectionControl x:Name="SelectTemplatesPanel"
+                                                       ItemsSource="{Binding EditingSelectTemplates}"
+                                                       FolderItemsSource="{Binding EditingSelectTemplateFolders}"
+                                                       FirstHeader="テンプレート名"
+                                                       SecondHeader="選択肢 (カンマ区切り)"/>
+                </TabItem>
 
-                <!-- ショートカット詳細 -->
-                <ScrollViewer x:Name="ShortcutsPanel" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="5,5,5,10">
-                        <Grid Margin="0,0,0,15">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                                <TextBlock Text="起動ショートカット" Foreground="#888888" FontSize="11" Margin="0,0,0,4"/>
-                                <Button x:Name="GlobalHotkeyButton" Style="{StaticResource HotkeyButtonStyle}" Click="GlobalHotkeyButton_Click" MinHeight="36">
-                                    <TextBlock Foreground="White" FontSize="12" Text="{Binding EditingGlobalHotkey}"/>
-                                </Button>
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Margin="6,0,0,0">
-                                <TextBlock Text="設定を開く" Foreground="#888888" FontSize="11" Margin="0,0,0,4"/>
-                                <Button x:Name="SettingsHotkeyButton" Style="{StaticResource HotkeyButtonStyle}" Click="SettingsHotkeyButton_Click" MinHeight="36">
-                                    <TextBlock Foreground="White" FontSize="12" Text="{Binding EditingSettingsShortcut}"/>
-                                </Button>
-                            </StackPanel>
-                        </Grid>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                                <TextBlock Text="ボタン作成" Foreground="#888888" FontSize="11" Margin="0,0,0,4"/>
-                                <Button x:Name="CreateButtonHotkeyButton" Style="{StaticResource HotkeyButtonStyle}" Click="CreateButtonHotkeyButton_Click" MinHeight="36">
-                                    <TextBlock Foreground="White" FontSize="12" Text="{Binding EditingCreateButtonShortcut}"/>
-                                </Button>
-                            </StackPanel>
-                        </Grid>
-                    </StackPanel>
-                </ScrollViewer>
+                <TabItem Header="その他">
+                    <controls:OthersSettingsSectionControl x:Name="OthersPanel"/>
+                </TabItem>
+            </TabControl>
 
-                <!-- その他詳細 -->
-                <ScrollViewer x:Name="OthersPanel" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="5,5,5,10">
-                        <StackPanel Margin="0,0,0,15">
-                            <TextBlock Text="移動速度 (Ctrl+矢印)" Foreground="#888888" FontSize="11" Margin="0,0,0,4"/>
-                            <TextBox x:Name="MovementSpeedTextBox" Text="{Binding EditingMovementSpeed, UpdateSourceTrigger=PropertyChanged}" Background="#3D3D3D" Foreground="White" BorderThickness="0" Padding="8,6" GotFocus="TextBox_GotFocus" MinHeight="32" VerticalContentAlignment="Center"/>
-                        </StackPanel>
-                    </StackPanel>
-                </ScrollViewer>
-
-                <!-- 定数定義詳細 -->
-                <ScrollViewer x:Name="ConstantsPanel" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                    <Grid Margin="5,5,5,10">
-                        <controls:AliasPairEditorControl x:Name="ConstantsPairEditor"
-                                                         ItemsSource="{Binding EditingConstants}"
-                                                         FolderItemsSource="{Binding EditingConstantFolders}"
-                                                         FirstHeader="定数名"
-                                                         SecondHeader="値"
-                                                         ShowColumnHeaders="False"/>
-                    </Grid>
-                </ScrollViewer>
-
-                <!-- 選択式テンプレート詳細 -->
-                <ScrollViewer x:Name="SelectTemplatesPanel" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                    <Grid Margin="5,5,5,10">
-                        <controls:AliasPairEditorControl x:Name="SelectTemplatesPairEditor"
-                                                         ItemsSource="{Binding EditingSelectTemplates}"
-                                                         FolderItemsSource="{Binding EditingSelectTemplateFolders}"
-                                                         FirstHeader="テンプレート名"
-                                                         SecondHeader="選択肢 (カンマ区切り)"
-                                                         ShowColumnHeaders="False"/>
-                    </Grid>
-                </ScrollViewer>
-
-            </Grid>
-            
-            <!-- フッター -->
-            <StackPanel Grid.Row="2" Margin="0,10,0,0">
-                <Button x:Name="SaveButton" Content="保存して閉じる" Click="SaveButton_Click" 
-                        Background="#007ACC" Foreground="White" Padding="25,10" 
-                        BorderBrush="Transparent" BorderThickness="2" Cursor="Hand" HorizontalAlignment="Center"
-                        FocusVisualStyle="{x:Null}">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="{TemplateBinding Background}"
-                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="6"
-                                    Padding="{TemplateBinding Padding}">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#0090FF"/>
-                                </Trigger>
-                                <Trigger Property="IsKeyboardFocused" Value="True">
-                                    <Setter Property="BorderBrush" Value="#007ACC"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-                
-                <TextBlock x:Name="FooterHintTextBlock" Text="Escで戻る (反映されません)" 
-                           Foreground="#666666" FontSize="11" 
-                           HorizontalAlignment="Center" Margin="0,10,0,0" />
+            <StackPanel Grid.Row="1">
+                <TextBlock x:Name="FooterHintTextBlock"
+                           Text="PageUp / PageDown でタブ切替  Ctrl+Enter で保存"
+                           Foreground="#666666"
+                           FontSize="11"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,10"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="CancelButton"
+                            Content="キャンセル"
+                            Style="{StaticResource ActionButtonStyle}"
+                            Click="Close_Click"
+                            Margin="0,0,10,0"/>
+                    <Button x:Name="SaveButton"
+                            Content="保存して閉じる"
+                            Style="{StaticResource PrimaryActionButtonStyle}"
+                            Background="#007ACC"
+                            Click="SaveButton_Click"/>
+                </StackPanel>
             </StackPanel>
         </Grid>
-    </Border>
+    </controls:SettingsDialogShell>
 </Window>

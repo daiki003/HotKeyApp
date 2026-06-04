@@ -9,16 +9,25 @@ using System.Windows.Input;
 using System.Windows.Media;
 using HotKeyCommandApp.Models;
 using HotKeyCommandApp.Services;
+using HotKeyCommandApp.ViewModels;
+using HotKeyCommandApp.ViewModels.Settings;
 using HotKeyCommandApp.Views.Controls;
 
 namespace HotKeyCommandApp.Views
 {
     public partial class GitSettingsDialog : Window
     {
+        private const string AliasesSectionId = "Aliases";
+        private const string FunctionsSectionId = "Functions";
+        private const string MappingsSectionId = "Mappings";
+
         private readonly GitSettingsManager _settingsManager;
         private readonly GitSettingsEditorSession _editorSession;
         private readonly GitSettings _workingSettings;
-        private bool _isUpdatingUI;
+        private readonly SettingsTabShellController _tabShell = new();
+        private readonly GitAliasSettingsSectionViewModel _aliasesSectionViewModel;
+        private readonly GitFunctionsSettingsSectionViewModel _functionsSectionViewModel;
+        private readonly GitRepositoryMappingsSectionViewModel _mappingsSectionViewModel;
 
         public IPairEditorTabHost AliasTabHost { get; }
 
@@ -29,22 +38,24 @@ namespace HotKeyCommandApp.Views
             _settingsManager = new GitSettingsManager();
             _editorSession = new GitSettingsEditorSession(_settingsManager.CurrentSettings);
             _workingSettings = _editorSession.WorkingCopy;
+            SettingsShell.HeaderActionCommand = new RelayCommand<object>(_ => OpenGitSettings());
             AliasTabHost = new GitAliasTabHost(_workingSettings);
+            _aliasesSectionViewModel = new GitAliasSettingsSectionViewModel(AliasTabHost);
+            _functionsSectionViewModel = new GitFunctionsSettingsSectionViewModel(_workingSettings);
+            _mappingsSectionViewModel = new GitRepositoryMappingsSectionViewModel(_workingSettings);
             DataContext = _workingSettings;
-
-            MappingsPairEditor.AddItemCommand = new ViewModels.RelayCommand<object>(_ =>
-                _workingSettings.RepositoryNameMappings.Add(new RepositoryNameMapping
-                {
-                    Path = "C:\\path\\to\\repo",
-                    OverwrittenName = "MyRepo"
-                }));
-            MappingsPairEditor.FolderItemsSource = _workingSettings.RepositoryNameMappingFolders;
+            AliasesPairEditor.DataContext = _aliasesSectionViewModel;
+            FunctionsPanel.DataContext = _functionsSectionViewModel;
+            MappingsPairEditor.DataContext = _mappingsSectionViewModel;
+            MappingsPairEditor.AddItemCommand = _mappingsSectionViewModel.AddItemCommand;
+            MappingsPairEditor.FolderItemsSource = _mappingsSectionViewModel.RepositoryNameMappingFolders;
+            InitializeSections();
+            _tabShell.ResetAll();
 
             Loaded += OnLoaded;
             MainTabControl.SelectionChanged += MainTabControl_SelectionChanged;
             PreviewKeyDown += GitSettingsDialog_PreviewKeyDown;
 
-            RefreshFunctionsList();
         }
 
         private void OnLoaded(object sender, RoutedEventArgs e)
@@ -52,7 +63,33 @@ namespace HotKeyCommandApp.Views
             WindowHelper.EnableWindowDragMove(this);
             WindowHelper.EnableWindowMoveShortcut(this);
             MappingsPairEditor.ResetToRoot();
-            FocusFirstAliasRow();
+            SelectSectionByIndex(0);
+        }
+
+        private void InitializeSections()
+        {
+            _aliasesSectionViewModel.SelectedAction = () =>
+            {
+                MainTabControl.SelectedIndex = 0;
+                AliasesPairEditor.ResetToRoot();
+                FocusFirstAliasRow();
+            };
+            _tabShell.AddSection(_aliasesSectionViewModel, _aliasesSectionViewModel.SelectedAction!);
+
+            _functionsSectionViewModel.SelectedAction = () =>
+            {
+                MainTabControl.SelectedIndex = 1;
+                Dispatcher.BeginInvoke(() => FunctionsPanel.FocusPrimaryInput(), System.Windows.Threading.DispatcherPriority.Loaded);
+            };
+            _tabShell.AddSection(_functionsSectionViewModel, _functionsSectionViewModel.SelectedAction!);
+
+            _mappingsSectionViewModel.SelectedAction = () =>
+            {
+                MainTabControl.SelectedIndex = 2;
+                MappingsPairEditor.ResetToRoot();
+                FocusFirstMappingRow();
+            };
+            _tabShell.AddSection(_mappingsSectionViewModel, _mappingsSectionViewModel.SelectedAction!);
         }
 
         private void MainTabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -62,20 +99,7 @@ namespace HotKeyCommandApp.Views
                 return;
             }
 
-            switch (MainTabControl.SelectedIndex)
-            {
-                case 0:
-                    AliasesPairEditor.ResetToRoot();
-                    FocusFirstAliasRow();
-                    break;
-                case 1:
-                    Dispatcher.BeginInvoke(() => FunctionNameTextBox.Focus(), System.Windows.Threading.DispatcherPriority.Loaded);
-                    break;
-                case 2:
-                    MappingsPairEditor.ResetToRoot();
-                    FocusFirstMappingRow();
-                    break;
-            }
+            SelectSectionByIndex(MainTabControl.SelectedIndex);
         }
 
         private void GitSettingsDialog_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -105,29 +129,23 @@ namespace HotKeyCommandApp.Views
 
             if (e.Key == Key.PageUp || e.Key == Key.PageDown)
             {
-                int tabCount = MainTabControl.Items.Count;
-                if (tabCount > 0)
-                {
-                    MainTabControl.SelectedIndex = e.Key == Key.PageDown
-                        ? (MainTabControl.SelectedIndex + 1) % tabCount
-                        : (MainTabControl.SelectedIndex - 1 + tabCount) % tabCount;
-                }
-
+                _tabShell.MoveSelection(e.Key == Key.PageDown ? 1 : -1);
                 e.Handled = true;
                 return;
             }
 
             if (Keyboard.Modifiers == ModifierKeys.Control && (e.Key == Key.OemPlus || e.Key == Key.Add))
             {
-                switch (MainTabControl.SelectedIndex)
+                switch (_tabShell.SelectedSection?.Id)
                 {
-                    case 0:
+                    case AliasesSectionId:
                         AliasesPairEditor.AddNewItem();
                         break;
-                    case 1:
-                        AddFunction_Click(null, null);
+                    case FunctionsSectionId:
+                        _functionsSectionViewModel.AddFunctionCommand.Execute(null);
+                        Dispatcher.BeginInvoke(() => FunctionsPanel.FocusPrimaryInput(), System.Windows.Threading.DispatcherPriority.Loaded);
                         break;
-                    case 2:
+                    case MappingsSectionId:
                         MappingsPairEditor.AddNewItem();
                         break;
                 }
@@ -150,17 +168,20 @@ namespace HotKeyCommandApp.Views
                 return;
             }
 
-            AliasPairEditorControl? activeEditor = GetActivePairEditor();
-            if (activeEditor?.TryHandleTabKeyboardShortcut(e) == true)
+            ISettingsRecordListNavigator? activeNavigator = GetActiveRecordNavigator();
+            if (activeNavigator?.TryHandleKeyboardShortcut(e) == true)
             {
+                e.Handled = true;
                 return;
             }
 
-            if (!isInteractiveFocused && activeEditor != null &&
-                (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Left || e.Key == Key.Right))
+            if (SettingsDialogKeyboardNavigationHelper.TryFocusFirstRecordOnDirectionalKey(
+                    e,
+                    isInteractiveFocused,
+                    activeNavigator != null,
+                    () => FocusEditorStart(activeNavigator!),
+                    includeHorizontalKeys: true))
             {
-                FocusEditorStart(activeEditor);
-                e.Handled = true;
                 return;
             }
 
@@ -182,25 +203,15 @@ namespace HotKeyCommandApp.Views
 
             if (e.Key == Key.Up)
             {
-                if ((currentFocus == SaveAndCloseButton || currentFocus == CancelButton) && activeEditor != null)
+                if ((currentFocus == SaveAndCloseButton || currentFocus == CancelButton) && activeNavigator != null)
                 {
-                    if (activeEditor.ShouldFocusTabsOnUp())
-                    {
-                        activeEditor.FocusSelectedTab();
-                    }
-                    else
-                    {
-                        activeEditor.FocusFirstNavigableButton();
-                    }
-
+                    activeNavigator.FocusFirstRecord();
                     e.Handled = true;
                     return;
                 }
 
-                if (activeEditor?.IsFocusInItemEditor() == true &&
-                    (activeEditor.ShouldFocusTabsOnUp() || activeEditor.TryFocusTabsFromTopRow()))
+                if (activeNavigator?.TryFocusHeaderFromEditor() == true)
                 {
-                    activeEditor.FocusSelectedTab();
                     e.Handled = true;
                     return;
                 }
@@ -226,27 +237,41 @@ namespace HotKeyCommandApp.Views
             }
         }
 
-        private AliasPairEditorControl? GetActivePairEditor()
+        private ISettingsRecordListNavigator? GetActiveRecordNavigator()
         {
-            return MainTabControl.SelectedIndex switch
+            return _tabShell.SelectedSection?.Id switch
             {
-                0 => AliasesPairEditor,
-                2 => MappingsPairEditor,
+                AliasesSectionId => AliasesPairEditor,
+                MappingsSectionId => MappingsPairEditor,
                 _ => null
             };
         }
 
-        private void FocusEditorStart(AliasPairEditorControl editor)
+        private void SelectSectionByIndex(int index)
+        {
+            if (index < 0 || index >= _tabShell.Sections.Count)
+            {
+                return;
+            }
+
+            if (_tabShell.SelectedIndex == index)
+            {
+                return;
+            }
+
+            _tabShell.SelectByIndex(index);
+        }
+
+        private void FocusEditorStart(ISettingsRecordListNavigator navigator)
         {
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                editor.ResetToRoot();
-                if (editor.FocusFirstRowButton())
+                if (navigator is AliasPairEditorControl aliasEditor)
                 {
-                    return;
+                    aliasEditor.ResetToRoot();
                 }
 
-                editor.FocusAddButton();
+                navigator.FocusFirstRecord();
             }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
@@ -260,95 +285,16 @@ namespace HotKeyCommandApp.Views
             FocusEditorStart(MappingsPairEditor);
         }
 
-        private void RefreshFunctionsList()
-        {
-            _isUpdatingUI = true;
-            object? selected = FunctionsListBox.SelectedItem;
-            FunctionsListBox.ItemsSource = null;
-            FunctionsListBox.ItemsSource = _workingSettings.Functions;
-            if (selected != null && _workingSettings.Functions.Contains(selected))
-            {
-                FunctionsListBox.SelectedItem = selected;
-            }
-
-            _isUpdatingUI = false;
-        }
-
-        private void FunctionsListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (_isUpdatingUI)
-            {
-                return;
-            }
-
-            _isUpdatingUI = true;
-            if (FunctionsListBox.SelectedItem is GitFunctionEntry entry)
-            {
-                FunctionNameTextBox.Text = entry.Name;
-                FunctionDescTextBox.Text = entry.Description;
-                FunctionCommandsTextBox.Text = string.Join(Environment.NewLine, entry.Commands ?? new List<string>());
-            }
-            else
-            {
-                FunctionNameTextBox.Text = string.Empty;
-                FunctionDescTextBox.Text = string.Empty;
-                FunctionCommandsTextBox.Text = string.Empty;
-            }
-
-            _isUpdatingUI = false;
-        }
-
-        private void FunctionTextBox_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            if (_isUpdatingUI || FunctionsListBox.SelectedItem is not GitFunctionEntry entry)
-            {
-                return;
-            }
-
-            entry.Name = FunctionNameTextBox.Text;
-            entry.Description = FunctionDescTextBox.Text;
-            entry.Commands = FunctionCommandsTextBox.Text
-                .Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(cmd => cmd.Trim())
-                .Where(cmd => !string.IsNullOrEmpty(cmd))
-                .ToList();
-            FunctionsListBox.Items.Refresh();
-        }
-
-        private void AddFunction_Click(object? sender, RoutedEventArgs? e)
-        {
-            var newEntry = new GitFunctionEntry
-            {
-                Name = "new_func",
-                Description = string.Empty,
-                Commands = new List<string> { "echo test" }
-            };
-
-            _workingSettings.Functions.Add(newEntry);
-            RefreshFunctionsList();
-            FunctionsListBox.SelectedItem = newEntry;
-            FunctionNameTextBox.Focus();
-            FunctionNameTextBox.SelectAll();
-        }
-
-        private void DeleteFunction_Click(object sender, RoutedEventArgs e)
-        {
-            if (FunctionsListBox.SelectedItem is GitFunctionEntry entry)
-            {
-                _workingSettings.Functions.Remove(entry);
-                RefreshFunctionsList();
-            }
-        }
-
         private void SaveAndClose_Click(object? sender, RoutedEventArgs? e)
         {
+            _tabShell.SaveAll();
             GitSettings normalizedSettings = _editorSession.BuildSettingsForSave();
             _settingsManager.SaveSettings(normalizedSettings);
 
             Close();
         }
 
-        private void OpenGitSettings_Click(object sender, RoutedEventArgs e)
+        private void OpenGitSettings()
         {
             try
             {
@@ -369,6 +315,11 @@ namespace HotKeyCommandApp.Views
             {
                 MessageBox.Show($"ファイルを開けませんでした: {ex.Message}", "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private void OpenGitSettings_Click(object sender, RoutedEventArgs e)
+        {
+            OpenGitSettings();
         }
 
         private void Close_Click(object sender, RoutedEventArgs e)

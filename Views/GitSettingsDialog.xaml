@@ -16,139 +16,25 @@
         <WindowChrome GlassFrameThickness="0" CornerRadius="0" CaptionHeight="0" ResizeBorderThickness="6"/>
     </WindowChrome.WindowChrome>
 
-    <Window.Resources>
-        <Style TargetType="Button" x:Key="ActionButtonStyle">
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-            <Setter Property="Background" Value="#333333"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Padding" Value="15,8"/>
-            <Setter Property="BorderThickness" Value="2"/>
-            <Setter Property="BorderBrush" Value="Transparent"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="4"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#444444"/>
-                </Trigger>
-                <Trigger Property="IsPressed" Value="True">
-                    <Setter Property="Background" Value="#222222"/>
-                </Trigger>
-                <Trigger Property="IsKeyboardFocused" Value="True">
-                    <Setter Property="BorderBrush" Value="#007ACC"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style TargetType="Button" x:Key="InlineDeleteButtonStyle" BasedOn="{StaticResource ActionButtonStyle}">
-            <Setter Property="Background" Value="#A80000"/>
-            <Setter Property="Padding" Value="3,2"/>
-            <Setter Property="FontSize" Value="12"/>
-        </Style>
-
-        <Style TargetType="Button" x:Key="PrimaryActionButtonStyle" BasedOn="{StaticResource ActionButtonStyle}">
-            <Style.Triggers>
-                <Trigger Property="IsKeyboardFocused" Value="True">
-                    <Setter Property="BorderBrush" Value="White"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style TargetType="TextBox" x:Key="InputTextBoxStyle">
-            <Setter Property="Background" Value="#252526"/>
-            <Setter Property="Foreground" Value="#D4D4D4"/>
-            <Setter Property="BorderBrush" Value="#3E3E42"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="5"/>
-        </Style>
-    </Window.Resources>
-
-    <Border x:Name="RootBorder" Focusable="True" BorderBrush="#333333" BorderThickness="1" CornerRadius="8">
-        <Grid Margin="20">
+    <controls:SettingsDialogShell x:Name="SettingsShell"
+                                  HeaderTitle="Git 設定"
+                                  HeaderActionText="git_settings.jsonを開く">
+        <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <Grid Margin="0,0,0,15">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Text="Git 設定" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
-                <Button Grid.Column="1"
-                        Content="git_settings.jsonを開く"
-                        Style="{StaticResource ActionButtonStyle}"
-                        Background="#333333"
-                        Padding="8,4"
-                        FontSize="12"
-                        Click="OpenGitSettings_Click"
-                        VerticalAlignment="Center"/>
-            </Grid>
-
-            <TabControl x:Name="MainTabControl" Grid.Row="1" Background="Transparent" BorderThickness="0" Margin="0,0,0,10">
-                <TabControl.Resources>
-                    <Style TargetType="TabItem">
-                        <Setter Property="Background" Value="#2D2D30"/>
-                        <Setter Property="Foreground" Value="#888888"/>
-                        <Setter Property="Margin" Value="0,0,2,0"/>
-                        <Setter Property="Padding" Value="12,6"/>
-                        <Setter Property="BorderThickness" Value="0"/>
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="TabItem">
-                                    <Border x:Name="Border"
-                                            Background="{TemplateBinding Background}"
-                                            BorderThickness="{TemplateBinding BorderThickness}"
-                                            BorderBrush="{TemplateBinding BorderBrush}"
-                                            Padding="{TemplateBinding Padding}"
-                                            CornerRadius="4,4,0,0">
-                                        <ContentPresenter x:Name="ContentSite"
-                                                          ContentSource="Header"
-                                                          HorizontalAlignment="Center"
-                                                          VerticalAlignment="Center"
-                                                          RecognizesAccessKey="True"/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsSelected" Value="True">
-                                            <Setter TargetName="Border" Property="Background" Value="#3E3E42"/>
-                                            <Setter Property="Foreground" Value="#A0C4E2"/>
-                                        </Trigger>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="Border" Property="Background" Value="#333337"/>
-                                            <Setter Property="Foreground" Value="#D4D4D4"/>
-                                        </Trigger>
-                                        <MultiTrigger>
-                                            <MultiTrigger.Conditions>
-                                                <Condition Property="IsSelected" Value="True"/>
-                                                <Condition Property="IsMouseOver" Value="True"/>
-                                            </MultiTrigger.Conditions>
-                                            <Setter TargetName="Border" Property="Background" Value="#3E3E42"/>
-                                            <Setter Property="Foreground" Value="#A0C4E2"/>
-                                        </MultiTrigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                    </Style>
-                </TabControl.Resources>
-
+            <TabControl x:Name="MainTabControl"
+                        Grid.Row="0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Margin="0,0,0,10"
+                        ItemContainerStyle="{StaticResource SettingsDialogTabItemStyle}">
                 <TabItem Header="エイリアス">
                     <Grid Margin="0,10,0,0">
                         <controls:AliasPairEditorControl x:Name="AliasesPairEditor"
-                                                         TabHost="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=AliasTabHost}"
+                                                         TabHost="{Binding TabHost}"
                                                          FirstHeader="エイリアス名"
                                                          SecondHeader="対象コマンド"
                                                          ShowColumnHeaders="False"/>
@@ -156,53 +42,7 @@
                 </TabItem>
 
                 <TabItem Header="関数">
-                    <Grid Margin="0,10,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="250"/>
-                        </Grid.ColumnDefinitions>
-
-                        <ListBox x:Name="FunctionsListBox"
-                                 Background="#252526"
-                                 Foreground="White"
-                                 BorderBrush="#333333"
-                                 SelectionChanged="FunctionsListBox_SelectionChanged"
-                                 DisplayMemberPath="Name"/>
-
-                        <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                            <TextBlock Text="関数名" Foreground="#AAAAAA" Margin="0,0,0,5"/>
-                            <TextBox x:Name="FunctionNameTextBox"
-                                     Style="{StaticResource InputTextBoxStyle}"
-                                     Margin="0,0,0,10"
-                                     TextChanged="FunctionTextBox_TextChanged"/>
-
-                            <TextBlock Text="説明" Foreground="#AAAAAA" Margin="0,0,0,5"/>
-                            <TextBox x:Name="FunctionDescTextBox"
-                                     Style="{StaticResource InputTextBoxStyle}"
-                                     Margin="0,0,0,10"
-                                     TextChanged="FunctionTextBox_TextChanged"/>
-
-                            <TextBlock Text="コマンド列 (1行1コマンド)" Foreground="#AAAAAA" Margin="0,0,0,5"/>
-                            <TextBox x:Name="FunctionCommandsTextBox"
-                                     Style="{StaticResource InputTextBoxStyle}"
-                                     Height="120"
-                                     AcceptsReturn="True"
-                                     TextWrapping="Wrap"
-                                     VerticalScrollBarVisibility="Auto"
-                                     Margin="0,0,0,15"
-                                     TextChanged="FunctionTextBox_TextChanged"/>
-
-                            <Button Content="新規追加"
-                                    Style="{StaticResource PrimaryActionButtonStyle}"
-                                    Background="#007ACC"
-                                    Click="AddFunction_Click"
-                                    Margin="0,0,0,10"/>
-                            <Button Content="削除"
-                                    Style="{StaticResource ActionButtonStyle}"
-                                    Background="#A80000"
-                                    Click="DeleteFunction_Click"/>
-                        </StackPanel>
-                    </Grid>
+                    <controls:GitFunctionsSectionControl x:Name="FunctionsPanel"/>
                 </TabItem>
 
                 <TabItem Header="リポジトリ名">
@@ -212,12 +52,13 @@
                                                          FirstHeader="リポジトリパス"
                                                          SecondHeader="表示名"
                                                          ShowColumnHeaders="False"
+                                                         FolderItemsSource="{Binding RepositoryNameMappingFolders}"
                                                          FirstColumnWidth="280"/>
                     </Grid>
                 </TabItem>
             </TabControl>
 
-            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button x:Name="CancelButton"
                         Content="キャンセル"
                         Style="{StaticResource ActionButtonStyle}"
@@ -230,5 +71,5 @@
                         Click="SaveAndClose_Click"/>
             </StackPanel>
         </Grid>
-    </Border>
+    </controls:SettingsDialogShell>
 </Window>

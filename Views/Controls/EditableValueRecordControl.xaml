@@ -1,0 +1,65 @@
+<UserControl x:Class="HotKeyCommandApp.Views.Controls.EditableValueRecordControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:HotKeyCommandApp.Views.Controls"
+             xmlns:viewModels="clr-namespace:HotKeyCommandApp.ViewModels.Settings"
+             x:Name="Root">
+    <UserControl.Resources>
+        <Style x:Key="RecordTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource SettingsRecordValueTextBoxStyle}">
+            <EventSetter Event="PreviewKeyDown" Handler="ValueTextBox_PreviewKeyDown"/>
+            <EventSetter Event="GotFocus" Handler="ValueTextBox_GotFocus"/>
+            <EventSetter Event="LostKeyboardFocus" Handler="ValueTextBox_LostKeyboardFocus"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid DataContext="{Binding Item, ElementName=Root}">
+        <controls:SettingsRecordButtonControl x:Name="RecordButton"
+                                              LabelText="{Binding Label}"
+                                              ValueText="{Binding DisplayValue}"
+                                              ButtonClick="RowButton_Click"
+                                              ButtonPreviewKeyDown="RowButton_PreviewKeyDown">
+            <controls:SettingsRecordButtonControl.Style>
+                <Style TargetType="{x:Type controls:SettingsRecordButtonControl}">
+                    <Setter Property="Visibility" Value="Visible"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsEditing}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </controls:SettingsRecordButtonControl.Style>
+        </controls:SettingsRecordButtonControl>
+
+        <Border Background="#333333"
+                BorderBrush="#3E3E42"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="8,4">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsEditing}" Value="True">
+                            <Setter Property="Visibility" Value="Visible"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="140"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Label}"
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"/>
+                <TextBox x:Name="ValueTextBox"
+                         Grid.Column="1"
+                         Text="{Binding EditingText, UpdateSourceTrigger=PropertyChanged}"
+                         Style="{StaticResource RecordTextBoxStyle}"
+                         HorizontalAlignment="Stretch"/>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

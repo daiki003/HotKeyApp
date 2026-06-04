@@ -1,9 +1,10 @@
 using System;
-using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using HotKeyCommandApp.ViewModels;
+using HotKeyCommandApp.ViewModels.Settings;
+using HotKeyCommandApp.Views.Controls;
 using HotKeyCommandApp.Services;
 using System.Windows.Interop;
 using HotKeyCommandApp.Models;
@@ -12,171 +13,123 @@ namespace HotKeyCommandApp.Views
 {
     public partial class SettingsWindow : Window
     {
-        private sealed class SettingsSectionDefinition
-        {
-            public SettingsPage Page { get; init; }
-            public string Tag { get; init; } = string.Empty;
-            public string Title { get; init; } = string.Empty;
-            public FrameworkElement Panel { get; init; } = null!;
-            public Action FocusAction { get; init; } = null!;
-            public Action? BeforeShow { get; init; }
-        }
+        private const string ShortcutsSectionId = "Shortcuts";
+        private const string OthersSectionId = "Others";
+        private const string ConstantsSectionId = "Constants";
+        private const string SelectTemplatesSectionId = "SelectTemplates";
 
         private MainViewModel _viewModel;
-        private readonly Dictionary<SettingsPage, SettingsSectionDefinition> _sectionsByPage = new();
-        private readonly Dictionary<string, SettingsPage> _pagesByTag = new(StringComparer.Ordinal);
-
-        private enum SettingsPage
-        {
-            List,
-            Size,
-            Shortcuts,
-            Others,
-            Constants,
-            SelectTemplates
-        }
-
-        private SettingsPage _currentPage = SettingsPage.List;
+        private readonly SettingsTabShellController _tabShell = new();
+        private readonly SizeSettingsSectionViewModel _sizeSectionViewModel;
+        private readonly ShortcutSettingsSectionViewModel _shortcutsSectionViewModel;
+        private readonly OthersSettingsSectionViewModel _othersSectionViewModel;
+        private readonly ConstantsSettingsSectionViewModel _constantsSectionViewModel;
+        private readonly SelectTemplatesSettingsSectionViewModel _selectTemplatesSectionViewModel;
 
         public SettingsWindow(MainViewModel viewModel)
         {
             InitializeComponent();
             _viewModel = viewModel;
             this.DataContext = _viewModel;
+            SettingsShell.HeaderActionCommand = new RelayCommand<object>(_ => OpenSettingsJson());
+            _sizeSectionViewModel = new SizeSettingsSectionViewModel(_viewModel);
+            _shortcutsSectionViewModel = new ShortcutSettingsSectionViewModel(_viewModel);
+            _othersSectionViewModel = new OthersSettingsSectionViewModel(_viewModel);
+            _constantsSectionViewModel = new ConstantsSettingsSectionViewModel(_viewModel);
+            _selectTemplatesSectionViewModel = new SelectTemplatesSettingsSectionViewModel(_viewModel);
+            SizePanel.DataContext = _sizeSectionViewModel;
+            ShortcutsPanel.DataContext = _shortcutsSectionViewModel;
+            OthersPanel.DataContext = _othersSectionViewModel;
+            ConstantsPanel.DataContext = _constantsSectionViewModel;
+            SelectTemplatesPanel.DataContext = _selectTemplatesSectionViewModel;
             InitializeSections();
-            ConstantsPairEditor.AddItemCommand = new RelayCommand<object>(_ => _viewModel.EditingConstants.Add(new ConstantEntry { Name = "NEW_CONSTANT", Value = string.Empty }));
-            SelectTemplatesPairEditor.AddItemCommand = new RelayCommand<object>(_ => _viewModel.EditingSelectTemplates.Add(new SelectTemplate { Name = "NEW_TEMPLATE", OptionsString = string.Empty }));
+            _tabShell.ResetAll();
+            ConstantsPanel.Editor.AddItemCommand = _constantsSectionViewModel.AddItemCommand;
+            SelectTemplatesPanel.Editor.AddItemCommand = _selectTemplatesSectionViewModel.AddItemCommand;
+            ShortcutsPanel.GlobalHotkeyRequested += (_, _) => BeginGlobalHotkeyCapture();
+            ShortcutsPanel.SettingsHotkeyRequested += (_, _) => BeginSettingsHotkeyCapture();
+            ShortcutsPanel.CreateHotkeyRequested += (_, _) => BeginCreateHotkeyCapture();
+            MainTabControl.SelectionChanged += MainTabControl_SelectionChanged;
 
             this.Loaded += (s, e) =>
             {
-                SwitchPage(SettingsPage.List);
+                SelectSectionByIndex(0);
             };
         }
 
         private void InitializeSections()
         {
-            RegisterSection(new SettingsSectionDefinition
+            _tabShell.AddSection(_sizeSectionViewModel, () =>
             {
-                Page = SettingsPage.Size,
-                Tag = "Size",
-                Title = "サイズ調整",
-                Panel = SizePanel,
-                FocusAction = () =>
-                {
-                    FontSizeTextBox.Focus();
-                    FontSizeTextBox.SelectAll();
-                }
+                MainTabControl.SelectedIndex = 0;
+                Dispatcher.BeginInvoke(() => FocusFirstRecord(SizePanel), System.Windows.Threading.DispatcherPriority.Loaded);
             });
 
-            RegisterSection(new SettingsSectionDefinition
+            _tabShell.AddSection(_shortcutsSectionViewModel, () =>
             {
-                Page = SettingsPage.Shortcuts,
-                Tag = "Shortcuts",
-                Title = "ショートカット",
-                Panel = ShortcutsPanel,
-                FocusAction = () => GlobalHotkeyButton.Focus()
+                MainTabControl.SelectedIndex = 1;
+                Dispatcher.BeginInvoke(() => FocusFirstRecord(ShortcutsPanel), System.Windows.Threading.DispatcherPriority.Loaded);
             });
 
-            RegisterSection(new SettingsSectionDefinition
+            _tabShell.AddSection(_constantsSectionViewModel, () =>
             {
-                Page = SettingsPage.Others,
-                Tag = "Others",
-                Title = "その他",
-                Panel = OthersPanel,
-                FocusAction = () =>
-                {
-                    MovementSpeedTextBox.Focus();
-                    MovementSpeedTextBox.SelectAll();
-                }
-            });
-
-            RegisterSection(new SettingsSectionDefinition
-            {
-                Page = SettingsPage.Constants,
-                Tag = "Constants",
-                Title = "定数定義",
-                Panel = ConstantsPanel,
-                BeforeShow = () => ConstantsPairEditor.ResetToRoot(),
-                FocusAction = () =>
-                {
-                    if (!ConstantsPairEditor.FocusFirstRowButton())
-                    {
-                        ConstantsPairEditor.FocusAddButton();
-                    }
-                }
-            });
-
-            RegisterSection(new SettingsSectionDefinition
-            {
-                Page = SettingsPage.SelectTemplates,
-                Tag = "SelectTemplates",
-                Title = "選択式テンプレート",
-                Panel = SelectTemplatesPanel,
-                BeforeShow = () => SelectTemplatesPairEditor.ResetToRoot(),
-                FocusAction = () =>
-                {
-                    if (!SelectTemplatesPairEditor.FocusFirstRowButton())
-                    {
-                        SelectTemplatesPairEditor.FocusAddButton();
-                    }
-                }
-            });
-        }
-
-        private void RegisterSection(SettingsSectionDefinition section)
-        {
-            _sectionsByPage[section.Page] = section;
-            _pagesByTag[section.Tag] = section.Page;
-        }
-
-        private void SwitchPage(SettingsPage page)
-        {
-            _currentPage = page;
-
-            CategoryListScrollViewer.Visibility = Visibility.Collapsed;
-            BackButton.Visibility = Visibility.Collapsed;
-            foreach (SettingsSectionDefinition section in _sectionsByPage.Values)
-            {
-                section.Panel.Visibility = Visibility.Collapsed;
-            }
-
-            if (page == SettingsPage.List)
-            {
-                TitleTextBlock.Text = "設定";
-                FooterHintTextBlock.Text = "矢印キーで選択 / Escで閉じる";
-                CategoryListScrollViewer.Visibility = Visibility.Visible;
-
+                MainTabControl.SelectedIndex = 2;
+                ConstantsPanel.Editor.ResetToRoot();
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    SizeCategoryButton.Focus();
+                    if (!ConstantsPanel.Editor.FocusFirstRowButton())
+                    {
+                        ConstantsPanel.Editor.FocusAddButton();
+                    }
                 }), System.Windows.Threading.DispatcherPriority.Loaded);
-            }
-            else
-            {
-                BackButton.Visibility = Visibility.Visible;
-                FooterHintTextBlock.Text = "Alt+← または Esc で一覧に戻る";
+            });
 
-                if (_sectionsByPage.TryGetValue(page, out SettingsSectionDefinition section))
+            _tabShell.AddSection(_selectTemplatesSectionViewModel, () =>
+            {
+                MainTabControl.SelectedIndex = 3;
+                SelectTemplatesPanel.Editor.ResetToRoot();
+                Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    TitleTextBlock.Text = section.Title;
-                    section.Panel.Visibility = Visibility.Visible;
-                    section.BeforeShow?.Invoke();
-                    Dispatcher.BeginInvoke(section.FocusAction, System.Windows.Threading.DispatcherPriority.Loaded);
-                }
-            }
-        }
+                    if (!SelectTemplatesPanel.Editor.FocusFirstRowButton())
+                    {
+                        SelectTemplatesPanel.Editor.FocusAddButton();
+                    }
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
+            });
 
-        private void CategoryButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is Button btn &&
-                btn.Tag is string tag &&
-                _pagesByTag.TryGetValue(tag, out SettingsPage page))
+            _tabShell.AddSection(_othersSectionViewModel, () =>
             {
-                SwitchPage(page);
-            }
+                MainTabControl.SelectedIndex = 4;
+                Dispatcher.BeginInvoke(() => FocusFirstRecord(OthersPanel), System.Windows.Threading.DispatcherPriority.Loaded);
+            });
         }
 
-        private void OpenSettingsJsonButton_Click(object sender, RoutedEventArgs e)
+        private void MainTabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (e.Source != MainTabControl)
+            {
+                return;
+            }
+
+            SelectSectionByIndex(MainTabControl.SelectedIndex);
+        }
+
+        private void SelectSectionByIndex(int index)
+        {
+            if (index < 0 || index >= _tabShell.Sections.Count)
+            {
+                return;
+            }
+
+            if (_tabShell.SelectedIndex == index)
+            {
+                return;
+            }
+
+            _tabShell.SelectByIndex(index);
+        }
+
+        private void OpenSettingsJson()
         {
             try
             {
@@ -201,10 +154,9 @@ namespace HotKeyCommandApp.Views
             }
         }
 
-        private void BackButton_Click(object sender, RoutedEventArgs e)
+        private void OpenSettingsJsonButton_Click(object sender, RoutedEventArgs e)
         {
-            SaveSettings();
-            SwitchPage(SettingsPage.List);
+            OpenSettingsJson();
         }
 
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -212,8 +164,11 @@ namespace HotKeyCommandApp.Views
             // AltキーなどSystemキーと一緒に押されたキーはe.SystemKeyに格納されるため解決する
             Key actualKey = (e.Key == Key.ImeProcessed) ? e.ImeProcessedKey : e.Key;
             if (actualKey == Key.System) actualKey = e.SystemKey;
+            bool isInteractiveFocused = Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase ||
+                                        Keyboard.FocusedElement is System.Windows.Controls.Primitives.ButtonBase ||
+                                        Keyboard.FocusedElement is ListBoxItem;
 
-            if (_viewModel.IsCapturingHotkey)
+            if (_shortcutsSectionViewModel.IsCapturingHotkey)
             {
                 if (actualKey == Key.Escape)
                 {
@@ -252,140 +207,107 @@ namespace HotKeyCommandApp.Views
 
                 string finalHotkey = string.Join("+", parts);
 
-                switch (_viewModel.CaptureTarget)
+                switch (_shortcutsSectionViewModel.CaptureTarget)
                 {
                     case "Global":
-                        _viewModel.EditingGlobalHotkey = finalHotkey;
-                        break;
                     case "Settings":
-                        _viewModel.EditingSettingsShortcut = finalHotkey;
-                        break;
                     case "Create":
-                        _viewModel.EditingCreateButtonShortcut = finalHotkey;
                         break;
                 }
 
-                _viewModel.IsCapturingHotkey = false;
-                _viewModel.CaptureTarget = string.Empty;
+                _shortcutsSectionViewModel.CompleteCapture(finalHotkey);
+                SyncCaptureStateToMainViewModel();
                 e.Handled = true;
                 return;
             }
 
-            // Alt + ← で一覧に戻る (VsCodeスタイル)
-            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt) && actualKey == Key.Left)
+            if (actualKey == Key.PageUp || actualKey == Key.PageDown)
             {
-                if (_currentPage != SettingsPage.List)
-                {
-                    SaveSettings();
-                    SwitchPage(SettingsPage.List);
-                    e.Handled = true;
-                    return;
-                }
+                _tabShell.MoveSelection(actualKey == Key.PageDown ? 1 : -1);
+                e.Handled = true;
+                return;
+            }
+
+            ISettingsRecordSectionControl? activeSection = GetActiveRecordSectionControl();
+            if (activeSection?.TryHandleKeyboardShortcut(e) == true)
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (SettingsDialogKeyboardNavigationHelper.TryFocusFirstRecordOnDirectionalKey(
+                    e,
+                    isInteractiveFocused,
+                    activeSection != null,
+                    () => FocusFirstRecord(activeSection!)))
+            {
+                return;
+            }
+
+            if (Keyboard.Modifiers == ModifierKeys.Control && actualKey == Key.End)
+            {
+                SaveButton.Focus();
+                e.Handled = true;
+                return;
+            }
+
+            if (Keyboard.Modifiers == ModifierKeys.Control && actualKey == Key.Enter)
+            {
+                SaveAndClose();
+                e.Handled = true;
+                return;
             }
 
             if (actualKey == Key.Up)
             {
-                if (_currentPage == SettingsPage.Constants)
+                if (Keyboard.FocusedElement == SaveButton && activeSection != null)
                 {
-                    if (Keyboard.FocusedElement == SaveButton)
-                    {
-                        ConstantsPairEditor.FocusFirstNavigableButton();
-                        e.Handled = true;
-                        return;
-                    }
-                }
-                else if (_currentPage == SettingsPage.SelectTemplates)
-                {
-                    if (Keyboard.FocusedElement == SaveButton)
-                    {
-                        SelectTemplatesPairEditor.FocusFirstNavigableButton();
-                        e.Handled = true;
-                        return;
-                    }
+                    activeSection.FocusFirstRecord();
+                    e.Handled = true;
+                    return;
                 }
             }
 
-            if (actualKey == Key.Enter)
+            if (actualKey == Key.Escape)
             {
-                if (Keyboard.FocusedElement is DependencyObject focusedElement &&
-                    (IsDescendantOf(focusedElement, ConstantsPairEditor) || IsDescendantOf(focusedElement, SelectTemplatesPairEditor)))
+                if (IsEmbeddedEditorTextInputFocused())
                 {
                     return;
                 }
 
-                if (FocusManager.GetFocusedElement(this) is Button) return; // ボタン自身に処理させる
-
-                if (_currentPage == SettingsPage.List)
-                {
-                    // 一覧画面でのEnter時、ボタン以外にフォーカスがあっても何もしない
-                    return; 
-                }
-                else
-                {
-                    // 詳細画面でのEnterは設定を保存して一覧に戻る
-                    SaveSettings();
-                    SwitchPage(SettingsPage.List);
-                    e.Handled = true;
-                }
-            }
-            else if (actualKey == Key.Escape)
-            {
-                if (IsAliasEditorButtonFocused())
-                {
-                    CancelAndClose();
-                    e.Handled = true;
-                    return;
-                }
-
-                if (_currentPage == SettingsPage.List)
-                {
-                    CancelAndClose();
-                }
-                else
-                {
-                    SwitchPage(SettingsPage.List);
-                }
+                CancelAndClose();
                 e.Handled = true;
+                return;
+            }
+
+            if (Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase)
+            {
+                return;
             }
         }
 
         private void CancelCapture()
         {
-            _viewModel.IsCapturingHotkey = false;
-            switch (_viewModel.CaptureTarget)
-            {
-                case "Global":
-                    _viewModel.EditingGlobalHotkey = _viewModel.GlobalHotkey;
-                    break;
-                case "Settings":
-                    _viewModel.EditingSettingsShortcut = _viewModel.SettingsShortcut;
-                    break;
-                case "Create":
-                    _viewModel.EditingCreateButtonShortcut = _viewModel.CreateButtonShortcut;
-                    break;
-            }
-            _viewModel.CaptureTarget = string.Empty;
+            _shortcutsSectionViewModel.CancelCapture();
+            SyncCaptureStateToMainViewModel();
         }
 
-        private void GlobalHotkeyButton_Click(object sender, RoutedEventArgs e)
+        private void BeginGlobalHotkeyCapture()
         {
-            _viewModel.IsCapturingHotkey = true;
-            _viewModel.CaptureTarget = "Global";
-            _viewModel.EditingGlobalHotkey = "キーを押してください...";
+            _shortcutsSectionViewModel.BeginCapture("Global");
+            SyncCaptureStateToMainViewModel();
         }
 
-        private void SettingsHotkeyButton_Click(object sender, RoutedEventArgs e)
+        private void BeginSettingsHotkeyCapture()
         {
-            _viewModel.IsCapturingHotkey = true;
-            _viewModel.CaptureTarget = "Settings";
-            _viewModel.EditingSettingsShortcut = "キーを押してください...";
+            _shortcutsSectionViewModel.BeginCapture("Settings");
+            SyncCaptureStateToMainViewModel();
         }
 
-        private void CreateButtonHotkeyButton_Click(object sender, RoutedEventArgs e)
+        private void BeginCreateHotkeyCapture()
         {
-            _viewModel.IsCapturingHotkey = true;
-            _viewModel.CaptureTarget = "Create";
-            _viewModel.EditingCreateButtonShortcut = "キーを押してください...";
+            _shortcutsSectionViewModel.BeginCapture("Create");
+            SyncCaptureStateToMainViewModel();
         }
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
@@ -393,8 +315,14 @@ namespace HotKeyCommandApp.Views
             SaveAndClose();
         }
 
+        private void Close_Click(object sender, RoutedEventArgs e)
+        {
+            CancelAndClose();
+        }
+
         private void SaveSettings()
         {
+            _tabShell.SaveAll();
             if (_viewModel.SaveSettingsCommand.CanExecute(null))
             {
                 _viewModel.SaveSettingsCommand.Execute(null);
@@ -414,28 +342,53 @@ namespace HotKeyCommandApp.Views
             this.Close();
         }
 
-        private void TextBox_GotFocus(object sender, RoutedEventArgs e)
-        {
-            if (sender is TextBox textBox)
-            {
-                textBox.CaretIndex = textBox.Text.Length;
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    if (textBox.IsFocused)
-                        textBox.CaretIndex = textBox.Text.Length;
-                }), System.Windows.Threading.DispatcherPriority.Background);
-            }
-        }
-
         protected override void OnSourceInitialized(EventArgs e)
         {
             base.OnSourceInitialized(e);
             WindowHelper.DisableSystemMenu(this);
-            WindowHelper.EnableWindowMoveShortcut(this, () => !_viewModel.IsCapturingHotkey);
+            WindowHelper.EnableWindowMoveShortcut(this, () => !_shortcutsSectionViewModel.IsCapturingHotkey);
             WindowHelper.EnableWindowDragMove(this);
         }
 
-        private bool IsDescendantOf(DependencyObject child, DependencyObject ancestor)
+        private void SyncCaptureStateToMainViewModel()
+        {
+            _viewModel.IsCapturingHotkey = _shortcutsSectionViewModel.IsCapturingHotkey;
+            _viewModel.CaptureTarget = _shortcutsSectionViewModel.CaptureTarget;
+        }
+
+        private static void FocusFirstRecord(ISettingsRecordSectionControl sectionControl)
+        {
+            sectionControl.FocusFirstRecord();
+        }
+
+        private ISettingsRecordSectionControl? GetActiveRecordSectionControl()
+        {
+            return _tabShell.SelectedSection?.Id switch
+            {
+                "Size" => SizePanel,
+                ShortcutsSectionId => ShortcutsPanel,
+                ConstantsSectionId => ConstantsPanel,
+                SelectTemplatesSectionId => SelectTemplatesPanel,
+                OthersSectionId => OthersPanel,
+                _ => null
+            };
+        }
+
+        private bool IsEmbeddedEditorTextInputFocused()
+        {
+            if (Keyboard.FocusedElement is not System.Windows.Controls.Primitives.TextBoxBase ||
+                Keyboard.FocusedElement is not DependencyObject focusedElement)
+            {
+                return false;
+            }
+
+            return IsDescendantOf(focusedElement, SizePanel) ||
+                   IsDescendantOf(focusedElement, OthersPanel) ||
+                   IsDescendantOf(focusedElement, ConstantsPanel.Editor) ||
+                   IsDescendantOf(focusedElement, SelectTemplatesPanel.Editor);
+        }
+
+        private static bool IsDescendantOf(DependencyObject child, DependencyObject ancestor)
         {
             DependencyObject? current = child;
             while (current != null)
@@ -449,17 +402,6 @@ namespace HotKeyCommandApp.Views
             }
 
             return false;
-        }
-
-        private bool IsAliasEditorButtonFocused()
-        {
-            if (Keyboard.FocusedElement is not DependencyObject focusedElement ||
-                Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase)
-            {
-                return false;
-            }
-
-            return IsDescendantOf(focusedElement, ConstantsPairEditor) || IsDescendantOf(focusedElement, SelectTemplatesPairEditor);
         }
 
     }
