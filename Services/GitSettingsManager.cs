@@ -55,5 +55,11 @@ namespace HotKeyCommandApp.Services
             }
             catch { }
         }
+
+        public void SaveSettings(GitSettings settings)
+        {
+            _currentSettings = settings ?? new GitSettings();
+            SaveSettings();
+        }
     }
 }

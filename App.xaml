@@ -3,6 +3,11 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="Views/PaletteWindow.xaml">
     <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Views/Controls/SettingsSharedResources.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
         <!-- Global Focus Style -->
         <Style TargetType="Control">
             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
@@ -155,5 +160,6 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

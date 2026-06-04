@@ -1,0 +1,51 @@
+<UserControl x:Class="HotKeyCommandApp.Views.Controls.GitFunctionsSectionControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Margin="0,10,0,0">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="250"/>
+        </Grid.ColumnDefinitions>
+
+        <ListBox x:Name="FunctionsListBox"
+                 ItemsSource="{Binding Functions}"
+                 SelectedItem="{Binding SelectedFunction, Mode=TwoWay}"
+                 Background="#252526"
+                 Foreground="White"
+                 BorderBrush="#333333"
+                 DisplayMemberPath="Name"/>
+
+        <StackPanel Grid.Column="1" Margin="10,0,0,0">
+            <TextBlock Text="関数名" Foreground="#AAAAAA" Margin="0,0,0,5"/>
+            <TextBox x:Name="FunctionNameTextBox"
+                     Style="{StaticResource InputTextBoxStyle}"
+                     Margin="0,0,0,10"
+                     Text="{Binding EditingFunctionName, UpdateSourceTrigger=PropertyChanged}"/>
+
+            <TextBlock Text="説明" Foreground="#AAAAAA" Margin="0,0,0,5"/>
+            <TextBox Style="{StaticResource InputTextBoxStyle}"
+                     Margin="0,0,0,10"
+                     Text="{Binding EditingFunctionDescription, UpdateSourceTrigger=PropertyChanged}"/>
+
+            <TextBlock Text="コマンド列 (1行1コマンド)" Foreground="#AAAAAA" Margin="0,0,0,5"/>
+            <TextBox x:Name="FunctionCommandsTextBox"
+                     Style="{StaticResource InputTextBoxStyle}"
+                     Height="120"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     VerticalScrollBarVisibility="Auto"
+                     Margin="0,0,0,15"
+                     Text="{Binding EditingFunctionCommands, UpdateSourceTrigger=PropertyChanged}"/>
+
+            <Button Content="新規追加"
+                    Style="{StaticResource PrimaryActionButtonStyle}"
+                    Background="#007ACC"
+                    Command="{Binding AddFunctionCommand}"
+                    Margin="0,0,0,10"/>
+            <Button Content="削除"
+                    Style="{StaticResource ActionButtonStyle}"
+                    Background="#A80000"
+                    Command="{Binding DeleteFunctionCommand}"/>
+        </StackPanel>
+    </Grid>
+</UserControl>

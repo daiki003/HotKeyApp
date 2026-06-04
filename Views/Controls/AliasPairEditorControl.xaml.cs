@@ -11,7 +11,7 @@ using HotKeyCommandApp.Models;
 
 namespace HotKeyCommandApp.Views.Controls
 {
-    public partial class AliasPairEditorControl : UserControl
+    public partial class AliasPairEditorControl : UserControl, ISettingsRecordListNavigator
     {
         private const string ReorderDataFormat = "AliasPairEditorItem";
         private Point _dragStartPoint;
@@ -242,6 +242,46 @@ namespace HotKeyCommandApp.Views.Controls
             return Keyboard.FocusedElement is DependencyObject focusedElement && IsDescendantOf(focusedElement, this);
         }
 
+        public void FocusFirstRecord()
+        {
+            FocusFirstNavigableButton();
+        }
+
+        public void FocusLastRecord()
+        {
+            FocusLastNavigableButton();
+        }
+
+        public void FocusRecordAfterAppend()
+        {
+            FocusBottomButton();
+        }
+
+        public bool IsFocusInEditor()
+        {
+            return IsFocusInItemEditor();
+        }
+
+        public bool TryHandleKeyboardShortcut(KeyEventArgs e)
+        {
+            return TryHandleTabKeyboardShortcut(e);
+        }
+
+        public bool TryFocusHeaderFromEditor()
+        {
+            if (!IsFocusInItemEditor())
+            {
+                return false;
+            }
+
+            if (ShouldFocusTabsOnUp() || TryFocusTabsFromTopRow())
+            {
+                return FocusSelectedTab();
+            }
+
+            return false;
+        }
+
         public bool ShouldFocusTabsOnUp()
         {
             return HasTabs &&
@@ -316,6 +356,12 @@ namespace HotKeyCommandApp.Views.Controls
             }
 
             if (!IsDescendantOf(focusedElement, this))
+            {
+                return false;
+            }
+
+            if (CurrentEditingItem is IPairEntryEditable editingItem &&
+                IsFocusWithinSameItem(focusedElement, editingItem))
             {
                 return false;
             }
@@ -695,6 +741,13 @@ namespace HotKeyCommandApp.Views.Controls
             if (e.Key == Key.Left)
             {
                 MoveTabSelection(moveRight: false, keepTabFocus: true);
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Up)
+            {
+                FocusAddButton();
                 e.Handled = true;
                 return;
             }

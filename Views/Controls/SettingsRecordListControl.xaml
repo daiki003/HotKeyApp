@@ -1,0 +1,24 @@
+<UserControl x:Class="HotKeyCommandApp.Views.Controls.SettingsRecordListControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:HotKeyCommandApp.Views.Controls"
+             xmlns:viewModels="clr-namespace:HotKeyCommandApp.ViewModels.Settings"
+             x:Name="Root">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="5,5,5,10">
+            <ItemsControl x:Name="RecordsItemsControl"
+                          ItemsSource="{Binding ItemsSource, ElementName=Root}">
+                <ItemsControl.Resources>
+                    <DataTemplate DataType="{x:Type viewModels:EditableValueRecordViewModel}">
+                        <controls:EditableValueRecordControl Item="{Binding}" Margin="0,0,0,8"/>
+                    </DataTemplate>
+                    <DataTemplate DataType="{x:Type viewModels:ActionValueRecordViewModel}">
+                        <controls:ActionValueRecordControl Item="{Binding}"
+                                                           Margin="0,0,0,8"
+                                                           Activated="ActionValueRecordControl_Activated"/>
+                    </DataTemplate>
+                </ItemsControl.Resources>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

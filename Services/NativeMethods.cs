@@ -58,6 +58,9 @@ namespace HotKeyCommandApp.Services
         [DllImport("user32.dll", SetLastError = true)]
         internal static extern bool SetForegroundWindow(IntPtr hWnd);
 
+        [DllImport("user32.dll")]
+        internal static extern bool AllowSetForegroundWindow(uint dwProcessId);
+
         [DllImport("user32.dll", SetLastError = true)]
         internal static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
@@ -157,6 +160,8 @@ namespace HotKeyCommandApp.Services
 
         internal const int SW_RESTORE = 9;
         internal const int SW_SHOW = 5;
+
+        internal const uint ASFW_ANY = 0xFFFFFFFF;
 
         // --- dwmapi.dll ---
 

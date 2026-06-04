@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using HotKeyCommandApp.Services;
@@ -13,6 +14,7 @@ namespace HotKeyCommandApp.Views
     {
         private readonly MainViewModel _mainVm;
         private TimeSpan _lastRenderingTime = TimeSpan.Zero;
+        private bool _isConsoleAtBottom = true;
 
         public GitCommandWindow(string repositoryPath, MainViewModel mainVm)
         {
@@ -25,6 +27,10 @@ namespace HotKeyCommandApp.Views
                 if (e.PropertyName == nameof(GitCommandViewModel.IsFrontMode))
                 {
                     this.Topmost = vm.IsFrontMode;
+                }
+                else if (e.PropertyName == nameof(GitCommandViewModel.ConsoleOutput))
+                {
+                    TryAutoScrollConsole();
                 }
             };
 
@@ -61,6 +67,7 @@ namespace HotKeyCommandApp.Views
             {
                 CommandInputBox.Focus();
                 WindowHelper.EnableWindowDragMove(this);
+                Dispatcher.BeginInvoke(() => ConsoleScrollViewer.ScrollToEnd(), System.Windows.Threading.DispatcherPriority.Loaded);
             };
 
             this.Activated += (s, e) =>
@@ -93,12 +100,48 @@ namespace HotKeyCommandApp.Views
 
             this.Closing += (s, e) =>
             {
+                if (DataContext is GitCommandViewModel vm)
+                {
+                    vm.CancelCurrentExecution();
+                }
+
                 CompositionTarget.Rendering -= OnRendering;
                 _mainVm.SaveWindowBounds();
             };
         }
 
         private DateTime _lastShiftPressTime = DateTime.MinValue;
+
+        private void FocusCommandInputBox()
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                CommandInputBox.Focus();
+                CommandInputBox.CaretIndex = CommandInputBox.Text.Length;
+            }, System.Windows.Threading.DispatcherPriority.Input);
+        }
+
+        private void TryAutoScrollConsole()
+        {
+            if (!_isConsoleAtBottom)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(() =>
+            {
+                ConsoleScrollViewer.ScrollToEnd();
+                _isConsoleAtBottom = true;
+            }, System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        private void ConsoleScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
+        {
+            if (e.ExtentHeightChange == 0)
+            {
+                _isConsoleAtBottom = ConsoleScrollViewer.VerticalOffset + ConsoleScrollViewer.ViewportHeight >= ConsoleScrollViewer.ExtentHeight - 1.0;
+            }
+        }
 
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
@@ -110,7 +153,6 @@ namespace HotKeyCommandApp.Views
                     if (DataContext is GitCommandViewModel vmMove && !vmMove.IsMoveMode)
                     {
                         vmMove.IsMoveMode = true;
-                        vmMove.SetConsoleOutput("ウィンドウ移動モード", "・矢印: ウィンドウ移動\n・Shift+矢印: サイズ変更\n・Esc: 移動モード終了");
                         e.Handled = true;
                         _lastShiftPressTime = DateTime.MinValue;
                         return;
@@ -121,40 +163,32 @@ namespace HotKeyCommandApp.Views
 
             if (DataContext is GitCommandViewModel vm)
             {
-                if (vm.IsHistoryMode)
+                if (e.Key == Key.Escape)
                 {
-                    if (e.Key == Key.Escape)
+                    if (vm.IsMoveMode)
+                    {
+                        vm.IsMoveMode = false;
+                        FocusCommandInputBox();
+                        e.Handled = true;
+                        return;
+                    }
+
+                    if (vm.IsHistoryMode)
                     {
                         vm.IsHistoryMode = false;
-                        Dispatcher.BeginInvoke(() => CommandInputBox.Focus(), System.Windows.Threading.DispatcherPriority.Input);
+                        FocusCommandInputBox();
                         e.Handled = true;
                         return;
                     }
-                }
 
-                if (vm.IsFrontMode)
-                {
-                    if (e.Key == Key.Escape)
-                    {
-                        vm.IsFrontMode = false;
-                        vm.ConsoleOutput = "[最前面固定モード終了]\n\n" + vm.ConsoleOutput;
-                        Dispatcher.BeginInvoke(() => CommandInputBox.Focus(), System.Windows.Threading.DispatcherPriority.Input);
-                        e.Handled = true;
-                        return;
-                    }
+                    vm.CancelCurrentExecution();
+                    this.Close();
+                    e.Handled = true;
+                    return;
                 }
 
                 if (vm.IsMoveMode)
                 {
-                    if (e.Key == Key.Escape)
-                    {
-                        vm.IsMoveMode = false;
-                        vm.ConsoleOutput = "[ウィンドウ移動モード終了]\n\n" + vm.ConsoleOutput;
-                        Dispatcher.BeginInvoke(() => CommandInputBox.Focus(), System.Windows.Threading.DispatcherPriority.Input);
-                        e.Handled = true;
-                        return;
-                    }
-
                     if (Keyboard.Modifiers == ModifierKeys.Shift)
                     {
                         const double step = 10.0;
@@ -200,11 +234,6 @@ namespace HotKeyCommandApp.Views
                 e.Handled = true;
                 return;
             }
-
-            if (e.Key == Key.Escape)
-            {
-                this.Close();
-            }
         }
 
         private void SettingsButton_Click(object sender, RoutedEventArgs e)
@@ -234,13 +263,13 @@ namespace HotKeyCommandApp.Views
                 if (e.Key == Key.Up)
                 {
                     vm.NavigateHistory(up: true);
-                    Dispatcher.BeginInvoke(() => CommandInputBox.CaretIndex = CommandInputBox.Text.Length);
+                    FocusCommandInputBox();
                     e.Handled = true;
                 }
                 else if (e.Key == Key.Down)
                 {
                     vm.NavigateHistory(up: false);
-                    Dispatcher.BeginInvoke(() => CommandInputBox.CaretIndex = CommandInputBox.Text.Length);
+                    FocusCommandInputBox();
                     e.Handled = true;
                 }
             }

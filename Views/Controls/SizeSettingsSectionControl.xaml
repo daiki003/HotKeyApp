@@ -1,0 +1,7 @@
+<UserControl x:Class="HotKeyCommandApp.Views.Controls.SizeSettingsSectionControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:HotKeyCommandApp.Views.Controls">
+    <controls:SettingsRecordListControl x:Name="RecordsList"
+                                        ItemsSource="{Binding Records}"/>
+</UserControl>
