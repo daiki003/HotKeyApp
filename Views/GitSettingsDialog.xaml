@@ -25,12 +25,12 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <TabControl x:Name="MainTabControl"
-                        Grid.Row="0"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Margin="0,0,0,10"
-                        ItemContainerStyle="{StaticResource SettingsDialogTabItemStyle}">
+            <controls:SettingsTabControl x:Name="MainTabControl"
+                                         Grid.Row="0"
+                                         Background="Transparent"
+                                         BorderThickness="0"
+                                         Margin="0,0,0,10"
+                                         ItemContainerStyle="{StaticResource SettingsDialogTabItemStyle}">
                 <TabItem Header="エイリアス">
                     <Grid Margin="0,10,0,0">
                         <controls:AliasPairEditorControl x:Name="AliasesPairEditor"
@@ -56,7 +56,7 @@
                                                          FirstColumnWidth="280"/>
                     </Grid>
                 </TabItem>
-            </TabControl>
+            </controls:SettingsTabControl>
 
             <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button x:Name="CancelButton"

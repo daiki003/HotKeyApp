@@ -100,10 +100,13 @@ namespace HotKeyCommandApp.Services
                     }
                     else
                     {
+                        Logger.Log($"[VSCode] 既存ウィンドウ確認を開始: command='{command.Name}', target='{value}', appPath='{appPath}'");
                         if (_windowService.ActivateVscodeWindow(value))
                         {
                             return true;
                         }
+
+                        Logger.Log($"[VSCode] 既存ウィンドウ再利用に失敗したため新規起動へフォールバック: command='{command.Name}', target='{value}', appPath='{appPath}'");
                     }
                 }
 
@@ -111,13 +114,20 @@ namespace HotKeyCommandApp.Services
 
                 if (psi != null && !string.IsNullOrEmpty(psi.FileName))
                 {
-                    Process.Start(psi);
+                    Logger.Log($"[ActionRunner] Process.Start 実行: command='{command.Name}', file='{psi.FileName}', args='{psi.Arguments}', workDir='{psi.WorkingDirectory}'");
+                    var processCountsBefore = GetCodeProcessCounts();
+                    var startedProcess = Process.Start(psi);
+                    string startedProcessId = startedProcess?.Id.ToString() ?? "null";
+                    var processCountsAfter = GetCodeProcessCounts();
+                    bool isStartedProcessAliveAfterDelay = IsProcessAliveAfterDelay(startedProcess, 2000);
+
+                    Logger.Log($"[ActionRunner] Process.Start 結果: command='{command.Name}', startedPid='{startedProcessId}', codeProcessCountBefore='{processCountsBefore.Code}', codeProcessCountAfter='{processCountsAfter.Code}', codeProcessDelta='{processCountsAfter.Code - processCountsBefore.Code}', codeInsidersProcessCountBefore='{processCountsBefore.CodeInsiders}', codeInsidersProcessCountAfter='{processCountsAfter.CodeInsiders}', codeInsidersProcessDelta='{processCountsAfter.CodeInsiders - processCountsBefore.CodeInsiders}', startedPidAliveAfter2s='{isStartedProcessAliveAfterDelay}'");
                 }
                 return true;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error running command: {ex.Message}");
+                Logger.Log($"[ActionRunner] 実行失敗: command='{command.Name}', value='{command.Value}', appPath='{command.AppPath}', argument='{argument}', error='{ex}'");
                 return true;
             }
         }
@@ -165,6 +175,38 @@ namespace HotKeyCommandApp.Services
                 return Path.GetDirectoryName(value) ?? AppDomain.CurrentDomain.BaseDirectory;
             }
             return string.Empty;
+        }
+
+        private (int Code, int CodeInsiders) GetCodeProcessCounts()
+        {
+            try
+            {
+                return (
+                    Process.GetProcessesByName("Code").Length,
+                    Process.GetProcessesByName("Code - Insiders").Length
+                );
+            }
+            catch (Exception processCountEx)
+            {
+                Logger.Log($"[ActionRunner] プロセス数取得失敗: error='{processCountEx.Message}'");
+                return (0, 0);
+            }
+        }
+
+        private bool IsProcessAliveAfterDelay(Process? process, int delayMs)
+        {
+            if (process == null) return false;
+
+            try
+            {
+                System.Threading.Thread.Sleep(delayMs);
+                return !process.HasExited;
+            }
+            catch (Exception processAliveEx)
+            {
+                Logger.Log($"[ActionRunner] プロセス生存確認失敗: error='{processAliveEx.Message}'");
+                return false;
+            }
         }
 
         private List<string> ParseArguments(string commandLine)

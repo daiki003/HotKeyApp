@@ -36,6 +36,7 @@ namespace HotKeyCommandApp.ViewModels
         private readonly ConfigService _configService;
         private readonly WindowService _windowService;
         private readonly AppSettings _appSettings;
+        private readonly CommandPreset? _selectedPreset;
         private readonly DisposableBag _disposables = new();
 
         public CommandEntry? ResultCommand { get; private set; }
@@ -102,12 +103,13 @@ namespace HotKeyCommandApp.ViewModels
         public ICommand EditRegisteredAppCommand => new RelayCommand<CommandEntry>(EditRegisteredApp);
         public ICommand AddRegisteredAppCommand => new RelayCommand<object>(_ => AddRegisteredApp());
 
-        public ButtonCreationViewModel(AppSettings appSettings, CommandEntry? editingCommand = null)
+        public ButtonCreationViewModel(AppSettings appSettings, CommandEntry? editingCommand = null, CommandPreset? selectedPreset = null)
         {
             _configService = new ConfigService();
             _windowService = new WindowService();
             _appSettings = appSettings;
             _editingCommand = editingCommand;
+            _selectedPreset = selectedPreset;
 
             CurrentStepObject = new BindableReactiveProperty<ICreationStep?>(null);
             _currentPreset.AddTo(ref _disposables);
@@ -115,7 +117,7 @@ namespace HotKeyCommandApp.ViewModels
             Title = CurrentStepObject.CombineLatest(_currentPreset, (step, preset) =>
             {
                 if (step == null) return "ボタン作成";
-                if (preset == null || step is PresetSelectionStep) return step.Title;
+                if (preset == null) return step.Title;
                 return preset.Name;
             }).ToBindableReactiveProperty("ボタン作成");
             InputPrompt = CurrentStepObject.Select(s => s?.Prompt ?? "").ToBindableReactiveProperty("");
@@ -227,6 +229,11 @@ namespace HotKeyCommandApp.ViewModels
                     UseWindowFocusLogic = command.Behavior.UseWindowFocusLogic
                 };
             }
+            else if (_selectedPreset != null)
+            {
+                NewEntryTemplateId = _selectedPreset.Id;
+                NewEntryCategory = _selectedPreset.Category;
+            }
             UpdateStepSequence();
         }
 
@@ -278,23 +285,11 @@ namespace HotKeyCommandApp.ViewModels
             var baseSteps = new List<ICreationStep>();
             var allPresets = _configService.LoadPresets();
 
-            // 新規作成時（またはテンプレート選択前）は、常に機能選択を最初のステップとして保持する
-            if (EditingCommand == null)
-            {
-                var presetStep = new PresetStepDefinition
-                {
-                    Title = "プリセット選択",
-                    Prompt = "機能を選択してください",
-                    StepType = StepType.PresetSelection,
-                    DataKey = "preset"
-                };
-                baseSteps.Add(new PresetSelectionStep(presetStep, _configService));
-            }
-
             // プリセットが選択されている、または編集モードの場合は後続のステップを追加
             if (NewEntryTemplateId != null || EditingCommand != null)
             {
-                var preset = allPresets.FirstOrDefault(p => p.Id == NewEntryTemplateId)
+                var preset = _selectedPreset
+                             ?? allPresets.FirstOrDefault(p => p.Id == NewEntryTemplateId)
                              ?? allPresets.FirstOrDefault(p => p.Category == NewEntryCategory)
                              ?? allPresets[0];
 
@@ -312,9 +307,6 @@ namespace HotKeyCommandApp.ViewModels
                             break;
                         case StepType.Options:
                             baseSteps.Add(new OptionsCreationStep(stepDef, preset));
-                            break;
-                        case StepType.PresetSelection:
-                            baseSteps.Add(new PresetSelectionStep(stepDef, _configService));
                             break;
                     }
                 }
@@ -382,7 +374,6 @@ namespace HotKeyCommandApp.ViewModels
 
         private void MoveToNextStep()
         {
-            if (CurrentStepObject.Value is PresetSelectionStep) return;
             if (SaveCurrentStepResult() && CurrentStepIndex < _steps.Count - 1)
                 CurrentStepIndex++;
         }
@@ -395,20 +386,6 @@ namespace HotKeyCommandApp.ViewModels
             if (result != null)
             {
                 StepResults[result.DataKey] = result;
-                if (result is PresetSelectionResult psr)
-                {
-                    // プリセットが変更された場合のみ、後続のステップを再構築し、既存の入力をクリアする
-                    if (NewEntryTemplateId != psr.SelectedPreset.Id)
-                    {
-                        // 機能選択以外の入力結果をクリア
-                        var otherKeys = StepResults.Keys.Where(k => k != result.DataKey).ToList();
-                        foreach (var key in otherKeys) StepResults.Remove(key);
-
-                        NewEntryTemplateId = psr.SelectedPreset.Id;
-                        NewEntryCategory = psr.SelectedPreset.Category;
-                        UpdateStepSequence();
-                    }
-                }
                 return true;
             }
             return false;

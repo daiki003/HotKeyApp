@@ -32,6 +32,7 @@ namespace HotKeyCommandApp.Services
 
             string nameToMatch = System.IO.Path.GetFileName(target);
             IntPtr targetHWnd = IntPtr.Zero;
+            string matchedTitle = string.Empty;
 
             EnumerateRealWindows((hWnd, title) =>
             {
@@ -40,15 +41,18 @@ namespace HotKeyCommandApp.Services
                     title.Contains(nameToMatch, StringComparison.OrdinalIgnoreCase))
                 {
                     targetHWnd = hWnd;
+                    matchedTitle = title;
                 }
             });
 
             if (targetHWnd != IntPtr.Zero)
             {
+                Logger.Log($"[VSCode] 既存ウィンドウをアクティブ化: target='{target}', title='{matchedTitle}'");
                 FocusWindow(targetHWnd);
                 return true;
             }
 
+            Logger.Log($"[VSCode] 既存ウィンドウが見つかりませんでした: target='{target}', name='{nameToMatch}'");
             return false;
         }
 

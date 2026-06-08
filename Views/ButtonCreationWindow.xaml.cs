@@ -80,8 +80,7 @@ namespace HotKeyCommandApp.Views
         {
             // 起動時に現在のステップに応じて適切なコントロールにフォーカスを当てる
             string targetControl = "InputTextBox";
-            if (_viewModel.CurrentStepObject.Value is PresetSelectionStep || 
-                _viewModel.CurrentStepObject.Value is ListSelectionCreationStep)
+            if (_viewModel.CurrentStepObject.Value is ListSelectionCreationStep)
             {
                 targetControl = "CommandListBox";
             }

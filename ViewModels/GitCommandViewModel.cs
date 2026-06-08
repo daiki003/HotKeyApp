@@ -17,6 +17,11 @@ namespace HotKeyCommandApp.ViewModels
 {
     public class GitCommandViewModel : INotifyPropertyChanged
     {
+        static GitCommandViewModel()
+        {
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        }
+
         private string _repositoryPath;
         private readonly MainViewModel? _mainVm;
         private readonly GitSettingsManager _gitSettingsManager;
@@ -41,7 +46,8 @@ namespace HotKeyCommandApp.ViewModels
         public double MovementSpeed => _mainVm?.MovementSpeed ?? 1200.0;
 
         private readonly List<string> _consoleHistoryList = new();
-        private string _latestConsoleOutput = string.Empty;
+        private string _latestConsoleHeader = string.Empty;
+        private string _latestConsoleBody = string.Empty;
         private int _activeConsoleHistoryIndex = -1;
         private readonly object _commandQueueLock = new();
         private readonly Queue<string> _pendingCommands = new();
@@ -72,6 +78,8 @@ namespace HotKeyCommandApp.ViewModels
             }
         }
 
+        private static Encoding ProcessOutputEncoding => Encoding.Default;
+
         private static string BuildConsoleEntry(string header, string content)
         {
             string body = content.TrimEnd();
@@ -88,9 +96,14 @@ namespace HotKeyCommandApp.ViewModels
             return $"[{header}]\n{body}";
         }
 
+        private string BuildLatestConsoleEntry()
+        {
+            return BuildConsoleEntry(_latestConsoleHeader, _latestConsoleBody);
+        }
+
         private void UpdateConsoleOutputDisplay()
         {
-            string renderedOutput = _latestConsoleOutput;
+            string renderedOutput = BuildLatestConsoleEntry();
 
             if (_activeConsoleHistoryIndex >= 0 && _activeConsoleHistoryIndex < _consoleHistoryList.Count)
             {
@@ -99,7 +112,7 @@ namespace HotKeyCommandApp.ViewModels
 
             if (!IsHistoryMode)
             {
-                ConsoleOutput = renderedOutput;
+                ConsoleOutput = _latestConsoleBody;
                 return;
             }
 
@@ -113,23 +126,42 @@ namespace HotKeyCommandApp.ViewModels
                 : "[待機中のコマンド]\n" + string.Join("\n", _waitingCommandInputs);
         }
 
-        public void SetConsoleOutput(string header, string content)
+        private void UpdateCurrentCommandContext(string commandName, string? status)
+        {
+            CurrentCommandName = commandName;
+            CurrentCommandStatus = status ?? string.Empty;
+        }
+
+        private void UpdateCurrentCommandStatus(string status)
         {
             RunOnUiThread(() =>
             {
-                string entry = BuildConsoleEntry(header, content);
-                _latestConsoleOutput = entry;
+                CurrentCommandStatus = status;
+            });
+        }
+
+        public void SetConsoleOutput(string header, string content, string? status = null)
+        {
+            RunOnUiThread(() =>
+            {
+                _latestConsoleHeader = header;
+                _latestConsoleBody = content.TrimEnd();
+                UpdateCurrentCommandContext(header, status);
+                string entry = BuildLatestConsoleEntry();
                 _consoleHistoryList.Add(entry);
                 _activeConsoleHistoryIndex = _consoleHistoryList.Count - 1;
                 UpdateConsoleOutputDisplay();
             });
         }
 
-        private void ReplaceConsoleOutput(string header, string content)
+        private void ReplaceConsoleOutput(string header, string content, string? status = null)
         {
             RunOnUiThread(() =>
             {
-                string entry = BuildConsoleEntry(header, content);
+                _latestConsoleHeader = header;
+                _latestConsoleBody = content.TrimEnd();
+                UpdateCurrentCommandContext(header, status);
+                string entry = BuildLatestConsoleEntry();
 
                 if (_activeConsoleHistoryIndex < 0 || _activeConsoleHistoryIndex >= _consoleHistoryList.Count)
                 {
@@ -141,7 +173,6 @@ namespace HotKeyCommandApp.ViewModels
                     _consoleHistoryList[_activeConsoleHistoryIndex] = entry;
                 }
 
-                _latestConsoleOutput = entry;
                 UpdateConsoleOutputDisplay();
             });
         }
@@ -150,7 +181,7 @@ namespace HotKeyCommandApp.ViewModels
         {
             RunOnUiThread(() =>
             {
-                string current = _latestConsoleOutput;
+                string current = _latestConsoleBody;
                 string updated = string.IsNullOrEmpty(current)
                     ? line
                     : current + "\n" + line;
@@ -165,7 +196,7 @@ namespace HotKeyCommandApp.ViewModels
                     _consoleHistoryList[_activeConsoleHistoryIndex] = updated;
                 }
 
-                _latestConsoleOutput = updated;
+                _latestConsoleBody = updated;
                 UpdateConsoleOutputDisplay();
             });
         }
@@ -237,7 +268,7 @@ namespace HotKeyCommandApp.ViewModels
                 OnPropertyChanged();
                 if (!_isHistoryMode)
                 {
-                    ConsoleOutput = _latestConsoleOutput;
+                    ConsoleOutput = _latestConsoleBody;
                 }
             }
         }
@@ -267,14 +298,43 @@ namespace HotKeyCommandApp.ViewModels
         public string ParentBranch
         {
             get => _parentBranch;
-            set { _parentBranch = value; OnPropertyChanged(); }
+            set
+            {
+                _parentBranch = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsCurrentBranchBase));
+            }
         }
 
         private string _currentBranch = string.Empty;
         public string CurrentBranch
         {
             get => _currentBranch;
-            set { _currentBranch = value; OnPropertyChanged(); }
+            set
+            {
+                _currentBranch = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsCurrentBranchBase));
+            }
+        }
+
+        public bool IsCurrentBranchBase =>
+            !string.IsNullOrWhiteSpace(CurrentBranch) &&
+            !string.IsNullOrWhiteSpace(ParentBranch) &&
+            string.Equals(CurrentBranch, ParentBranch, StringComparison.OrdinalIgnoreCase);
+
+        private string _currentCommandName = string.Empty;
+        public string CurrentCommandName
+        {
+            get => _currentCommandName;
+            set { _currentCommandName = value; OnPropertyChanged(); }
+        }
+
+        private string _currentCommandStatus = string.Empty;
+        public string CurrentCommandStatus
+        {
+            get => _currentCommandStatus;
+            set { _currentCommandStatus = value; OnPropertyChanged(); }
         }
 
         private string _consoleOutput = string.Empty;
@@ -310,7 +370,6 @@ namespace HotKeyCommandApp.ViewModels
                 else
                 {
                     CancelCurrentExecution();
-                    SetConsoleOutput("キャンセル", "実行中のGit操作を中断しています");
                 }
 
                 return;
@@ -372,8 +431,8 @@ namespace HotKeyCommandApp.ViewModels
 
             try
             {
-                var stdoutTask = ReadProcessStreamAsync(process.StandardOutput, onStdOutLine, cancellationToken);
-                var stderrTask = ReadProcessStreamAsync(process.StandardError, onStdErrLine, cancellationToken);
+                var stdoutTask = ReadProcessStreamAsync(process.StandardOutput.BaseStream, onStdOutLine, cancellationToken);
+                var stderrTask = ReadProcessStreamAsync(process.StandardError.BaseStream, onStdErrLine, cancellationToken);
                 var exitTask = process.WaitForExitAsync();
                 var cancelTask = Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
 
@@ -407,20 +466,134 @@ namespace HotKeyCommandApp.ViewModels
             }
         }
 
-        private static async Task ReadProcessStreamAsync(System.IO.StreamReader reader, Action<string>? onLine, CancellationToken cancellationToken)
+        private static async Task ReadProcessStreamAsync(Stream stream, Action<string>? onLine, CancellationToken cancellationToken)
         {
+            var buffer = new byte[4096];
+            var pending = new List<byte>();
+            Encoding? encoding = null;
+
             while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                string? line = await reader.ReadLineAsync();
-                if (line == null)
+                int bytesRead = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
+                if (bytesRead == 0)
                 {
                     break;
                 }
 
-                onLine?.Invoke(line);
+                pending.AddRange(buffer.AsSpan(0, bytesRead).ToArray());
+                encoding ??= DetectProcessOutputEncoding(pending);
+
+                EmitDecodedLines(pending, encoding, onLine);
             }
+
+            if (pending.Count > 0)
+            {
+                encoding ??= DetectProcessOutputEncoding(pending);
+                string line = DecodeProcessOutputBytes(pending, encoding);
+                if (!string.IsNullOrEmpty(line))
+                {
+                    onLine?.Invoke(line);
+                }
+            }
+        }
+
+        private static void EmitDecodedLines(List<byte> pending, Encoding encoding, Action<string>? onLine)
+        {
+            int lineStart = 0;
+
+            for (int i = 0; i < pending.Count; i++)
+            {
+                if (pending[i] != (byte)'\n')
+                {
+                    continue;
+                }
+
+                int length = i - lineStart;
+                if (length > 0 && pending[i - 1] == (byte)'\r')
+                {
+                    length--;
+                }
+
+                byte[] lineBytes = pending.GetRange(lineStart, Math.Max(length, 0)).ToArray();
+                string line = DecodeProcessOutputBytes(lineBytes, encoding);
+                onLine?.Invoke(line);
+                lineStart = i + 1;
+            }
+
+            if (lineStart > 0)
+            {
+                pending.RemoveRange(0, lineStart);
+            }
+        }
+
+        private static string DecodeProcessOutputBytes(IReadOnlyList<byte> bytes, Encoding encoding)
+        {
+            if (bytes.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            byte[] buffer = bytes as byte[] ?? bytes.ToArray();
+            return encoding.GetString(buffer);
+        }
+
+        private static Encoding DetectProcessOutputEncoding(IReadOnlyList<byte> bytes)
+        {
+            if (bytes.Count >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+            {
+                return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            }
+
+            return IsValidUtf8(bytes)
+                ? new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)
+                : Encoding.GetEncoding(932);
+        }
+
+        private static bool IsValidUtf8(IReadOnlyList<byte> bytes)
+        {
+            int remaining = 0;
+
+            foreach (byte value in bytes)
+            {
+                if (remaining == 0)
+                {
+                    if ((value & 0b1000_0000) == 0)
+                    {
+                        continue;
+                    }
+
+                    if ((value & 0b1110_0000) == 0b1100_0000)
+                    {
+                        remaining = 1;
+                        continue;
+                    }
+
+                    if ((value & 0b1111_0000) == 0b1110_0000)
+                    {
+                        remaining = 2;
+                        continue;
+                    }
+
+                    if ((value & 0b1111_1000) == 0b1111_0000)
+                    {
+                        remaining = 3;
+                        continue;
+                    }
+
+                    return false;
+                }
+
+                if ((value & 0b1100_0000) != 0b1000_0000)
+                {
+                    return false;
+                }
+
+                remaining--;
+            }
+
+            return remaining == 0;
         }
 
         private void LoadGitInfo(bool includeStatus = true)
@@ -507,7 +680,6 @@ namespace HotKeyCommandApp.ViewModels
                 else
                 {
                     CancelCurrentExecution();
-                    SetConsoleOutput("キャンセル", "実行中のGit操作を中断しています");
                 }
 
                 return;
@@ -533,7 +705,7 @@ namespace HotKeyCommandApp.ViewModels
                     }
                     catch (OperationCanceledException)
                     {
-                        SetConsoleOutput($"関数: {matchedFunction.Name}", "キャンセルしました");
+                        UpdateCurrentCommandStatus("キャンセル");
                     }
                     finally
                     {
@@ -610,7 +782,6 @@ namespace HotKeyCommandApp.ViewModels
                     else
                     {
                         CancelCurrentExecution();
-                        SetConsoleOutput("キャンセル", "実行中のGit操作を中断しています");
                     }
 
                     return;
@@ -657,7 +828,7 @@ namespace HotKeyCommandApp.ViewModels
                     }
                     _gitSettingsManager.SaveSettings();
 
-                    SetConsoleOutput("ベースブランチ設定", $"ベースブランチを '{ParentBranch}' に設定しました。(設定ファイルに保存されました)");
+                    SetConsoleOutput("ベースブランチ設定", $"ベースブランチを '{ParentBranch}' に設定しました。(設定ファイルに保存されました)", "完了");
                 }
                 return;
             }
@@ -667,7 +838,7 @@ namespace HotKeyCommandApp.ViewModels
             if (string.Equals(input, "front", StringComparison.OrdinalIgnoreCase))
             {
                 IsFrontMode = true;
-                SetConsoleOutput("最前面固定モード", "Gitウィンドウを常に最前面に表示します。\n・Esc: 解除");
+                SetConsoleOutput("最前面固定モード", "Gitウィンドウを常に最前面に表示します。\n・Esc: 解除", "完了");
                 return;
             }
 
@@ -704,7 +875,7 @@ namespace HotKeyCommandApp.ViewModels
                 {
                     _repositoryPath = newRepoPath;
                     LoadGitInfo(includeStatus: false);
-                    SetConsoleOutput("リポジトリ移動", GetRepositoryDisplayName(_repositoryPath));
+                    SetConsoleOutput("リポジトリ移動", GetRepositoryDisplayName(_repositoryPath), "完了");
                 }
                 else
                 {
@@ -718,7 +889,7 @@ namespace HotKeyCommandApp.ViewModels
             var appSettings = configService.LoadSettings();
             var constants = appSettings?.Constants ?? new List<ConstantEntry>();
             string command = ConstantReplacer.ReplaceConstants(input, constants);
-            SetConsoleOutput(command, string.Empty);
+            SetConsoleOutput(command, string.Empty, "実行中");
 
             using var commandExecutionCts = new CancellationTokenSource();
             _currentExecutionCts = commandExecutionCts;
@@ -741,8 +912,8 @@ namespace HotKeyCommandApp.ViewModels
                         CreateNoWindow = true,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
-                        StandardOutputEncoding = Encoding.UTF8,
-                        StandardErrorEncoding = Encoding.UTF8
+                        StandardOutputEncoding = ProcessOutputEncoding,
+                        StandardErrorEncoding = ProcessOutputEncoding
                     };
 
                     if (isGitDirect)
@@ -764,6 +935,11 @@ namespace HotKeyCommandApp.ViewModels
                         {
                             sawOutput = true;
                             AppendConsoleOutputLine(line);
+                        },
+                        line =>
+                        {
+                            sawOutput = true;
+                            AppendConsoleOutputLine(line);
                         });
 
                     return exitCode;
@@ -781,28 +957,30 @@ namespace HotKeyCommandApp.ViewModels
                     {
                         if (exitCode == 0)
                         {
-                            ReplaceConsoleOutput(command, GetGitStatusSummary());
+                            ReplaceConsoleOutput(command, GetGitStatusSummary(), "完了");
                         }
                         else
                         {
-                            ReplaceConsoleOutput(command, $"エラーで終了しました。 (終了コード: {exitCode})");
+                            ReplaceConsoleOutput(command, string.Empty, "エラー");
                         }
+                    }
+                    else if (exitCode == 0)
+                    {
+                        UpdateCurrentCommandStatus("完了");
                     }
                     else
                     {
-                        AppendConsoleOutputLine(exitCode == 0
-                            ? "[成功] 正常に完了しました。"
-                            : $"[失敗] エラーで終了しました。 (終了コード: {exitCode})");
+                        UpdateCurrentCommandStatus("エラー");
                     }
                 });
             }
             catch (OperationCanceledException)
             {
-                SetConsoleOutput("キャンセル", "実行を中断しました");
+                UpdateCurrentCommandStatus("キャンセル");
             }
             catch (Exception ex)
             {
-                SetConsoleOutput("実行エラー", ex.Message);
+                SetConsoleOutput("実行エラー", ex.Message, "エラー");
             }
             finally
             {
@@ -848,7 +1026,7 @@ namespace HotKeyCommandApp.ViewModels
                 parsedArgs = ParseArguments(argString);
             }
 
-            SetConsoleOutput($"関数: {function.Name}", string.Empty);
+            SetConsoleOutput($"関数: {function.Name}", string.Empty, "実行中");
 
             try
             {
@@ -905,7 +1083,7 @@ namespace HotKeyCommandApp.ViewModels
                         if (string.Equals(command.Trim(), "cancel", StringComparison.OrdinalIgnoreCase))
                         {
                             CancelCurrentExecution();
-                            AppendConsoleOutputLine("[キャンセル] 実行中のGit操作を中断しています");
+                            UpdateCurrentCommandStatus("キャンセル");
                             throw new OperationCanceledException();
                         }
 
@@ -980,8 +1158,8 @@ namespace HotKeyCommandApp.ViewModels
                             CreateNoWindow = true,
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
-                            StandardOutputEncoding = Encoding.UTF8,
-                            StandardErrorEncoding = Encoding.UTF8
+                            StandardOutputEncoding = ProcessOutputEncoding,
+                            StandardErrorEncoding = ProcessOutputEncoding
                         };
 
                         if (isGitDirect)
@@ -1002,12 +1180,16 @@ namespace HotKeyCommandApp.ViewModels
                             line =>
                             {
                                 AppendConsoleOutputLine(line);
+                            },
+                            line =>
+                            {
+                                AppendConsoleOutputLine(line);
                             });
 
                         // 終了コードが0以外の場合は連鎖を中断
                         if (exitCode != 0)
                         {
-                            AppendConsoleOutputLine("[エラー終了] コマンドが失敗したため中断しました。");
+                            UpdateCurrentCommandStatus("エラー");
                             isSuccess = false;
                             break;
                         }
@@ -1015,7 +1197,7 @@ namespace HotKeyCommandApp.ViewModels
 
                     if (isSuccess)
                     {
-                        AppendConsoleOutputLine("[成功] すべての処理が正常に完了しました。");
+                        UpdateCurrentCommandStatus("完了");
                     }
                 });
 
@@ -1030,7 +1212,7 @@ namespace HotKeyCommandApp.ViewModels
             }
             catch (Exception ex)
             {
-                SetConsoleOutput($"関数エラー: {function.Name}", ex.Message);
+                SetConsoleOutput($"関数エラー: {function.Name}", ex.Message, "エラー");
             }
         }
 
@@ -1045,8 +1227,8 @@ namespace HotKeyCommandApp.ViewModels
                     WorkingDirectory = _repositoryPath,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
-                    StandardOutputEncoding = Encoding.UTF8,
-                    StandardErrorEncoding = Encoding.UTF8,
+                    StandardOutputEncoding = ProcessOutputEncoding,
+                    StandardErrorEncoding = ProcessOutputEncoding,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };

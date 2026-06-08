@@ -129,7 +129,26 @@ namespace HotKeyCommandApp.Views
                     vm.IsDialogActive = true;
                     try
                     {
-                        var dialogViewModel = new ButtonCreationViewModel(vm.AppSettings, command);
+                        CommandPreset? selectedPreset = null;
+                        if (command == null)
+                        {
+                            var presetSelectionViewModel = new PresetSelectionViewModel(vm.AppSettings);
+                            var presetSelectionWindow = new PresetSelectionWindow(presetSelectionViewModel)
+                            {
+                                Owner = this,
+                                Width = width + 20,
+                                Height = height + 30
+                            };
+
+                            if (presetSelectionWindow.ShowDialog() != true || presetSelectionViewModel.ResultPreset == null)
+                            {
+                                return;
+                            }
+
+                            selectedPreset = presetSelectionViewModel.ResultPreset;
+                        }
+
+                        var dialogViewModel = new ButtonCreationViewModel(vm.AppSettings, command, selectedPreset);
                         var dialog = new ButtonCreationWindow(dialogViewModel)
                         {
                             Owner = this,

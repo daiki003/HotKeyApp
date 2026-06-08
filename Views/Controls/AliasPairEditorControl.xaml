@@ -259,7 +259,10 @@
             </ContentPresenter.Style>
         </ContentPresenter>
 
-        <ScrollViewer x:Name="ItemsScrollViewer" Grid.Row="3" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer x:Name="ItemsScrollViewer"
+                      Grid.Row="3"
+                      VerticalScrollBarVisibility="Auto"
+                      Style="{StaticResource SettingsNonFocusableScrollViewerStyle}">
             <ItemsControl x:Name="PairItemsControl"
                           ItemsSource="{Binding ElementName=Root, Path=VisibleItems}">
                 <ItemsControl.ItemTemplate>

@@ -46,7 +46,12 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="{Binding RepositoryName}" Foreground="White" FontSize="16" FontWeight="Bold"/>
-                    <TextBlock Text="{Binding ParentBranch, StringFormat='(Base: {0})'}" Foreground="#888888" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Bottom">
+                    <TextBlock Text="{Binding ParentBranch, StringFormat='Base: {0}'}"
+                               Foreground="#E5A93C"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               Margin="10,0,0,0"
+                               VerticalAlignment="Bottom">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Visible"/>
@@ -63,13 +68,82 @@
                     <TextBlock Text="⚙" Foreground="#888888" FontSize="16"/>
                 </Button>
             </Grid>
-            <StackPanel Grid.Row="1" Margin="0,2,0,10">
-                <TextBlock Text="{Binding CurrentBranch}" Foreground="#007ACC" FontSize="14" FontWeight="SemiBold" />
+            <StackPanel Grid.Row="1" Margin="0,4,0,10" Orientation="Horizontal">
+                <TextBlock Text="{Binding CurrentBranch}"
+                           Foreground="#58A6FF"
+                           FontSize="16"
+                           FontWeight="SemiBold" />
+                <TextBlock Text="(Base)"
+                           Foreground="#E5A93C"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Margin="8,0,0,0"
+                           VerticalAlignment="Bottom">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsCurrentBranchBase}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
             </StackPanel>
             
             <Border Grid.Row="2" Background="#121212" CornerRadius="4" BorderBrush="#2D2D2D" BorderThickness="1" Margin="0,0,0,12" Padding="8">
                 <DockPanel LastChildFill="True">
-                    <Border DockPanel.Dock="Bottom"
+                                        <Grid DockPanel.Dock="Top"
+                          Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="コマンド:"
+                                   Foreground="#888888"
+                                   FontFamily="Consolas"
+                                   FontSize="11"
+                                   Margin="0,0,8,0"
+                                   VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center">
+                            <TextBlock Text="{Binding CurrentCommandName}"
+                                       Foreground="#D4D4D4"
+                                       FontFamily="Consolas"
+                                       FontSize="11"
+                                       TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding CurrentCommandStatus}"
+                                       FontFamily="Consolas"
+                                       FontSize="11"
+                                       Margin="8,0,0,0"
+                                       VerticalAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="#A6E3A1"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentCommandStatus}" Value="実行中">
+                                                <Setter Property="Foreground" Value="#58A6FF"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding CurrentCommandStatus}" Value="キャンセル">
+                                                <Setter Property="Foreground" Value="#E5A93C"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding CurrentCommandStatus}" Value="完了">
+                                                <Setter Property="Foreground" Value="#A6E3A1"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding CurrentCommandStatus}" Value="エラー">
+                                                <Setter Property="Foreground" Value="#F85149"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </Grid>
+<Border DockPanel.Dock="Bottom"
                             Margin="0,8,0,0"
                             Padding="8"
                             Background="#181818"

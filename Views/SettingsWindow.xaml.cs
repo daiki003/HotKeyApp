@@ -223,7 +223,7 @@ namespace HotKeyCommandApp.Views
 
             if (actualKey == Key.PageUp || actualKey == Key.PageDown)
             {
-                _tabShell.MoveSelection(actualKey == Key.PageDown ? 1 : -1);
+                MainTabControl.MoveSelection(actualKey == Key.PageDown ? 1 : -1);
                 e.Handled = true;
                 return;
             }

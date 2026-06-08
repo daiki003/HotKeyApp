@@ -155,6 +155,11 @@
         <Setter Property="VerticalContentAlignment" Value="Center"/>
     </Style>
 
+    <Style x:Key="SettingsNonFocusableScrollViewerStyle" TargetType="ScrollViewer">
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="IsTabStop" Value="False"/>
+    </Style>
+
     <Style TargetType="{x:Type controls:SettingsDialogShell}">
         <Setter Property="Template">
             <Setter.Value>

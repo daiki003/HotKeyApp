@@ -4,7 +4,9 @@
              xmlns:controls="clr-namespace:HotKeyCommandApp.Views.Controls"
              xmlns:viewModels="clr-namespace:HotKeyCommandApp.ViewModels.Settings"
              x:Name="Root">
-    <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                  VerticalScrollBarVisibility="Auto"
+                  Style="{StaticResource SettingsNonFocusableScrollViewerStyle}">
         <StackPanel Margin="5,5,5,10">
             <ItemsControl x:Name="RecordsItemsControl"
                           ItemsSource="{Binding ItemsSource, ElementName=Root}">
