@@ -119,9 +119,8 @@ namespace HotKeyCommandApp.Services
                     var startedProcess = Process.Start(psi);
                     string startedProcessId = startedProcess?.Id.ToString() ?? "null";
                     var processCountsAfter = GetCodeProcessCounts();
-                    bool isStartedProcessAliveAfterDelay = IsProcessAliveAfterDelay(startedProcess, 2000);
 
-                    Logger.Log($"[ActionRunner] Process.Start 結果: command='{command.Name}', startedPid='{startedProcessId}', codeProcessCountBefore='{processCountsBefore.Code}', codeProcessCountAfter='{processCountsAfter.Code}', codeProcessDelta='{processCountsAfter.Code - processCountsBefore.Code}', codeInsidersProcessCountBefore='{processCountsBefore.CodeInsiders}', codeInsidersProcessCountAfter='{processCountsAfter.CodeInsiders}', codeInsidersProcessDelta='{processCountsAfter.CodeInsiders - processCountsBefore.CodeInsiders}', startedPidAliveAfter2s='{isStartedProcessAliveAfterDelay}'");
+                    Logger.Log($"[ActionRunner] Process.Start 結果: command='{command.Name}', startedPid='{startedProcessId}', codeProcessCountBefore='{processCountsBefore.Code}', codeProcessCountAfter='{processCountsAfter.Code}', codeProcessDelta='{processCountsAfter.Code - processCountsBefore.Code}', codeInsidersProcessCountBefore='{processCountsBefore.CodeInsiders}', codeInsidersProcessCountAfter='{processCountsAfter.CodeInsiders}', codeInsidersProcessDelta='{processCountsAfter.CodeInsiders - processCountsBefore.CodeInsiders}'");
                 }
                 return true;
             }
@@ -137,11 +136,12 @@ namespace HotKeyCommandApp.Services
             if (command.Category == CommandCategory.Hierarchy) return null;
 
             var psi = new ProcessStartInfo { UseShellExecute = true };
+            string? resolvedAppPath = ResolveExecutablePath(appPath);
 
             // 起動先の設定
-            if (!string.IsNullOrEmpty(appPath))
+            if (!string.IsNullOrEmpty(resolvedAppPath))
             {
-                psi.FileName = appPath;
+                psi.FileName = resolvedAppPath;
                 // ファイル/フォルダ系かつAppPathがある場合は -n を付与（とりあえずUseWindowFocusLogicがONなら付与とする）
                 string args = (command.Behavior.UseWindowFocusLogic ? "-n " : "") + $"\"{value}\"";
                 
@@ -177,6 +177,41 @@ namespace HotKeyCommandApp.Services
             return string.Empty;
         }
 
+        private string? ResolveExecutablePath(string? appPath)
+        {
+            if (string.IsNullOrWhiteSpace(appPath))
+            {
+                return appPath;
+            }
+
+            if (!appPath.EndsWith("Code.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return appPath;
+            }
+
+            try
+            {
+                string? codeDirectory = Path.GetDirectoryName(appPath);
+                if (string.IsNullOrEmpty(codeDirectory))
+                {
+                    return appPath;
+                }
+
+                string codeCmdPath = Path.Combine(codeDirectory, "bin", "code.cmd");
+                if (File.Exists(codeCmdPath))
+                {
+                    Logger.Log($"[VSCode] 起動実体を code.cmd に切り替え: original='{appPath}', resolved='{codeCmdPath}'");
+                    return codeCmdPath;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"[VSCode] 起動実体の解決失敗: appPath='{appPath}', error='{ex.Message}'");
+            }
+
+            return appPath;
+        }
+
         private (int Code, int CodeInsiders) GetCodeProcessCounts()
         {
             try
@@ -190,22 +225,6 @@ namespace HotKeyCommandApp.Services
             {
                 Logger.Log($"[ActionRunner] プロセス数取得失敗: error='{processCountEx.Message}'");
                 return (0, 0);
-            }
-        }
-
-        private bool IsProcessAliveAfterDelay(Process? process, int delayMs)
-        {
-            if (process == null) return false;
-
-            try
-            {
-                System.Threading.Thread.Sleep(delayMs);
-                return !process.HasExited;
-            }
-            catch (Exception processAliveEx)
-            {
-                Logger.Log($"[ActionRunner] プロセス生存確認失敗: error='{processAliveEx.Message}'");
-                return false;
             }
         }
 

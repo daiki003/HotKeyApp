@@ -863,7 +863,7 @@ namespace HotKeyCommandApp.ViewModels
                     }
                 }
 
-                // 4.5 Handle {select:...} placeholders
+                // 4.5 Handle {select_templateName} placeholders
                 bool hasSelect = false;
                 string tempValue = command.Value ?? string.Empty;
                 string tempAppPath = command.AppPath ?? string.Empty;
@@ -906,24 +906,19 @@ namespace HotKeyCommandApp.ViewModels
             if (string.IsNullOrEmpty(text)) return false;
             
             bool wasReplaced = false;
-            var regex = new System.Text.RegularExpressions.Regex(@"\{select:(.*?)\}");
+            var regex = new System.Text.RegularExpressions.Regex(@"\{([^{}]+)\}");
             var matches = regex.Matches(text).Cast<System.Text.RegularExpressions.Match>().ToList();
 
             foreach (var match in matches)
             {
                 string inner = match.Groups[1].Value;
-                List<string> options;
-
                 var template = _appSettings?.SelectTemplates?.FirstOrDefault(t => t.Name == inner);
-                if (template != null)
+                if (template == null)
                 {
-                    options = template.Options;
-                }
-                else
-                {
-                    options = inner.Split(',').Select(s => s.Trim()).Where(s => !string.IsNullOrEmpty(s)).ToList();
+                    continue;
                 }
 
+                List<string> options = template.Options;
                 if (options.Count == 0) continue;
 
                 string? selected = RequestSelectInput?.Invoke(command, $"[{command.Name}] の引数を選択してください:", options);

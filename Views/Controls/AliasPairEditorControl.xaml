@@ -153,6 +153,16 @@
                     Margin="0,0,10,4"
                     Orientation="Horizontal"
                     HorizontalAlignment="Left">
+            <StackPanel.Style>
+                <Style TargetType="StackPanel">
+                    <Setter Property="Visibility" Value="Visible"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding ElementName=Root, Path=TabHost}" Value="{x:Null}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </StackPanel.Style>
             <ListBox x:Name="TabsListBox"
                      Background="Transparent"
                      BorderThickness="0"
