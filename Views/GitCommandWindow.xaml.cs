@@ -44,6 +44,17 @@ namespace HotKeyCommandApp.Views
                 }
                 return null;
             };
+
+            vm.RequestSelectInput += (command, prompt, options) =>
+            {
+                var dialog = new ArgumentSelectDialog(command, prompt, options) { Owner = this };
+                dialog.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                if (dialog.ShowDialog() == true)
+                {
+                    return dialog.SelectedOption;
+                }
+                return null;
+            };
             CompositionTarget.Rendering += OnRendering;
 
             if (!double.IsNaN(_mainVm.GitWindowTop) && !double.IsNaN(_mainVm.GitWindowLeft))

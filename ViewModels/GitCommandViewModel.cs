@@ -9,6 +9,7 @@ using System.Threading;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using System.Text.RegularExpressions;
 using LibGit2Sharp;
 using HotKeyCommandApp.Models;
 using HotKeyCommandApp.Services;
@@ -773,6 +774,9 @@ namespace HotKeyCommandApp.ViewModels
                     }
                 }
 
+                string selectContextName = matchedAlias?.Alias ?? cmdWord;
+                ResolveSelectPlaceholders(ref input, selectContextName);
+
                 if (string.Equals(input.Trim(), "cancel", StringComparison.OrdinalIgnoreCase))
                 {
                     if (_currentProcess == null && _currentExecutionCts == null)
@@ -1312,6 +1316,70 @@ namespace HotKeyCommandApp.ViewModels
         }
 
         public event Func<CommandEntry, string, string?>? RequestArgumentInput;
+        public event Func<CommandEntry, string, List<string>, string?>? RequestSelectInput;
+
+        private static T? InvokeOnUiThread<T>(Func<T?> action)
+        {
+            T? result = default;
+            RunOnUiThread(() => result = action());
+            return result;
+        }
+
+        private List<SelectTemplate> GetSelectTemplates()
+        {
+            return _mainVm?.AppSettings?.SelectTemplates ?? new List<SelectTemplate>();
+        }
+
+        private bool ResolveSelectPlaceholders(ref string text, string contextName)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return false;
+            }
+
+            List<SelectTemplate> templates = GetSelectTemplates();
+            if (templates.Count == 0)
+            {
+                return false;
+            }
+
+            bool wasReplaced = false;
+            var processedPlaceholders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var matches = Regex.Matches(text, @"\{([^{}]+)\}").Cast<Match>().ToList();
+            string displayName = string.IsNullOrWhiteSpace(contextName) ? "Git" : contextName;
+            string commandSnapshot = text;
+
+            foreach (var match in matches)
+            {
+                string templateName = match.Groups[1].Value;
+                if (!processedPlaceholders.Add(templateName))
+                {
+                    continue;
+                }
+
+                var template = templates.FirstOrDefault(t => string.Equals(t.Name, templateName, StringComparison.OrdinalIgnoreCase));
+                if (template == null || template.Options.Count == 0)
+                {
+                    continue;
+                }
+
+                string? selected = InvokeOnUiThread(() =>
+                    RequestSelectInput?.Invoke(
+                        new CommandEntry { Name = displayName, Value = commandSnapshot },
+                        $"[{displayName}] の選択肢を選んでください:",
+                        template.Options));
+
+                if (selected == null)
+                {
+                    throw new OperationCanceledException("Selection canceled by user.");
+                }
+
+                text = text.Replace(match.Value, selected);
+                wasReplaced = true;
+            }
+
+            return wasReplaced;
+        }
 
         private List<string> ParseArguments(string commandLine)
         {
