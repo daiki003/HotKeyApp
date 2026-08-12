@@ -29,7 +29,7 @@ namespace HotKeyCommandApp.Services
 
                 bool wasReplaced = false;
 
-                // {0}などのプレースホルダーが含まれる場合は置換を行う（モードに関わらず）
+                // {0}などのプレースホルダーが含まれる場合のみ、引数を後ろのモードに関わらず置換する
                 bool hasPlaceholder = false;
                 for (int i = 0; i < 10; i++)
                 {
@@ -65,9 +65,9 @@ namespace HotKeyCommandApp.Services
                 // ウィンドウフォーカスロジックが有効な場合
                 if (command.Behavior.UseWindowFocusLogic)
                 {
-                    // アプリそのものを起動しようとしているか、または特定のファイル/フォルダを開こうとしているかを判定
-                    bool isOpeningAppItself = string.IsNullOrEmpty(value) || 
-                                              (value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && 
+                    // アプリそのものを起動しようとしているか、それとも特定のファイル/フォルダを開こうとしているかを判定
+                    bool isOpeningAppItself = string.IsNullOrEmpty(value) ||
+                                              (value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
                                                (string.IsNullOrEmpty(appPath) || string.Equals(value, appPath, StringComparison.OrdinalIgnoreCase)));
 
                     if (isOpeningAppItself)
@@ -82,16 +82,16 @@ namespace HotKeyCommandApp.Services
                         }
                         else if (value.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
                         {
-                            string processName = System.IO.Path.GetFileNameWithoutExtension(value);
+                            string processName = Path.GetFileNameWithoutExtension(value);
                             if (_windowService.ActivateWindowByProcessName(processName))
                             {
                                 return true;
                             }
                         }
 
-                        string titleToMatch = !string.IsNullOrEmpty(appPath) 
-                            ? System.IO.Path.GetFileNameWithoutExtension(appPath) 
-                            : System.IO.Path.GetFileNameWithoutExtension(value);
+                        string titleToMatch = !string.IsNullOrEmpty(appPath)
+                            ? Path.GetFileNameWithoutExtension(appPath)
+                            : Path.GetFileNameWithoutExtension(value);
 
                         if (!string.IsNullOrEmpty(titleToMatch) && _windowService.ActivateWindowByTitle(titleToMatch) > 0)
                         {
@@ -135,37 +135,78 @@ namespace HotKeyCommandApp.Services
         {
             if (command.Category == CommandCategory.Hierarchy) return null;
 
-            var psi = new ProcessStartInfo { UseShellExecute = true };
             string? resolvedAppPath = ResolveExecutablePath(appPath);
+            string args = BuildLaunchArguments(command, value, argument, wasReplaced);
+            string workingDirectory = GetWorkingDirectory(command, value);
 
-            // 起動先の設定
             if (!string.IsNullOrEmpty(resolvedAppPath))
             {
-                psi.FileName = resolvedAppPath;
-                // ファイル/フォルダ系かつAppPathがある場合は -n を付与（とりあえずUseWindowFocusLogicがONなら付与とする）
-                string args = (command.Behavior.UseWindowFocusLogic ? "-n " : "") + $"\"{value}\"";
-                
-                // Batchタイプかつ引数があり、まだ置換されていない場合は追加
-                if (command.Behavior.IsBatchMode && !string.IsNullOrEmpty(argument) && !wasReplaced)
+                if (IsBatchFile(resolvedAppPath))
                 {
-                    args += " " + argument;
+                    return CreateHiddenBatchStartInfo(resolvedAppPath, args, workingDirectory);
                 }
-                psi.Arguments = args;
+
+                return new ProcessStartInfo
+                {
+                    FileName = resolvedAppPath,
+                    Arguments = args,
+                    UseShellExecute = true,
+                    WorkingDirectory = workingDirectory
+                };
             }
-            else
+
+            return new ProcessStartInfo
             {
-                psi.FileName = value;
-                // Batchタイプかつ引数があり、まだ置換されていない場合は直接引数として渡す
-                if (command.Behavior.IsBatchMode && !string.IsNullOrEmpty(argument) && !wasReplaced)
-                {
-                    psi.Arguments = argument;
-                }
+                FileName = value,
+                Arguments = command.Behavior.IsBatchMode && !string.IsNullOrEmpty(argument) && !wasReplaced
+                    ? argument
+                    : string.Empty,
+                UseShellExecute = true,
+                WorkingDirectory = workingDirectory
+            };
+        }
+
+        private string BuildLaunchArguments(CommandEntry command, string value, string? argument, bool wasReplaced)
+        {
+            string args = (command.Behavior.UseWindowFocusLogic ? "-n " : "") + $"\"{value}\"";
+
+            if (command.Behavior.IsBatchMode && !string.IsNullOrEmpty(argument) && !wasReplaced)
+            {
+                args += " " + argument;
             }
 
-            // 作業ディレクトリの設定
-            psi.WorkingDirectory = GetWorkingDirectory(command, value);
+            return args;
+        }
 
-            return psi;
+        private ProcessStartInfo CreateHiddenBatchStartInfo(string batchPath, string args, string workingDirectory)
+        {
+            string quotedBatchPath = QuoteForCommand(batchPath);
+            string commandLine = string.IsNullOrWhiteSpace(args)
+                ? quotedBatchPath
+                : $"{quotedBatchPath} {args}";
+
+            Logger.Log($"[VSCode] code.cmd を非表示で起動: batch='{batchPath}', args='{args}'");
+
+            return new ProcessStartInfo
+            {
+                FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
+                Arguments = $"/d /s /c \"{commandLine}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                WorkingDirectory = workingDirectory
+            };
+        }
+
+        private bool IsBatchFile(string? path)
+        {
+            return !string.IsNullOrWhiteSpace(path) &&
+                   string.Equals(Path.GetExtension(path), ".cmd", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private string QuoteForCommand(string value)
+        {
+            return $"\"{value}\"";
         }
 
         private string GetWorkingDirectory(CommandEntry command, string value)

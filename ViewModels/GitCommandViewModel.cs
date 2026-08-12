@@ -46,10 +46,17 @@ namespace HotKeyCommandApp.ViewModels
 
         public double MovementSpeed => _mainVm?.MovementSpeed ?? 1200.0;
 
+        private const int MaxVisibleConsoleLines = 400;
+        private static readonly TimeSpan ConsoleFlushInterval = TimeSpan.FromMilliseconds(50);
         private readonly List<string> _consoleHistoryList = new();
+        private readonly List<string> _latestConsoleLines = new();
+        private readonly object _consoleBufferLock = new();
+        private readonly List<string> _pendingConsoleLines = new();
         private string _latestConsoleHeader = string.Empty;
         private string _latestConsoleBody = string.Empty;
         private int _activeConsoleHistoryIndex = -1;
+        private int _trimmedConsoleLineCount = 0;
+        private bool _isConsoleFlushScheduled = false;
         private readonly object _commandQueueLock = new();
         private readonly Queue<string> _pendingCommands = new();
         private readonly List<string> _waitingCommandInputs = new();
@@ -99,7 +106,121 @@ namespace HotKeyCommandApp.ViewModels
 
         private string BuildLatestConsoleEntry()
         {
-            return BuildConsoleEntry(_latestConsoleHeader, _latestConsoleBody);
+            return BuildConsoleEntry(_latestConsoleHeader, BuildLatestConsoleBody());
+        }
+
+        private static List<string> SplitConsoleLines(string content)
+        {
+            var lines = new List<string>();
+            if (string.IsNullOrEmpty(content))
+            {
+                return lines;
+            }
+
+            using var reader = new StringReader(content);
+            while (reader.ReadLine() is string line)
+            {
+                lines.Add(line);
+            }
+
+            return lines;
+        }
+
+        private void ReplaceConsoleLines(IEnumerable<string> lines)
+        {
+            _latestConsoleLines.Clear();
+            _trimmedConsoleLineCount = 0;
+
+            foreach (string line in lines)
+            {
+                AppendConsoleLineCore(line);
+            }
+        }
+
+        private void AppendConsoleLineCore(string line)
+        {
+            _latestConsoleLines.Add(line);
+            if (_latestConsoleLines.Count <= MaxVisibleConsoleLines)
+            {
+                return;
+            }
+
+            int overflow = _latestConsoleLines.Count - MaxVisibleConsoleLines;
+            _latestConsoleLines.RemoveRange(0, overflow);
+            _trimmedConsoleLineCount += overflow;
+        }
+
+        private string BuildLatestConsoleBody()
+        {
+            if (_latestConsoleLines.Count == 0)
+            {
+                _latestConsoleBody = string.Empty;
+                return _latestConsoleBody;
+            }
+
+            string visibleBody = string.Join("\n", _latestConsoleLines);
+            if (_trimmedConsoleLineCount <= 0)
+            {
+                _latestConsoleBody = visibleBody;
+                return _latestConsoleBody;
+            }
+
+            _latestConsoleBody = $"... {_trimmedConsoleLineCount} lines omitted ...\n{visibleBody}";
+            return _latestConsoleBody;
+        }
+
+        private void ScheduleConsoleFlush()
+        {
+            lock (_consoleBufferLock)
+            {
+                if (_isConsoleFlushScheduled)
+                {
+                    return;
+                }
+
+                _isConsoleFlushScheduled = true;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(ConsoleFlushInterval).ConfigureAwait(false);
+                FlushPendingConsoleLines();
+            });
+        }
+
+        private void FlushPendingConsoleLines()
+        {
+            List<string> linesToAppend;
+            lock (_consoleBufferLock)
+            {
+                linesToAppend = _pendingConsoleLines.ToList();
+                _pendingConsoleLines.Clear();
+                _isConsoleFlushScheduled = false;
+            }
+
+            if (linesToAppend.Count == 0)
+            {
+                return;
+            }
+
+            RunOnUiThread(() =>
+            {
+                foreach (string line in linesToAppend)
+                {
+                    AppendConsoleLineCore(line);
+                }
+
+                UpdateConsoleOutputDisplay();
+            });
+        }
+
+        private void ResetPendingConsoleLines()
+        {
+            lock (_consoleBufferLock)
+            {
+                _pendingConsoleLines.Clear();
+                _isConsoleFlushScheduled = false;
+            }
         }
 
         private void UpdateConsoleOutputDisplay()
@@ -113,7 +234,7 @@ namespace HotKeyCommandApp.ViewModels
 
             if (!IsHistoryMode)
             {
-                ConsoleOutput = _latestConsoleBody;
+                ConsoleOutput = BuildLatestConsoleBody();
                 return;
             }
 
@@ -145,8 +266,9 @@ namespace HotKeyCommandApp.ViewModels
         {
             RunOnUiThread(() =>
             {
+                ResetPendingConsoleLines();
                 _latestConsoleHeader = header;
-                _latestConsoleBody = content.TrimEnd();
+                ReplaceConsoleLines(SplitConsoleLines(content.TrimEnd()));
                 UpdateCurrentCommandContext(header, status);
                 string entry = BuildLatestConsoleEntry();
                 _consoleHistoryList.Add(entry);
@@ -159,8 +281,9 @@ namespace HotKeyCommandApp.ViewModels
         {
             RunOnUiThread(() =>
             {
+                ResetPendingConsoleLines();
                 _latestConsoleHeader = header;
-                _latestConsoleBody = content.TrimEnd();
+                ReplaceConsoleLines(SplitConsoleLines(content.TrimEnd()));
                 UpdateCurrentCommandContext(header, status);
                 string entry = BuildLatestConsoleEntry();
 
@@ -180,26 +303,12 @@ namespace HotKeyCommandApp.ViewModels
 
         private void AppendConsoleOutputLine(string line)
         {
-            RunOnUiThread(() =>
+            lock (_consoleBufferLock)
             {
-                string current = _latestConsoleBody;
-                string updated = string.IsNullOrEmpty(current)
-                    ? line
-                    : current + "\n" + line;
+                _pendingConsoleLines.Add(line);
+            }
 
-                if (_activeConsoleHistoryIndex < 0 || _activeConsoleHistoryIndex >= _consoleHistoryList.Count)
-                {
-                    _consoleHistoryList.Add(updated);
-                    _activeConsoleHistoryIndex = _consoleHistoryList.Count - 1;
-                }
-                else
-                {
-                    _consoleHistoryList[_activeConsoleHistoryIndex] = updated;
-                }
-
-                _latestConsoleBody = updated;
-                UpdateConsoleOutputDisplay();
-            });
+            ScheduleConsoleFlush();
         }
 
         private void AppendWaitingCommandLine(string rawInput)
@@ -949,6 +1058,8 @@ namespace HotKeyCommandApp.ViewModels
                     return exitCode;
                 });
 
+                FlushPendingConsoleLines();
+
                 System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
                     try
@@ -1204,6 +1315,8 @@ namespace HotKeyCommandApp.ViewModels
                         UpdateCurrentCommandStatus("完了");
                     }
                 });
+
+                FlushPendingConsoleLines();
 
                 System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
