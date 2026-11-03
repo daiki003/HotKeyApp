@@ -1009,7 +1009,6 @@ namespace HotKeyCommandApp.ViewModels
 
             try
             {
-                bool sawOutput = false;
                 int exitCode = await Task.Run(async () =>
                 {
                     bool isGitDirect = command.StartsWith("git ", StringComparison.OrdinalIgnoreCase)
@@ -1046,12 +1045,10 @@ namespace HotKeyCommandApp.ViewModels
                         _currentExecutionCts?.Token ?? CancellationToken.None,
                         line =>
                         {
-                            sawOutput = true;
                             AppendConsoleOutputLine(line);
                         },
                         line =>
                         {
-                            sawOutput = true;
                             AppendConsoleOutputLine(line);
                         });
 
@@ -1060,34 +1057,10 @@ namespace HotKeyCommandApp.ViewModels
 
                 FlushPendingConsoleLines();
 
-                System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                {
-                    try
-                    {
-                        CurrentBranch = GetCurrentBranchName();
-                    }
-                    catch { }
+                UpdateCurrentCommandStatus(exitCode == 0 ? "完了" : "エラー");
 
-                    if (!sawOutput)
-                    {
-                        if (exitCode == 0)
-                        {
-                            ReplaceConsoleOutput(command, GetGitStatusSummary(), "完了");
-                        }
-                        else
-                        {
-                            ReplaceConsoleOutput(command, string.Empty, "エラー");
-                        }
-                    }
-                    else if (exitCode == 0)
-                    {
-                        UpdateCurrentCommandStatus("完了");
-                    }
-                    else
-                    {
-                        UpdateCurrentCommandStatus("エラー");
-                    }
-                });
+                string currentBranch = await Task.Run(GetCurrentBranchName);
+                RunOnUiThread(() => CurrentBranch = currentBranch);
             }
             catch (OperationCanceledException)
             {

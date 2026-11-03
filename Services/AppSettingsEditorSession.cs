@@ -9,6 +9,7 @@ namespace HotKeyCommandApp.Services
         public double ButtonWidth { get; set; }
         public double ButtonHeight { get; set; }
         public double MovementSpeed { get; set; }
+        public string SlackTeamIds { get; set; } = string.Empty;
         public double FontSize { get; set; } = 15.0;
         public string GlobalHotkey { get; set; } = "Win+Alt+Z";
         public string SettingsShortcut { get; set; } = "Ctrl+Comma";
@@ -25,6 +26,7 @@ namespace HotKeyCommandApp.Services
                 ButtonWidth = source.ButtonWidth,
                 ButtonHeight = source.ButtonHeight,
                 MovementSpeed = source.MovementSpeed,
+                SlackTeamIds = string.Join(",", source.SlackTeamIdHistory ?? new List<string>()),
                 FontSize = source.FontSize,
                 GlobalHotkey = source.GlobalHotkey,
                 SettingsShortcut = source.SettingsShortcut,
@@ -41,6 +43,12 @@ namespace HotKeyCommandApp.Services
             target.ButtonWidth = ButtonWidth;
             target.ButtonHeight = ButtonHeight;
             target.MovementSpeed = MovementSpeed;
+            target.SlackTeamIdHistory = (SlackTeamIds ?? string.Empty)
+                .Split(',', System.StringSplitOptions.RemoveEmptyEntries)
+                .Select(id => id.Trim())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(System.StringComparer.OrdinalIgnoreCase)
+                .ToList();
             target.FontSize = FontSize;
             target.GlobalHotkey = GlobalHotkey;
             target.SettingsShortcut = SettingsShortcut;

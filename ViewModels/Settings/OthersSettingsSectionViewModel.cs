@@ -16,7 +16,8 @@ namespace HotKeyCommandApp.ViewModels.Settings
             _source = source;
             Records = new ObservableCollection<EditableValueRecordViewModel>
             {
-                CreateRecord("移動速度 (Ctrl+矢印)", () => EditingMovementSpeed, value => EditingMovementSpeed = value)
+                CreateRecord("移動速度 (Ctrl+矢印)", () => EditingMovementSpeed, value => EditingMovementSpeed = value),
+                CreateTextRecord("Slack チームID候補 (カンマ区切り・先頭を使用)", () => _source.EditingSlackTeamIds, value => _source.EditingSlackTeamIds = value)
             };
             Reset();
         }
@@ -57,6 +58,18 @@ namespace HotKeyCommandApp.ViewModels.Settings
                     }
 
                     setter(value);
+                    return true;
+                });
+        }
+
+        private EditableValueRecordViewModel CreateTextRecord(string label, Func<string> getter, Action<string> setter)
+        {
+            return new EditableValueRecordViewModel(
+                label,
+                getter,
+                text =>
+                {
+                    setter(text);
                     return true;
                 });
         }

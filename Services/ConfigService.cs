@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Newtonsoft.Json;
 using HotKeyCommandApp.Models;
 
@@ -125,12 +126,36 @@ namespace HotKeyCommandApp.Services
                 var settings = new JsonSerializerSettings();
                 settings.Converters.Add(new Newtonsoft.Json.Converters.StringEnumConverter());
                 _cachedPresets = JsonConvert.DeserializeObject<List<CommandPreset>>(json, settings) ?? CommandPreset.GetDefaults();
+                MigrateSlackThreadLinkPreset(_cachedPresets);
                 return _cachedPresets;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error loading presets: {ex.Message}");
                 return CommandPreset.GetDefaults();
+            }
+        }
+
+        private static void MigrateSlackThreadLinkPreset(List<CommandPreset> presets)
+        {
+            CommandPreset? slackPreset = presets.FirstOrDefault(preset => preset.Id == "slack");
+            if (slackPreset?.Steps == null || slackPreset.Steps.Any(step => step.DataKey == "slack_link"))
+            {
+                return;
+            }
+
+            bool hasLegacySlackInputs = slackPreset.Steps.Any(step =>
+                step.DataKey == "slack_team" || step.DataKey == "slack_channel");
+            if (!hasLegacySlackInputs)
+            {
+                return;
+            }
+
+            CommandPreset? defaultSlackPreset = CommandPreset.GetDefaults()
+                .FirstOrDefault(preset => preset.Id == "slack");
+            if (defaultSlackPreset != null)
+            {
+                slackPreset.Steps = defaultSlackPreset.Steps;
             }
         }
 

@@ -137,7 +137,7 @@ namespace HotKeyCommandApp.ViewModels.ButtonCreationSteps
 
             try
             {
-                // 1. ウィンドウ検索
+                // ウィンドウ検索
                 if (_category == CommandCategory.WindowSwitcher || _def.ListSource == "windows")
                 {
                     var windows = _windowService.GetVisibleWindowsByTitle(query)
@@ -155,7 +155,7 @@ namespace HotKeyCommandApp.ViewModels.ButtonCreationSteps
                         }
                     });
                 }
-                // 2. ファイル/フォルダパス検索
+                // ファイル/フォルダパス検索
                 else if (_category == CommandCategory.Open)
                 {
                     await Task.Run(() => SearchFiles(query, ct), ct);

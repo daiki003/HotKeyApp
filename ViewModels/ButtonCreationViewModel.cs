@@ -436,11 +436,20 @@ namespace HotKeyCommandApp.ViewModels
                 // Slack などの特殊対応
                 if (NewEntryTemplateId == "slack")
                 {
-                    var team = (StepResults.GetValueOrDefault("slack_team") as TextInputResult)?.Text;
-                    var channel = (StepResults.GetValueOrDefault("slack_channel") as TextInputResult)?.Text;
-                    if (!string.IsNullOrEmpty(team) && !string.IsNullOrEmpty(channel))
+                    string linkInput = (StepResults.GetValueOrDefault("slack_link") as TextInputResult)?.Text?.Trim() ?? string.Empty;
+                    string? team = null;
+                    string? channel = null;
+                    string? messageTimestamp = null;
+
+                    if (TryParseSlackLink(linkInput, out string? linkedTeam, out string? linkedChannel, out messageTimestamp))
                     {
-                        value = $"slack://channel?team={team}&id={channel}";
+                        team = linkedTeam ?? _appSettings.SlackTeamIdHistory?.FirstOrDefault();
+                        channel = linkedChannel;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(channel) && !string.IsNullOrWhiteSpace(messageTimestamp))
+                    {
+                        value = BuildSlackDeepLink(team, channel, messageTimestamp);
                     }
                 }
                 else
@@ -493,6 +502,101 @@ namespace HotKeyCommandApp.ViewModels
                 ArgumentsHistory = EditingCommand?.ArgumentsHistory ?? new List<string>()
             };
             RequestClose?.Invoke();
+        }
+
+        private static bool TryParseSlackLink(string input, out string? teamId, out string? channelId, out string? messageTimestamp)
+        {
+            teamId = null;
+            channelId = null;
+            messageTimestamp = null;
+
+            if (!Uri.TryCreate(input, UriKind.Absolute, out Uri? uri) ||
+                (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp) ||
+                !(uri.Host.Equals("slack.com", StringComparison.OrdinalIgnoreCase) ||
+                  uri.Host.EndsWith(".slack.com", StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
+
+            string[] pathParts = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string part in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string[] keyValue = part.Split('=', 2);
+                string key = Uri.UnescapeDataString(keyValue[0].Replace('+', ' '));
+                string value = keyValue.Length > 1
+                    ? Uri.UnescapeDataString(keyValue[1].Replace('+', ' '))
+                    : string.Empty;
+                query[key] = value;
+            }
+
+            if (query.TryGetValue("team", out string? queryTeam))
+            {
+                teamId = queryTeam;
+            }
+            else if (pathParts.Length >= 3 && string.Equals(pathParts[0], "client", StringComparison.OrdinalIgnoreCase))
+            {
+                teamId = pathParts[1];
+            }
+
+            if (string.IsNullOrWhiteSpace(teamId))
+            {
+                string hostPrefix = uri.Host.Split('.')[0];
+                if (hostPrefix.StartsWith("T", StringComparison.OrdinalIgnoreCase))
+                {
+                    teamId = hostPrefix;
+                }
+            }
+
+            if (query.TryGetValue("cid", out string? queryChannel))
+            {
+                channelId = queryChannel;
+            }
+            else if (pathParts.Length >= 2 && string.Equals(pathParts[0], "archives", StringComparison.OrdinalIgnoreCase))
+            {
+                channelId = pathParts[1];
+            }
+            else if (pathParts.Length >= 3 && string.Equals(pathParts[0], "client", StringComparison.OrdinalIgnoreCase))
+            {
+                channelId = pathParts[2];
+            }
+
+            // パスの p はリンク先の返信、thread_ts は親メッセージを指すため、返信側を優先する。
+            string messagePart = pathParts.FirstOrDefault(part => part.StartsWith("p", StringComparison.OrdinalIgnoreCase)) ?? string.Empty;
+            string digits = messagePart.Length > 1 ? messagePart.Substring(1) : string.Empty;
+            if (digits.Length > 10 && digits.All(char.IsDigit))
+            {
+                messageTimestamp = digits.Insert(10, ".");
+            }
+            else if (query.TryGetValue("message", out string? queryTimestamp))
+            {
+                messageTimestamp = queryTimestamp;
+            }
+            else if (query.TryGetValue("thread_ts", out string? threadTimestamp))
+            {
+                messageTimestamp = threadTimestamp;
+            }
+
+            if (!string.IsNullOrWhiteSpace(messageTimestamp) &&
+                !messageTimestamp.All(character => char.IsDigit(character) || character == '.'))
+            {
+                messageTimestamp = null;
+            }
+
+            return !string.IsNullOrWhiteSpace(channelId) && !string.IsNullOrWhiteSpace(messageTimestamp);
+        }
+
+        private static string BuildSlackDeepLink(string? teamId, string channelId, string messageTimestamp)
+        {
+            var query = new List<string>();
+            if (!string.IsNullOrWhiteSpace(teamId))
+            {
+                query.Add($"team={Uri.EscapeDataString(teamId)}");
+            }
+
+            query.Add($"id={Uri.EscapeDataString(channelId)}");
+            query.Add($"message={Uri.EscapeDataString(messageTimestamp)}");
+            return $"slack://channel?{string.Join("&", query)}";
         }
 
         private void CancelInput() => RequestClose?.Invoke();

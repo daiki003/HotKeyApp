@@ -308,6 +308,13 @@ namespace HotKeyCommandApp.ViewModels
             set { _editingMovementSpeed = value; OnPropertyChanged(); }
         }
 
+        private string _editingSlackTeamIds = string.Empty;
+        public string EditingSlackTeamIds
+        {
+            get => _editingSlackTeamIds;
+            set { _editingSlackTeamIds = value; OnPropertyChanged(); }
+        }
+
         private double _editingFontSize;
         public double EditingFontSize
         {
@@ -1779,6 +1786,7 @@ namespace HotKeyCommandApp.ViewModels
             EditingButtonWidth = session.ButtonWidth;
             EditingButtonHeight = session.ButtonHeight;
             EditingMovementSpeed = session.MovementSpeed;
+            EditingSlackTeamIds = session.SlackTeamIds;
             EditingFontSize = session.FontSize;
             EditingGlobalHotkey = session.GlobalHotkey;
             EditingSettingsShortcut = session.SettingsShortcut;
@@ -1796,6 +1804,7 @@ namespace HotKeyCommandApp.ViewModels
                 ButtonWidth = EditingButtonWidth,
                 ButtonHeight = EditingButtonHeight,
                 MovementSpeed = EditingMovementSpeed,
+                SlackTeamIds = EditingSlackTeamIds,
                 FontSize = EditingFontSize,
                 GlobalHotkey = EditingGlobalHotkey,
                 SettingsShortcut = EditingSettingsShortcut,

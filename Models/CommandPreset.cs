@@ -35,7 +35,7 @@ namespace HotKeyCommandApp.Models
 
         /// <summary>
         /// ViewModelのどのデータと連携するか
-        /// 例: "name", "value", "app_path", "slack_team", "slack_channel", "behaviors", "category", "preset"
+        /// 例: "name", "value", "app_path", "slack_link", "behaviors", "category", "preset"
         /// </summary>
         public string DataKey { get; set; } = "";
 
@@ -228,8 +228,7 @@ namespace HotKeyCommandApp.Models
                     Steps = new List<PresetStepDefinition>
                     {
                         new PresetStepDefinition { StepType = StepType.TextInput, Title = "名前入力", Prompt = "ボタンの名前を入力してください:", DataKey = "name" },
-                        new PresetStepDefinition { StepType = StepType.TextInput, Title = "Slack ワークスペース", Prompt = "チームIDを入力してください (TXXXXXXXX):", DataKey = "slack_team", ShowIncrementalSearch = true },
-                        new PresetStepDefinition { StepType = StepType.TextInput, Title = "Slack チャンネル", Prompt = "チャンネルIDを入力してください (CXXXXXXXX):", DataKey = "slack_channel" },
+                        new PresetStepDefinition { StepType = StepType.TextInput, Title = "Slack スレッドリンク", Prompt = "Slackのメッセージ/スレッドリンクを貼り付けてください:", DataKey = "slack_link" },
                     }
                 },
                 new CommandPreset
