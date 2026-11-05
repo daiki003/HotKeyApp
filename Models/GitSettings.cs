@@ -32,6 +32,7 @@ namespace HotKeyCommandApp.Models
 
         public List<RepositoryNameMapping> RepositoryNameMappings { get; set; } = new();
         public List<PairEntryFolder> RepositoryNameMappingFolders { get; set; } = new();
+        public bool ForceDeleteBranches { get; set; }
 
         [System.Text.Json.Serialization.JsonIgnore]
         public IEnumerable<GitAliasEntry> AllAliases => GetAllAliasTabs().SelectMany(tab => tab.Aliases);

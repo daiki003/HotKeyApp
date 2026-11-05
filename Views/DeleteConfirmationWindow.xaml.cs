@@ -11,10 +11,20 @@ namespace HotKeyCommandApp.Views
     {
         private bool _isDeleteSelected = true;
 
-        public DeleteConfirmationWindow(string itemName)
+        public bool ForceDelete => ForceDeleteCheckBox.IsChecked == true;
+
+        public DeleteConfirmationWindow(string itemName, bool allowForceDelete = false, bool forceDelete = false, Action<bool>? onForceDeleteChanged = null)
         {
             InitializeComponent();
             MessageTextBlock.Text = $"「{itemName}」を削除しますか？";
+            ForceDeleteCheckBox.Visibility = allowForceDelete ? Visibility.Visible : Visibility.Collapsed;
+            ForceDeleteCheckBox.IsChecked = forceDelete;
+            if (allowForceDelete) KeyboardHint.Text = "上下: 選択 / Space: チェック / Enter: 決定 / Esc: 戻る";
+            if (allowForceDelete && onForceDeleteChanged != null)
+            {
+                ForceDeleteCheckBox.Checked += (s, e) => onForceDeleteChanged(true);
+                ForceDeleteCheckBox.Unchecked += (s, e) => onForceDeleteChanged(false);
+            }
             UpdateSelection();
         }
 
@@ -38,7 +48,22 @@ namespace HotKeyCommandApp.Views
 
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Left || e.Key == Key.Right)
+            if (ForceDeleteCheckBox.IsKeyboardFocused && e.Key == Key.Enter)
+            {
+                ForceDeleteCheckBox.IsChecked = ForceDeleteCheckBox.IsChecked != true;
+                e.Handled = true;
+            }
+            else if (ForceDeleteCheckBox.IsVisible && e.Key == Key.Up && !ForceDeleteCheckBox.IsKeyboardFocused)
+            {
+                ForceDeleteCheckBox.Focus();
+                e.Handled = true;
+            }
+            else if (ForceDeleteCheckBox.IsKeyboardFocused && e.Key == Key.Down)
+            {
+                UpdateSelection();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Left || e.Key == Key.Right)
             {
                 _isDeleteSelected = !_isDeleteSelected;
                 UpdateSelection();
@@ -46,7 +71,7 @@ namespace HotKeyCommandApp.Views
             }
             else if (e.Key == Key.Enter)
             {
-                if (_isDeleteSelected)
+                if (DeleteButton.IsKeyboardFocused || (!CancelButton.IsKeyboardFocused && _isDeleteSelected))
                 {
                     this.DialogResult = true;
                 }

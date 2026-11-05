@@ -28,6 +28,22 @@
                        HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"
                        Margin="0,0,0,25"/>
 
+            <Border Margin="0,0,0,15" Padding="4" BorderThickness="1" CornerRadius="3"
+                    HorizontalAlignment="Center" Visibility="{Binding Visibility, ElementName=ForceDeleteCheckBox}">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="BorderBrush" Value="Transparent"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsKeyboardFocused, ElementName=ForceDeleteCheckBox}" Value="True">
+                                <Setter Property="BorderBrush" Value="#58A6FF"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <CheckBox x:Name="ForceDeleteCheckBox" Content="未マージでも強制削除する"
+                          Foreground="White" Visibility="Collapsed"/>
+            </Border>
+
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                 <Border x:Name="DeleteButtonBorder" Margin="0,0,10,0" CornerRadius="4">
                     <Button x:Name="DeleteButton" Content="削除" Click="DeleteButton_Click" 
@@ -41,7 +57,7 @@
                 </Border>
             </StackPanel>
             
-            <TextBlock Text="Enterで実行 / Escで戻る" 
+            <TextBlock x:Name="KeyboardHint" Text="Enterで実行 / Escで戻る"
                        Foreground="#666666" FontSize="11" 
                        HorizontalAlignment="Center" Margin="0,15,0,0" />
         </StackPanel>

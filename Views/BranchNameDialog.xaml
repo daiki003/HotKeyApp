@@ -1,0 +1,24 @@
+<Window x:Class="HotKeyCommandApp.Views.BranchNameDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ブランチ作成" Width="380" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" WindowStyle="None"
+        AllowsTransparency="True" Background="Transparent" ShowInTaskbar="False">
+    <Border Background="#2D2D2D" CornerRadius="12" BorderBrush="#007ACC" BorderThickness="2" Margin="10">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="15" Opacity="0.5" ShadowDepth="0"/>
+        </Border.Effect>
+        <StackPanel Margin="20">
+            <TextBlock x:Name="HeadingText" Text="ブランチ作成" Foreground="White" FontSize="18" FontWeight="Bold" Margin="0,0,0,15"/>
+            <TextBlock x:Name="NameLabel" Text="ブランチ名" Foreground="#CCCCCC" Margin="0,0,0,6"/>
+            <TextBox x:Name="BranchNameBox" FontSize="14" Padding="8" Foreground="White"
+                     Background="#3D3D3D" BorderBrush="#555555" CaretBrush="White"/>
+            <TextBlock x:Name="ErrorText" Foreground="#F85149" Margin="0,6,0,0" TextWrapping="Wrap"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+                <Button Content="作成" IsDefault="True" Click="CreateButton_Click"
+                        Background="#007ACC" Foreground="White" Padding="18,6" Margin="0,0,8,0"/>
+                <Button Content="キャンセル" IsCancel="True" Background="#444444" Foreground="White" Padding="18,6"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

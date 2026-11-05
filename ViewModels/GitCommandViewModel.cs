@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Collections;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -9,6 +11,7 @@ using System.Threading;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using System.Windows.Data;
 using System.Text.RegularExpressions;
 using LibGit2Sharp;
 using HotKeyCommandApp.Models;
@@ -16,6 +19,71 @@ using HotKeyCommandApp.Services;
 
 namespace HotKeyCommandApp.ViewModels
 {
+    public sealed class BranchListItem : INotifyPropertyChanged
+    {
+        private bool _isCurrent;
+
+        public BranchListItem(string name, bool isCurrent)
+        {
+            Name = name;
+            _isCurrent = isCurrent;
+        }
+
+        public string Name { get; }
+        public string DisplayName => _isCurrent ? $"* {Name}" : $"  {Name}";
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public void SetCurrent(bool isCurrent)
+        {
+            if (_isCurrent == isCurrent) return;
+            _isCurrent = isCurrent;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayName)));
+        }
+    }
+
+    public sealed class StashListItem
+    {
+        public StashListItem(string name, string message, string commitId)
+        {
+            Name = name;
+            Message = message;
+            CommitId = commitId;
+        }
+
+        public string Name { get; }
+        public string Message { get; }
+        public string CommitId { get; }
+        public string DisplayName => $"{Name}: {Message}";
+    }
+
+    internal sealed class BranchSearchComparer : IComparer
+    {
+        private readonly Func<string> _getSearchText;
+
+        public BranchSearchComparer(Func<string> getSearchText) => _getSearchText = getSearchText;
+
+        public int Compare(object? x, object? y)
+        {
+            if (x is not BranchListItem left || y is not BranchListItem right) return 0;
+            string query = _getSearchText();
+            if (query.Length > 0)
+            {
+                int leftPosition = left.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+                int rightPosition = right.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+                int leftRank = string.Equals(left.Name, query, StringComparison.OrdinalIgnoreCase) ? 0 : leftPosition == 0 ? 1 : 2;
+                int rightRank = string.Equals(right.Name, query, StringComparison.OrdinalIgnoreCase) ? 0 : rightPosition == 0 ? 1 : 2;
+                int rank = leftRank.CompareTo(rightRank);
+                if (rank != 0) return rank;
+                int position = leftPosition.CompareTo(rightPosition);
+                if (position != 0) return position;
+                int length = left.Name.Length.CompareTo(right.Name.Length);
+                if (length != 0) return length;
+            }
+            int name = StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name);
+            return name != 0 ? name : StringComparer.Ordinal.Compare(left.Name, right.Name);
+        }
+    }
+
     public class GitCommandViewModel : INotifyPropertyChanged
     {
         static GitCommandViewModel()
@@ -36,12 +104,25 @@ namespace HotKeyCommandApp.ViewModels
             _repositoryPath = repositoryPath;
             _mainVm = mainVm;
             _gitSettingsManager = new GitSettingsManager();
+            BranchView = new ListCollectionView(Branches);
+            BranchView.Filter = item => item is BranchListItem branch &&
+                branch.Name.IndexOf(BranchSearchText.Trim(), StringComparison.OrdinalIgnoreCase) >= 0;
+            BranchView.CustomSort = new BranchSearchComparer(() => BranchSearchText.Trim());
             LoadGitInfo();
         }
 
         public void ReloadSettings()
         {
             _gitSettingsManager.LoadSettings();
+        }
+
+        public bool ForceDeleteBranches => _gitSettingsManager.CurrentSettings.ForceDeleteBranches;
+
+        public void SetForceDeleteBranches(bool value)
+        {
+            _gitSettingsManager.LoadSettings();
+            _gitSettingsManager.CurrentSettings.ForceDeleteBranches = value;
+            _gitSettingsManager.SaveSettings();
         }
 
         public double MovementSpeed => _mainVm?.MovementSpeed ?? 1200.0;
@@ -388,6 +469,212 @@ namespace HotKeyCommandApp.ViewModels
         {
             get => _isMoveMode;
             set { _isMoveMode = value; OnPropertyChanged(); }
+        }
+
+        public ObservableCollection<BranchListItem> Branches { get; } = new();
+        public ListCollectionView BranchView { get; }
+        public ObservableCollection<StashListItem> Stashes { get; } = new();
+
+        private string _branchSearchText = string.Empty;
+        public string BranchSearchText
+        {
+            get => _branchSearchText;
+            set
+            {
+                if (_branchSearchText == value) return;
+                _branchSearchText = value ?? string.Empty;
+                OnPropertyChanged();
+                BranchView.Refresh();
+            }
+        }
+
+        private bool _isStashMode;
+        public bool IsStashMode
+        {
+            get => _isStashMode;
+            private set
+            {
+                _isStashMode = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(PrimaryActionText));
+                OnPropertyChanged(nameof(AddOperationToolTip));
+            }
+        }
+
+        public string PrimaryActionText => IsStashMode ? "適用" : "移動";
+        public string AddOperationToolTip => IsStashMode ? "スタッシュを作成" : "ブランチを作成";
+
+        private bool _isOperateMode;
+        public bool IsOperateMode
+        {
+            get => _isOperateMode;
+            set { _isOperateMode = value; OnPropertyChanged(); }
+        }
+
+        private bool _isBranchOperationBusy;
+        public bool IsBranchOperationBusy
+        {
+            get => _isBranchOperationBusy;
+            private set { _isBranchOperationBusy = value; OnPropertyChanged(); }
+        }
+
+        private string _branchOperationMessage = string.Empty;
+        public string BranchOperationMessage
+        {
+            get => _branchOperationMessage;
+            private set { _branchOperationMessage = value; OnPropertyChanged(); }
+        }
+
+        private void RefreshBranches()
+        {
+            using var repository = new Repository(_repositoryPath);
+            var branches = repository.Branches.Where(branch => !branch.IsRemote)
+                .OrderBy(branch => branch.FriendlyName, StringComparer.OrdinalIgnoreCase)
+                .Select(branch => (Name: branch.FriendlyName, IsCurrent: branch.IsCurrentRepositoryHead))
+                .ToList();
+            var names = new HashSet<string>(branches.Select(branch => branch.Name), StringComparer.Ordinal);
+            for (int i = Branches.Count - 1; i >= 0; i--)
+            {
+                if (!names.Contains(Branches[i].Name)) Branches.RemoveAt(i);
+            }
+            for (int i = 0; i < branches.Count; i++)
+            {
+                var branch = branches[i];
+                int existingIndex = -1;
+                for (int j = i; j < Branches.Count; j++)
+                {
+                    if (Branches[j].Name == branch.Name) { existingIndex = j; break; }
+                }
+                if (existingIndex < 0) Branches.Insert(i, new BranchListItem(branch.Name, branch.IsCurrent));
+                else
+                {
+                    if (existingIndex != i) Branches.Move(existingIndex, i);
+                    Branches[i].SetCurrent(branch.IsCurrent);
+                }
+            }
+            CurrentBranch = GetCurrentBranchName();
+        }
+
+        private void RefreshStashes()
+        {
+            using var repository = new Repository(_repositoryPath);
+            var stashes = repository.Stashes.Select((stash, index) => new StashListItem($"stash@{{{index}}}", stash.Message, stash.WorkTree.Id.Sha)).ToList();
+            for (int i = 0; i < stashes.Count; i++)
+            {
+                var stash = stashes[i];
+                if (i >= Stashes.Count) Stashes.Add(stash);
+                else if (Stashes[i].Name != stash.Name || Stashes[i].CommitId != stash.CommitId || Stashes[i].Message != stash.Message)
+                    Stashes[i] = stash;
+            }
+            while (Stashes.Count > stashes.Count) Stashes.RemoveAt(Stashes.Count - 1);
+        }
+
+        public async Task<bool> OperateStashAsync(StashListItem? stash, bool delete, string? message = null)
+        {
+            if (IsBranchOperationBusy) return false;
+            IsBranchOperationBusy = true;
+            BranchOperationMessage = "実行中...";
+            var output = new List<string>();
+            try
+            {
+                if (stash != null)
+                {
+                    using var repository = new Repository(_repositoryPath);
+                    var current = repository.Stashes.Select((item, index) => (Item: item, Name: $"stash@{{{index}}}"))
+                        .FirstOrDefault(entry => entry.Name == stash.Name).Item;
+                    if (current == null || current.WorkTree.Id.Sha != stash.CommitId || current.Message != stash.Message)
+                    {
+                        RefreshStashes();
+                        BranchOperationMessage = "スタッシュ一覧が変更されました。一覧を確認して再実行してください。";
+                        return false;
+                    }
+                }
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "git", WorkingDirectory = _repositoryPath, UseShellExecute = false,
+                    CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
+                };
+                psi.ArgumentList.Add("stash");
+                psi.ArgumentList.Add(stash == null ? "push" : delete ? "drop" : "apply");
+                if (stash != null) psi.ArgumentList.Add(stash.Name);
+                else if (!string.IsNullOrWhiteSpace(message))
+                {
+                    psi.ArgumentList.Add("-m");
+                    psi.ArgumentList.Add(message);
+                }
+
+                int previousCount = Stashes.Count;
+                int exitCode = await RunProcessAsync(psi, CancellationToken.None,
+                    line => { lock (output) output.Add(line); }, line => { lock (output) output.Add(line); });
+                string details = string.Join("\n", output);
+                RefreshStashes();
+                if (exitCode != 0)
+                    BranchOperationMessage = $"操作に失敗しました。\n{details}";
+                else if (stash == null && Stashes.Count == previousCount)
+                    BranchOperationMessage = "保存できる追跡済みファイルの変更がありません。";
+                else
+                    BranchOperationMessage = stash == null ? "スタッシュを作成しました。" : delete ? $"{stash.Name} を削除しました。" : $"{stash.Name} を適用しました。";
+                return exitCode == 0 && (stash != null || Stashes.Count != previousCount);
+            }
+            catch (Exception ex)
+            {
+                BranchOperationMessage = $"操作に失敗しました。\n{ex.Message}";
+                return false;
+            }
+            finally { IsBranchOperationBusy = false; }
+        }
+
+        public Task OperateBranchAsync(BranchListItem branch, bool delete, bool forceDelete = false) =>
+            RunBranchOperationAsync(branch.Name, delete ? "delete" : "switch", forceDelete);
+
+        public Task<bool> CreateBranchAsync(string name) => RunBranchOperationAsync(name, "create");
+
+        private async Task<bool> RunBranchOperationAsync(string name, string operation, bool forceDelete = false)
+        {
+            if (IsBranchOperationBusy) return false;
+            IsBranchOperationBusy = true;
+            BranchOperationMessage = "実行中...";
+            var output = new List<string>();
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "git",
+                    WorkingDirectory = _repositoryPath,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                psi.ArgumentList.Add(operation == "switch" ? "switch" : "branch");
+                if (operation == "delete") psi.ArgumentList.Add(forceDelete ? "-D" : "-d");
+                psi.ArgumentList.Add("--");
+                psi.ArgumentList.Add(name);
+                int exitCode = await RunProcessAsync(psi, CancellationToken.None,
+                    line => { lock (output) output.Add(line); },
+                    line => { lock (output) output.Add(line); });
+                string details = string.Join("\n", output);
+                BranchOperationMessage = exitCode == 0
+                    ? operation switch
+                    {
+                        "create" => $"{name} を作成しました。",
+                        "delete" => $"{name} を削除しました。",
+                        _ => $"{name} に移動しました。"
+                    }
+                    : $"操作に失敗しました。\n{details}";
+                RefreshBranches();
+                return exitCode == 0;
+            }
+            catch (Exception ex)
+            {
+                BranchOperationMessage = $"操作に失敗しました。\n{ex.Message}";
+                return false;
+            }
+            finally
+            {
+                IsBranchOperationBusy = false;
+            }
         }
 
         private bool _isFrontMode = false;
@@ -779,8 +1066,43 @@ namespace HotKeyCommandApp.ViewModels
             }
         }
 
+        private bool TryEnterOperateMode(string input)
+        {
+            bool stashMode = string.Equals(input.Trim(), "stash list", StringComparison.OrdinalIgnoreCase);
+            if (!stashMode && !string.Equals(input.Trim(), "operate mode", StringComparison.OrdinalIgnoreCase)) return false;
+
+            lock (_commandQueueLock)
+            {
+                if (_pendingCommands.Count > 0)
+                {
+                    SetConsoleOutput(stashMode ? "スタッシュ操作" : "ブランチ操作", "待機中のコマンドが終了してから実行してください。", "エラー");
+                    return true;
+                }
+            }
+
+            try
+            {
+                if (stashMode) RefreshStashes();
+                else
+                {
+                    BranchSearchText = string.Empty;
+                    RefreshBranches();
+                }
+                IsStashMode = stashMode;
+                BranchOperationMessage = stashMode && Stashes.Count == 0 ? "スタッシュがありません。" : !stashMode && Branches.Count == 0 ? "ローカルブランチがありません。" : "上下: 選択　左右: 操作選択　Enter: 実行　Esc: 終了";
+                IsOperateMode = true;
+            }
+            catch (Exception ex)
+            {
+                SetConsoleOutput(stashMode ? "スタッシュ操作" : "ブランチ操作", ex.Message, "エラー");
+            }
+            return true;
+        }
+
         private async Task ProcessSingleGitCommandAsync(string rawInput)
         {
+            if (TryEnterOperateMode(rawInput)) return;
+
             if (string.Equals(rawInput, "cancel", StringComparison.OrdinalIgnoreCase))
             {
                 if (_currentProcess == null && _currentExecutionCts == null)
@@ -900,6 +1222,8 @@ namespace HotKeyCommandApp.ViewModels
                     return;
                 }
             }
+
+            if (TryEnterOperateMode(input)) return;
 
             // 展開後の文字列で {base} プレースホルダーをベースブランチ名に置換
             if (input.Contains("{base}"))
