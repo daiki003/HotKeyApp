@@ -22,6 +22,8 @@ namespace HotKeyCommandApp.ViewModels
     public sealed class BranchListItem : INotifyPropertyChanged
     {
         private bool _isCurrent;
+        private string _trackingStatusText = "集計中...";
+        private string _trackingStatusToolTip = "取得済みのリモート情報からコミット数を集計しています。";
 
         public BranchListItem(string name, bool isCurrent)
         {
@@ -30,14 +32,34 @@ namespace HotKeyCommandApp.ViewModels
         }
 
         public string Name { get; }
+        public bool IsCurrent => _isCurrent;
         public string DisplayName => _isCurrent ? $"* {Name}" : $"  {Name}";
+        public string PrimaryActionText => _isCurrent ? "プル" : "移動";
+        public string TrackingStatusText => _trackingStatusText;
+        public string TrackingStatusToolTip => _trackingStatusToolTip;
         public event PropertyChangedEventHandler? PropertyChanged;
+
+        public void SetTrackingStatus(string text, string toolTip)
+        {
+            if (_trackingStatusText != text)
+            {
+                _trackingStatusText = text;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TrackingStatusText)));
+            }
+            if (_trackingStatusToolTip != toolTip)
+            {
+                _trackingStatusToolTip = toolTip;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TrackingStatusToolTip)));
+            }
+        }
 
         public void SetCurrent(bool isCurrent)
         {
             if (_isCurrent == isCurrent) return;
             _isCurrent = isCurrent;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsCurrent)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayName)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PrimaryActionText)));
         }
     }
 
@@ -54,6 +76,9 @@ namespace HotKeyCommandApp.ViewModels
         public string Message { get; }
         public string CommitId { get; }
         public string DisplayName => $"{Name}: {Message}";
+        public string PrimaryActionText => "適用";
+        public string TrackingStatusText => string.Empty;
+        public string TrackingStatusToolTip => string.Empty;
     }
 
     internal sealed class BranchSearchComparer : IComparer
@@ -92,6 +117,7 @@ namespace HotKeyCommandApp.ViewModels
         }
 
         private string _repositoryPath;
+        public string RepositoryPath => _repositoryPath;
         private readonly MainViewModel? _mainVm;
         private readonly GitSettingsManager _gitSettingsManager;
         private readonly List<string> _commandHistory = new();
@@ -105,7 +131,7 @@ namespace HotKeyCommandApp.ViewModels
             _mainVm = mainVm;
             _gitSettingsManager = new GitSettingsManager();
             BranchView = new ListCollectionView(Branches);
-            BranchView.Filter = item => item is BranchListItem branch &&
+            BranchView.Filter = item => item is BranchListItem branch && !branch.IsCurrent &&
                 branch.Name.IndexOf(BranchSearchText.Trim(), StringComparison.OrdinalIgnoreCase) >= 0;
             BranchView.CustomSort = new BranchSearchComparer(() => BranchSearchText.Trim());
             LoadGitInfo();
@@ -473,6 +499,7 @@ namespace HotKeyCommandApp.ViewModels
 
         public ObservableCollection<BranchListItem> Branches { get; } = new();
         public ListCollectionView BranchView { get; }
+        public BranchListItem CurrentBranchItem => Branches.FirstOrDefault(branch => branch.IsCurrent);
         public ObservableCollection<StashListItem> Stashes { get; } = new();
 
         private string _branchSearchText = string.Empty;
@@ -496,12 +523,10 @@ namespace HotKeyCommandApp.ViewModels
             {
                 _isStashMode = value;
                 OnPropertyChanged();
-                OnPropertyChanged(nameof(PrimaryActionText));
                 OnPropertyChanged(nameof(AddOperationToolTip));
             }
         }
 
-        public string PrimaryActionText => IsStashMode ? "適用" : "移動";
         public string AddOperationToolTip => IsStashMode ? "スタッシュを作成" : "ブランチを作成";
 
         private bool _isOperateMode;
@@ -519,6 +544,7 @@ namespace HotKeyCommandApp.ViewModels
         }
 
         private string _branchOperationMessage = string.Empty;
+        private int _branchTrackingRefreshVersion;
         public string BranchOperationMessage
         {
             get => _branchOperationMessage;
@@ -553,6 +579,51 @@ namespace HotKeyCommandApp.ViewModels
                 }
             }
             CurrentBranch = GetCurrentBranchName();
+            OnPropertyChanged(nameof(CurrentBranchItem));
+            BranchView.Refresh();
+            _ = RefreshBranchTrackingAsync();
+        }
+
+        private async Task RefreshBranchTrackingAsync()
+        {
+            int refreshVersion = ++_branchTrackingRefreshVersion;
+            string repositoryPath = _repositoryPath;
+            var items = Branches.ToArray();
+            try
+            {
+                var statuses = await Task.Run(() =>
+                {
+                    using var repository = new Repository(repositoryPath);
+                    var result = new List<(BranchListItem Item, string Text, string ToolTip)>();
+                    foreach (var item in items)
+                    {
+                        if (Volatile.Read(ref _branchTrackingRefreshVersion) != refreshVersion) break;
+                        var branch = repository.Branches[item.Name];
+                        var trackedBranch = branch?.TrackedBranch;
+                        if (trackedBranch?.Tip == null)
+                        {
+                            result.Add((item, "追跡先なし", "追跡先が未設定か、取得済みのリモート情報に追跡先がありません。"));
+                            continue;
+                        }
+
+                        var tracking = branch.TrackingDetails;
+                        int? ahead = tracking.AheadBy;
+                        int? behind = tracking.BehindBy;
+                        string text = ahead.HasValue && behind.HasValue ? $"↑{ahead.Value} ↓{behind.Value}" : "差分不明";
+                        string toolTip = $"追跡先: {trackedBranch.FriendlyName}\n↑: ローカル側だけにあるコミット数\n↓: リモート側だけにあるコミット数\n最終 fetch / pull で取得したリモート情報に基づきます。";
+                        result.Add((item, text, toolTip));
+                    }
+                    return result;
+                });
+
+                if (_branchTrackingRefreshVersion != refreshVersion) return;
+                foreach (var status in statuses) status.Item.SetTrackingStatus(status.Text, status.ToolTip);
+            }
+            catch
+            {
+                if (_branchTrackingRefreshVersion != refreshVersion) return;
+                foreach (var item in items) item.SetTrackingStatus("差分取得失敗", "リモートとの差分を取得できませんでした。一覧を開き直して再実行してください。");
+            }
         }
 
         private void RefreshStashes()
@@ -630,6 +701,106 @@ namespace HotKeyCommandApp.ViewModels
 
         public Task<bool> CreateBranchAsync(string name) => RunBranchOperationAsync(name, "create");
 
+        public Task<bool> CommitAllAsync(string message) => RunRepositoryOperationAsync(false, message);
+
+        public Task<bool> PushCurrentBranchAsync() => RunRepositoryOperationAsync(true);
+
+        private async Task<bool> RunRepositoryOperationAsync(bool push, string message = null)
+        {
+            if (IsBranchOperationBusy) return false;
+            if (!push && string.IsNullOrWhiteSpace(message))
+            {
+                BranchOperationMessage = "コミットメッセージを入力してください。";
+                return false;
+            }
+
+            IsBranchOperationBusy = true;
+            BranchOperationMessage = "実行中...";
+            using var executionCts = new CancellationTokenSource();
+            _currentExecutionCts = executionCts;
+            var output = new List<string>();
+            async Task<int> RunGitAsync(params string[] arguments)
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "git", WorkingDirectory = _repositoryPath, UseShellExecute = false,
+                    CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
+                };
+                foreach (string argument in arguments) psi.ArgumentList.Add(argument);
+                return await RunProcessAsync(psi, executionCts.Token,
+                    line => { lock (output) output.Add(line); }, line => { lock (output) output.Add(line); });
+            }
+
+            try
+            {
+                int exitCode;
+                string branchName = GetCurrentBranchName();
+                if (push)
+                {
+                    string remoteName, destination, source;
+                    bool setUpstream;
+                    using (var repository = new Repository(_repositoryPath))
+                    {
+                        if (repository.Info.IsHeadDetached || repository.Head.Tip == null)
+                        {
+                            BranchOperationMessage = "プッシュするブランチとコミットが必要です。";
+                            return false;
+                        }
+                        var head = repository.Head;
+                        branchName = head.FriendlyName;
+                        source = head.CanonicalName;
+                        remoteName = head.RemoteName;
+                        destination = head.UpstreamBranchCanonicalName;
+                        setUpstream = string.IsNullOrWhiteSpace(remoteName) || string.IsNullOrWhiteSpace(destination);
+                        if (setUpstream)
+                        {
+                            var remotes = repository.Network.Remotes.Select(remote => remote.Name).ToArray();
+                            remoteName = remotes.Contains("origin") ? "origin" : remotes.Length == 1 ? remotes[0] : null;
+                            destination = source;
+                        }
+                    }
+                    if (string.IsNullOrWhiteSpace(remoteName))
+                    {
+                        BranchOperationMessage = "プッシュ先を特定できません。リモートまたはブランチの追跡先を設定してください。";
+                        return false;
+                    }
+                    var arguments = new List<string> { "push" };
+                    if (setUpstream) arguments.Add("--set-upstream");
+                    arguments.Add("--");
+                    arguments.Add(remoteName);
+                    arguments.Add($"{source}:{destination}");
+                    exitCode = await RunGitAsync(arguments.ToArray());
+                }
+                else
+                {
+                    exitCode = await RunGitAsync("add", "--all");
+                    if (exitCode == 0)
+                    {
+                        int diffExitCode = await RunGitAsync("diff", "--cached", "--quiet", "--exit-code");
+                        if (diffExitCode == 0)
+                        {
+                            BranchOperationMessage = "コミットする変更はありません。";
+                            RefreshBranches();
+                            return false;
+                        }
+                        exitCode = diffExitCode == 1 ? await RunGitAsync("commit", "-m", message) : diffExitCode;
+                    }
+                }
+                BranchOperationMessage = exitCode == 0
+                    ? push ? $"{branchName} をプッシュしました。" : "現在の変更をすべてコミットしました。"
+                    : $"操作に失敗しました。\n{string.Join("\n", output)}";
+                RefreshBranches();
+                return exitCode == 0;
+            }
+            catch (OperationCanceledException) { BranchOperationMessage = "操作をキャンセルしました。"; return false; }
+            catch (Exception ex) { BranchOperationMessage = $"操作に失敗しました。\n{ex.Message}"; return false; }
+            finally
+            {
+                if (ReferenceEquals(_currentExecutionCts, executionCts)) _currentExecutionCts = null;
+                IsBranchOperationBusy = false;
+            }
+        }
+
         private async Task<bool> RunBranchOperationAsync(string name, string operation, bool forceDelete = false)
         {
             if (IsBranchOperationBusy) return false;
@@ -638,6 +809,12 @@ namespace HotKeyCommandApp.ViewModels
             var output = new List<string>();
             try
             {
+                if (operation == "switch")
+                {
+                    using var repository = new Repository(_repositoryPath);
+                    if (repository.Branches[name]?.IsCurrentRepositoryHead == true) operation = "pull";
+                }
+
                 var psi = new ProcessStartInfo
                 {
                     FileName = "git",
@@ -647,10 +824,13 @@ namespace HotKeyCommandApp.ViewModels
                     RedirectStandardOutput = true,
                     RedirectStandardError = true
                 };
-                psi.ArgumentList.Add(operation == "switch" ? "switch" : "branch");
-                if (operation == "delete") psi.ArgumentList.Add(forceDelete ? "-D" : "-d");
-                psi.ArgumentList.Add("--");
-                psi.ArgumentList.Add(name);
+                psi.ArgumentList.Add(operation switch { "switch" => "switch", "pull" => "pull", _ => "branch" });
+                if (operation != "pull")
+                {
+                    if (operation == "delete") psi.ArgumentList.Add(forceDelete ? "-D" : "-d");
+                    psi.ArgumentList.Add("--");
+                    psi.ArgumentList.Add(name);
+                }
                 int exitCode = await RunProcessAsync(psi, CancellationToken.None,
                     line => { lock (output) output.Add(line); },
                     line => { lock (output) output.Add(line); });
@@ -660,6 +840,7 @@ namespace HotKeyCommandApp.ViewModels
                     {
                         "create" => $"{name} を作成しました。",
                         "delete" => $"{name} を削除しました。",
+                        "pull" => $"{name} をプルしました。",
                         _ => $"{name} に移動しました。"
                     }
                     : $"操作に失敗しました。\n{details}";

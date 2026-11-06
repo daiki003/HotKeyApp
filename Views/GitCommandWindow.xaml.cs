@@ -14,6 +14,8 @@ namespace HotKeyCommandApp.Views
     {
         private readonly MainViewModel _mainVm;
         private TimeSpan _lastRenderingTime = TimeSpan.Zero;
+        private bool _isDiffWindowOpen;
+        private bool _isCommitDialogOpen;
         private bool _isConsoleAtBottom = true;
 
         public GitCommandWindow(string repositoryPath, MainViewModel mainVm)
@@ -35,6 +37,7 @@ namespace HotKeyCommandApp.Views
                 else if (e.PropertyName == nameof(GitCommandViewModel.IsOperateMode) && vm.IsOperateMode)
                 {
                     _branchAction = 0;
+                    _isCurrentBranchSelected = false;
                     _isAddBranchSelected = BranchList.Items.Count == 0;
                     BranchList.SelectedIndex = BranchList.Items.Count > 0 ? 0 : -1;
                     if (vm.IsStashMode) FocusSelectedBranchButton();
@@ -132,6 +135,33 @@ namespace HotKeyCommandApp.Views
         private DateTime _lastShiftPressTime = DateTime.MinValue;
         private int _branchAction;
         private bool _isAddBranchSelected;
+        private bool _isCurrentBranchSelected;
+        private int _repositoryActionIndex;
+
+        private void FocusCurrentBranchButton()
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (DataContext is not GitCommandViewModel vm || vm.IsBranchOperationBusy || vm.CurrentBranchItem == null) return;
+                CurrentBranchRow.UpdateLayout();
+                FindBranchButton(CurrentBranchRow, _branchAction == 0 ? "move" : "delete")?.Focus();
+            }, System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        private void FocusRepositoryAction(int index)
+        {
+            _isCurrentBranchSelected = false;
+            _isAddBranchSelected = false;
+            _repositoryActionIndex = Math.Clamp(index, 0, 2);
+            new[] { DiffButton, CommitButton, PushButton }[_repositoryActionIndex].Focus();
+        }
+
+        private void RepositoryActionButton_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            _isCurrentBranchSelected = false;
+            _isAddBranchSelected = false;
+            _repositoryActionIndex = ReferenceEquals(sender, CommitButton) ? 1 : ReferenceEquals(sender, PushButton) ? 2 : 0;
+        }
 
         private void FocusSelectedBranchButton(bool fromSearch = false)
         {
@@ -139,6 +169,8 @@ namespace HotKeyCommandApp.Views
             {
                 if (DataContext is not GitCommandViewModel vm || !vm.IsOperateMode || vm.IsBranchOperationBusy) return;
                 if (!fromSearch && BranchSearchBox.IsKeyboardFocusWithin) return;
+                if (_isCurrentBranchSelected) { FocusCurrentBranchButton(); return; }
+                if (RepositoryActionButtons.IsKeyboardFocusWithin) return;
                 if (_isAddBranchSelected)
                 {
                     AddBranchButton.Focus();
@@ -175,6 +207,7 @@ namespace HotKeyCommandApp.Views
             if (BranchList.SelectedItem != null)
             {
                 _isAddBranchSelected = false;
+                if (BranchList.IsKeyboardFocusWithin) _isCurrentBranchSelected = false;
                 if (!BranchSearchBox.IsKeyboardFocusWithin) FocusSelectedBranchButton();
             }
         }
@@ -182,6 +215,7 @@ namespace HotKeyCommandApp.Views
         private void AddBranchButton_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
         {
             _isAddBranchSelected = true;
+            _isCurrentBranchSelected = false;
         }
 
         private void BranchButton_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
@@ -189,13 +223,15 @@ namespace HotKeyCommandApp.Views
             if (sender is not Button button || (button.DataContext is not BranchListItem && button.DataContext is not StashListItem)) return;
             _isAddBranchSelected = false;
             _branchAction = Equals(button.Tag, "delete") ? 1 : 0;
-            BranchList.SelectedItem = button.DataContext;
+            _isCurrentBranchSelected = button.DataContext is BranchListItem { IsCurrent: true };
+            if (!_isCurrentBranchSelected) BranchList.SelectedItem = button.DataContext;
         }
 
         private async void AddBranchButton_Click(object sender, RoutedEventArgs e)
         {
             if (DataContext is not GitCommandViewModel vm || vm.IsBranchOperationBusy) return;
             _isAddBranchSelected = true;
+            _isCurrentBranchSelected = false;
             var dialog = new BranchNameDialog(vm.IsStashMode) { Owner = this };
             if (dialog.ShowDialog() != true)
             {
@@ -244,7 +280,8 @@ namespace HotKeyCommandApp.Views
             bool delete = Equals(button.Tag, "delete");
             _isAddBranchSelected = false;
             _branchAction = delete ? 1 : 0;
-            BranchList.SelectedItem = item;
+            _isCurrentBranchSelected = branch?.IsCurrent == true;
+            if (!_isCurrentBranchSelected) BranchList.SelectedItem = item;
             int previousIndex = BranchList.SelectedIndex;
             bool forceDelete = false;
             if (delete)
@@ -254,17 +291,24 @@ namespace HotKeyCommandApp.Views
                 if (dialog.ShowDialog() != true)
                 {
                     _branchAction = 1;
-                    BranchList.SelectedItem = item;
+                    if (!_isCurrentBranchSelected) BranchList.SelectedItem = item;
                     FocusSelectedBranchButton();
                     return;
                 }
                 forceDelete = dialog.ForceDelete;
             }
             _branchAction = delete ? 1 : 0;
-            BranchList.SelectedItem = item;
+            if (!_isCurrentBranchSelected) BranchList.SelectedItem = item;
             if (branch != null) await vm.OperateBranchAsync(branch, delete, forceDelete);
             else await vm.OperateStashAsync(stash, delete);
             if (!vm.IsOperateMode) return;
+            if (branch?.IsCurrent == true)
+            {
+                _isCurrentBranchSelected = true;
+                FocusCurrentBranchButton();
+                return;
+            }
+            _isCurrentBranchSelected = false;
             int matchingIndex = -1;
             for (int i = 0; i < BranchList.Items.Count; i++)
             {
@@ -272,6 +316,41 @@ namespace HotKeyCommandApp.Views
             }
             BranchList.SelectedIndex = matchingIndex >= 0 ? matchingIndex : Math.Min(previousIndex, BranchList.Items.Count - 1);
             FocusSelectedBranchButton();
+        }
+
+        private void DiffButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not GitCommandViewModel vm || vm.IsBranchOperationBusy || _isDiffWindowOpen) return;
+            _isDiffWindowOpen = true;
+            try
+            {
+                var window = new GitDiffWindow(vm.RepositoryPath, vm.MovementSpeed) { Owner = this, Topmost = Topmost };
+                window.ShowDialog();
+            }
+            finally
+            {
+                _isDiffWindowOpen = false;
+                DiffButton.Focus();
+            }
+        }
+
+        private async void CommitButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not GitCommandViewModel vm || vm.IsBranchOperationBusy || _isCommitDialogOpen) return;
+            _isCommitDialogOpen = true;
+            try
+            {
+                var dialog = new CommitMessageDialog { Owner = this };
+                if (dialog.ShowDialog() == true) await vm.CommitAllAsync(dialog.Message);
+            }
+            finally { _isCommitDialogOpen = false; CommitButton.Focus(); }
+        }
+
+        private async void PushButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not GitCommandViewModel vm || vm.IsBranchOperationBusy) return;
+            await vm.PushCurrentBranchAsync();
+            PushButton.Focus();
         }
 
         private void FocusCommandInputBox()
@@ -361,8 +440,56 @@ namespace HotKeyCommandApp.Views
 
                 if (vm.IsOperateMode)
                 {
+                    if (!vm.IsStashMode && e.Key == Key.D && Keyboard.Modifiers == ModifierKeys.Control)
+                    {
+                        e.Handled = true;
+                        DiffButton_Click(DiffButton, new RoutedEventArgs());
+                        return;
+                    }
+                    if (RepositoryActionButtons.IsKeyboardFocusWithin)
+                    {
+                        if (vm.IsBranchOperationBusy || Keyboard.Modifiers != ModifierKeys.None) return;
+                        if (e.Key == Key.Left) { FocusRepositoryAction(_repositoryActionIndex - 1); e.Handled = true; }
+                        else if (e.Key == Key.Right) { FocusRepositoryAction(_repositoryActionIndex + 1); e.Handled = true; }
+                        else if (e.Key == Key.Up)
+                        {
+                            if (vm.CurrentBranchItem != null) { _isCurrentBranchSelected = true; _branchAction = 0; FocusCurrentBranchButton(); }
+                            e.Handled = true;
+                        }
+                        else if (e.Key == Key.Down) { BranchSearchBox.Focus(); e.Handled = true; }
+                        else if (e.Key == Key.Enter)
+                        {
+                            e.Handled = true;
+                            if (!e.IsRepeat) new[] { DiffButton, CommitButton, PushButton }[_repositoryActionIndex].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        }
+                        return;
+                    }
+                    if (_isCurrentBranchSelected && CurrentBranchRow.IsKeyboardFocusWithin)
+                    {
+                        if (vm.IsBranchOperationBusy || Keyboard.Modifiers != ModifierKeys.None) return;
+                        if (e.Key == Key.Down) { FocusRepositoryAction(_repositoryActionIndex); e.Handled = true; }
+                        else if (e.Key == Key.Left || e.Key == Key.Right)
+                        {
+                            _branchAction = e.Key == Key.Left ? 0 : 1;
+                            FocusCurrentBranchButton();
+                            e.Handled = true;
+                        }
+                        else if (e.Key == Key.Up) e.Handled = true;
+                        else if (e.Key == Key.Enter)
+                        {
+                            e.Handled = true;
+                            if (!e.IsRepeat) FindBranchButton(CurrentBranchRow, _branchAction == 0 ? "move" : "delete")?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        }
+                        return;
+                    }
                     if (!vm.IsStashMode && BranchSearchBox.IsKeyboardFocusWithin)
                     {
+                        if (!vm.IsBranchOperationBusy && Keyboard.Modifiers == ModifierKeys.None && e.Key == Key.Up)
+                        {
+                            FocusRepositoryAction(_repositoryActionIndex);
+                            e.Handled = true;
+                            return;
+                        }
                         if (!vm.IsBranchOperationBusy && Keyboard.Modifiers == ModifierKeys.None && (e.Key == Key.Down || e.Key == Key.Enter))
                         {
                             if (BranchList.Items.Count > 0)
