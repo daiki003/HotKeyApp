@@ -701,6 +701,17 @@ namespace HotKeyCommandApp.ViewModels
 
         public Task<bool> CreateBranchAsync(string name) => RunBranchOperationAsync(name, "create");
 
+        public Task<bool> PullCurrentBranchAsync() => RunBranchOperationAsync(GetCurrentBranchName(), "pull");
+
+        public Task<bool> RenameCurrentBranchAsync(string newName) => RunBranchOperationAsync(GetCurrentBranchName(), "rename", newName: newName);
+
+        public Task<bool> DeleteBranchesAsync(IEnumerable<BranchListItem> branches, bool forceDelete = false)
+        {
+            var names = branches.Select(branch => branch.Name).Distinct(StringComparer.Ordinal).ToArray();
+            return names.Length == 0 ? Task.FromResult(false)
+                : RunBranchOperationAsync(names.Length == 1 ? names[0] : $"{names.Length} 件のブランチ", "delete", forceDelete, branchNames: names);
+        }
+
         public Task<bool> CommitAllAsync(string message) => RunRepositoryOperationAsync(false, message);
 
         public Task<bool> PushCurrentBranchAsync() => RunRepositoryOperationAsync(true);
@@ -801,7 +812,8 @@ namespace HotKeyCommandApp.ViewModels
             }
         }
 
-        private async Task<bool> RunBranchOperationAsync(string name, string operation, bool forceDelete = false)
+        private async Task<bool> RunBranchOperationAsync(string name, string operation, bool forceDelete = false,
+            string newName = null, IReadOnlyList<string> branchNames = null)
         {
             if (IsBranchOperationBusy) return false;
             IsBranchOperationBusy = true;
@@ -809,12 +821,6 @@ namespace HotKeyCommandApp.ViewModels
             var output = new List<string>();
             try
             {
-                if (operation == "switch")
-                {
-                    using var repository = new Repository(_repositoryPath);
-                    if (repository.Branches[name]?.IsCurrentRepositoryHead == true) operation = "pull";
-                }
-
                 var psi = new ProcessStartInfo
                 {
                     FileName = "git",
@@ -828,8 +834,10 @@ namespace HotKeyCommandApp.ViewModels
                 if (operation != "pull")
                 {
                     if (operation == "delete") psi.ArgumentList.Add(forceDelete ? "-D" : "-d");
+                    if (operation == "rename") psi.ArgumentList.Add("-m");
                     psi.ArgumentList.Add("--");
-                    psi.ArgumentList.Add(name);
+                    foreach (string branchName in branchNames ?? new[] { name }) psi.ArgumentList.Add(branchName);
+                    if (operation == "rename") psi.ArgumentList.Add(newName);
                 }
                 int exitCode = await RunProcessAsync(psi, CancellationToken.None,
                     line => { lock (output) output.Add(line); },
@@ -841,6 +849,7 @@ namespace HotKeyCommandApp.ViewModels
                         "create" => $"{name} を作成しました。",
                         "delete" => $"{name} を削除しました。",
                         "pull" => $"{name} をプルしました。",
+                        "rename" => $"{name} を {newName} に変更しました。",
                         _ => $"{name} に移動しました。"
                     }
                     : $"操作に失敗しました。\n{details}";
@@ -1270,7 +1279,9 @@ namespace HotKeyCommandApp.ViewModels
                     RefreshBranches();
                 }
                 IsStashMode = stashMode;
-                BranchOperationMessage = stashMode && Stashes.Count == 0 ? "スタッシュがありません。" : !stashMode && Branches.Count == 0 ? "ローカルブランチがありません。" : "上下: 選択　左右: 操作選択　Enter: 実行　Esc: 終了";
+                BranchOperationMessage = stashMode && Stashes.Count == 0 ? "スタッシュがありません。" : !stashMode && Branches.Count == 0 ? "ローカルブランチがありません。"
+                    : stashMode ? "上下: 選択　左右: 操作選択　Enter: 実行　Esc: 終了"
+                    : "上下: 選択　Shift+上下: 範囲選択　左右: 操作選択　Enter: 実行　Delete: 削除　Esc: 終了";
                 IsOperateMode = true;
             }
             catch (Exception ex)

@@ -11,6 +11,8 @@ namespace HotKeyCommandApp.ViewModels
     public sealed class GitDiffViewModel : INotifyPropertyChanged, IDisposable
     {
         private readonly GitDiffService _service;
+        private readonly GitStageService _stageService;
+        private GitDiffContent _displayedDiff;
         private CancellationTokenSource _refreshCts;
         private CancellationTokenSource _diffCts;
         private bool _disposed;
@@ -18,6 +20,7 @@ namespace HotKeyCommandApp.ViewModels
         public GitDiffViewModel(string repositoryPath, double movementSpeed = 1200.0)
         {
             _service = new GitDiffService(repositoryPath);
+            _stageService = new GitStageService(repositoryPath);
             MovementSpeed = movementSpeed;
             RepositoryName = new DirectoryInfo(repositoryPath).Name;
             FileView = new ListCollectionView(Files);
@@ -43,6 +46,7 @@ namespace HotKeyCommandApp.ViewModels
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(SelectedFilePath));
                 OnPropertyChanged(nameof(Comparison));
+                OnPropertyChanged(nameof(CanStageLines));
                 _ = LoadDiffAsync(value);
             }
         }
@@ -59,7 +63,46 @@ namespace HotKeyCommandApp.ViewModels
         private string _overview = "読み込み中...";
         public string Overview { get => _overview; private set { _overview = value; OnPropertyChanged(); } }
         private bool _isRefreshing;
-        public bool IsRefreshing { get => _isRefreshing; private set { _isRefreshing = value; OnPropertyChanged(); } }
+        public bool IsRefreshing { get => _isRefreshing; private set { _isRefreshing = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanStageLines)); } }
+
+        private bool _isOperating;
+        public bool IsOperating { get => _isOperating; private set { _isOperating = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanStageLines)); } }
+        public bool IsBusy => IsRefreshing || IsOperating;
+        public bool CanStageLines => !IsBusy && SelectedFile is { IsStaged: false, IsConflicted: false } && _displayedDiff != null &&
+            _displayedDiff.Lines.Any(line => line.Kind is GitDiffLineKind.Added or GitDiffLineKind.Deleted);
+        public bool HasStagedChanges => Files.Any(file => file.IsStaged);
+        private string _operationStatus = "";
+        public string OperationStatus { get => _operationStatus; private set { _operationStatus = value; OnPropertyChanged(); } }
+        public void SetOperationStatus(string message) => OperationStatus = message;
+
+        public Task StageFileAsync(GitDiffFile file) => RunOperationAsync(() => _stageService.StageFileAsync(file), $"{file.FileName} をステージしました。");
+        public Task UnstageFileAsync(GitDiffFile file) => RunOperationAsync(() => _stageService.UnstageFileAsync(file), $"{file.FileName} のステージを解除しました。");
+        public Task StageLinesAsync(IReadOnlyCollection<int> indices)
+        {
+            var file = SelectedFile;
+            var diff = _displayedDiff;
+            return file == null ? Task.CompletedTask : RunOperationAsync(() => _stageService.StageLinesAsync(file, diff, indices), "選択した変更行をステージしました。");
+        }
+        public Task CommitStagedAsync(string message) => RunOperationAsync(() => _stageService.CommitStagedAsync(message), "ステージ済みの変更をコミットしました。");
+
+        private async Task RunOperationAsync(Func<Task> operation, string successMessage)
+        {
+            if (_disposed || IsBusy) return;
+            IsOperating = true;
+            OperationStatus = "実行中...";
+            try
+            {
+                await operation();
+                if (_disposed) return;
+                await RefreshAsync();
+                OperationStatus = successMessage;
+            }
+            catch (Exception ex)
+            {
+                if (!_disposed) OperationStatus = $"操作に失敗しました。\n{ex.Message}";
+            }
+            finally { IsOperating = false; }
+        }
 
         public async Task RefreshAsync()
         {
@@ -80,6 +123,7 @@ namespace HotKeyCommandApp.ViewModels
                 CurrentBranch = snapshot.Branch;
                 Files.Clear();
                 foreach (var file in files) Files.Add(file);
+                OnPropertyChanged(nameof(HasStagedChanges));
                 Overview = $"未ステージ {files.Count(file => !file.IsStaged)} 件  /  ステージ済み {files.Count(file => file.IsStaged)} 件";
                 SelectedFile = files.FirstOrDefault(file => file.Key == selectedKey) ?? files.FirstOrDefault();
                 if (SelectedFile == null) Message = "未コミットの変更はありません。";
@@ -89,6 +133,7 @@ namespace HotKeyCommandApp.ViewModels
             {
                 if (token.IsCancellationRequested || _disposed) return;
                 Files.Clear();
+                OnPropertyChanged(nameof(HasStagedChanges));
                 Overview = "読み込み失敗";
                 Message = $"ファイル一覧を取得できませんでした。\n{ex.Message}";
             }
@@ -101,6 +146,8 @@ namespace HotKeyCommandApp.ViewModels
             _diffCts?.Dispose();
             _diffCts = new CancellationTokenSource();
             var token = _diffCts.Token;
+            _displayedDiff = null;
+            OnPropertyChanged(nameof(CanStageLines));
             Lines = Array.Empty<GitDiffLine>();
             Summary = "";
             if (file == null || _disposed) return;
@@ -109,7 +156,9 @@ namespace HotKeyCommandApp.ViewModels
             {
                 var diff = await Task.Run(() => _service.ReadDiff(file, token), token);
                 if (token.IsCancellationRequested || _disposed) return;
+                _displayedDiff = diff;
                 Lines = diff.Lines;
+                OnPropertyChanged(nameof(CanStageLines));
                 Summary = $"+{diff.Added}  −{diff.Deleted}";
                 Message = diff.Message;
             }

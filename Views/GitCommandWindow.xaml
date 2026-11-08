@@ -10,21 +10,27 @@
         PreviewKeyDown="Window_PreviewKeyDown">
     <Window.Resources>
         <local:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
-        <Style x:Key="RepositoryActionButtonStyle" TargetType="Button">
-            <Setter Property="Width" Value="72"/>
-            <Setter Property="Height" Value="28"/>
-            <Setter Property="Margin" Value="0,0,6,0"/>
-            <Setter Property="Padding" Value="10,3"/>
-            <Setter Property="Foreground" Value="White"/>
+        <!-- 標準テーマの無効化時の白背景を避けるため、追加するボタンもこの共通スタイルを継承する。 -->
+        <Style x:Key="GitActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ActionButtonStyle}">
+            <Setter Property="Padding" Value="8,2"/>
             <Setter Property="Background" Value="#383838"/>
             <Setter Property="BorderBrush" Value="#555555"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="ToolTipService.ShowsToolTipOnKeyboardFocus" Value="False"/>
             <Style.Triggers>
                 <Trigger Property="IsKeyboardFocused" Value="True">
                     <Setter Property="Background" Value="#007ACC"/>
                     <Setter Property="BorderBrush" Value="#58A6FF"/>
                 </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="Button" BasedOn="{StaticResource GitActionButtonStyle}"/>
+        <Style x:Key="RepositoryActionButtonStyle" TargetType="Button" BasedOn="{StaticResource GitActionButtonStyle}">
+            <Setter Property="Width" Value="72"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="Padding" Value="10,3"/>
+            <Style.Triggers>
                 <DataTrigger Binding="{Binding IsBranchOperationBusy}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
             </Style.Triggers>
         </Style>
@@ -36,22 +42,20 @@
                 <TextBlock Text="{Binding DisplayName}" Foreground="#D4D4D4" FontFamily="Consolas" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                 <TextBlock Grid.Column="1" Text="{Binding TrackingStatusText}" ToolTip="{Binding TrackingStatusToolTip}"
                            Foreground="#AAAAAA" FontFamily="Consolas" FontSize="11" Margin="8,0,6,0" VerticalAlignment="Center"/>
-                <Button Grid.Column="2" Width="44" Content="{Binding PrimaryActionText}" Tag="move" Click="BranchButton_Click" GotKeyboardFocus="BranchButton_GotKeyboardFocus"/>
+                <Button Grid.Column="2" Width="44" Content="{Binding PrimaryActionText}" Tag="move" Click="BranchButton_Click" GotKeyboardFocus="BranchButton_GotKeyboardFocus">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource GitActionButtonStyle}">
+                            <Setter Property="Margin" Value="3,0,0,0"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsCurrent}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
                 <Button Grid.Column="3" Content="削除" Tag="delete" Click="BranchButton_Click" GotKeyboardFocus="BranchButton_GotKeyboardFocus"/>
                 <Grid.Resources>
-                    <Style TargetType="Button">
+                    <Style TargetType="Button" BasedOn="{StaticResource GitActionButtonStyle}">
                         <Setter Property="Margin" Value="3,0,0,0"/>
-                        <Setter Property="Padding" Value="8,2"/>
-                        <Setter Property="Foreground" Value="White"/>
-                        <Setter Property="Background" Value="#383838"/>
-                        <Setter Property="BorderBrush" Value="#555555"/>
-                        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-                        <Style.Triggers>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter Property="Background" Value="#007ACC"/>
-                                <Setter Property="BorderBrush" Value="#58A6FF"/>
-                            </Trigger>
-                        </Style.Triggers>
                     </Style>
                 </Grid.Resources>
             </Grid>
@@ -276,6 +280,10 @@
                                         ToolTip="現在の変更をすべてコミット" Click="CommitButton_Click" GotKeyboardFocus="RepositoryActionButton_GotKeyboardFocus"/>
                                 <Button x:Name="PushButton" Content="プッシュ" Style="{StaticResource RepositoryActionButtonStyle}"
                                         ToolTip="現在のブランチをプッシュ" Click="PushButton_Click" GotKeyboardFocus="RepositoryActionButton_GotKeyboardFocus"/>
+                                <Button x:Name="PullButton" Content="プル" Style="{StaticResource RepositoryActionButtonStyle}"
+                                        ToolTip="現在のブランチをプル" Click="PullButton_Click" GotKeyboardFocus="RepositoryActionButton_GotKeyboardFocus"/>
+                                <Button x:Name="RenameButton" Content="リネーム" Style="{StaticResource RepositoryActionButtonStyle}"
+                                        ToolTip="現在のブランチ名を変更" Click="RenameButton_Click" GotKeyboardFocus="RepositoryActionButton_GotKeyboardFocus"/>
                             </StackPanel>
                             <Grid>
                             <Grid.ColumnDefinitions>
@@ -306,14 +314,8 @@
                                 FocusVisualStyle="{x:Null}" Click="AddBranchButton_Click"
                                 GotKeyboardFocus="AddBranchButton_GotKeyboardFocus">
                             <Button.Style>
-                                <Style TargetType="Button">
-                                    <Setter Property="Background" Value="#383838"/>
-                                    <Setter Property="BorderBrush" Value="#555555"/>
+                                <Style TargetType="Button" BasedOn="{StaticResource GitActionButtonStyle}">
                                     <Style.Triggers>
-                                        <Trigger Property="IsKeyboardFocused" Value="True">
-                                            <Setter Property="Background" Value="#007ACC"/>
-                                            <Setter Property="BorderBrush" Value="#58A6FF"/>
-                                        </Trigger>
                                         <DataTrigger Binding="{Binding IsBranchOperationBusy}" Value="True">
                                             <Setter Property="IsHitTestVisible" Value="False"/>
                                         </DataTrigger>
@@ -327,9 +329,11 @@
                             <ListBox.Style>
                                 <Style TargetType="ListBox">
                                     <Setter Property="ItemsSource" Value="{Binding BranchView}"/>
+                                    <Setter Property="SelectionMode" Value="Extended"/>
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding IsStashMode}" Value="True">
                                             <Setter Property="ItemsSource" Value="{Binding Stashes}"/>
+                                            <Setter Property="SelectionMode" Value="Single"/>
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding IsBranchOperationBusy}" Value="True">
                                             <Setter Property="IsHitTestVisible" Value="False"/>
@@ -351,14 +355,10 @@
                                                                       VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
                                                 </Border>
                                                 <ControlTemplate.Triggers>
-                                                    <MultiTrigger>
-                                                        <MultiTrigger.Conditions>
-                                                            <Condition Property="IsSelected" Value="True"/>
-                                                            <Condition Property="IsKeyboardFocusWithin" Value="True"/>
-                                                        </MultiTrigger.Conditions>
+                                                    <Trigger Property="IsSelected" Value="True">
                                                         <Setter TargetName="ItemBorder" Property="Background" Value="#163849"/>
                                                         <Setter TargetName="ItemBorder" Property="BorderBrush" Value="#007ACC"/>
-                                                    </MultiTrigger>
+                                                    </Trigger>
                                                 </ControlTemplate.Triggers>
                                             </ControlTemplate>
                                         </Setter.Value>

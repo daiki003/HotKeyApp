@@ -22,11 +22,13 @@
         <StackPanel Margin="20">
             <TextBlock Text="削除の確認" Foreground="White" FontSize="18" FontWeight="Bold" Margin="0,0,0,15" HorizontalAlignment="Center"/>
             
-            <TextBlock x:Name="MessageTextBlock" 
-                       Text="このアイテムを削除しますか？" 
-                       Foreground="White" FontSize="14" 
-                       HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"
-                       Margin="0,0,0,25"/>
+            <ScrollViewer MaxHeight="260" MaxWidth="440" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled" Margin="0,0,0,25">
+                <TextBlock x:Name="MessageTextBlock"
+                           Text="このアイテムを削除しますか？"
+                           Foreground="White" FontSize="14"
+                           HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"/>
+            </ScrollViewer>
 
             <Border Margin="0,0,0,15" Padding="4" BorderThickness="1" CornerRadius="3"
                     HorizontalAlignment="Center" Visibility="{Binding Visibility, ElementName=ForceDeleteCheckBox}">

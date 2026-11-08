@@ -8,9 +8,14 @@ namespace HotKeyCommandApp.Views
     {
         public string Message => MessageBox.Text.Trim();
 
-        public CommitMessageDialog()
+        public CommitMessageDialog(bool stagedOnly = false)
         {
             InitializeComponent();
+            if (stagedOnly)
+            {
+                HeadingText.Text = "ステージ済みの変更をコミット";
+                DescriptionText.Text = "ステージ済みの変更がすべて対象です。";
+            }
             Loaded += (_, _) => MessageBox.Focus();
         }
 

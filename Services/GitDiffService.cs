@@ -82,7 +82,7 @@ namespace HotKeyCommandApp.Services
             var lines = ParsePatch(patch.Content, cancellationToken, out bool truncated);
             string message = truncated ? $"差分が大きいため、先頭 {MaxDisplayedLines:N0} 行まで表示しています。" :
                 lines.Count == 0 ? "ファイル名またはファイル属性のみが変更されています。" : string.Empty;
-            return new GitDiffContent(lines, patch.LinesAdded, patch.LinesDeleted, message);
+            return new GitDiffContent(lines, patch.LinesAdded, patch.LinesDeleted, message, patch.Content);
         }
 
         private static IReadOnlyList<GitDiffLine> ParsePatch(string patch, CancellationToken cancellationToken, out bool truncated)

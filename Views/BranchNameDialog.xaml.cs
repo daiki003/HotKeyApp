@@ -9,7 +9,7 @@ namespace HotKeyCommandApp.Views
         public string BranchName => BranchNameBox.Text.Trim();
         private readonly bool _isStash;
 
-        public BranchNameDialog(bool isStash = false)
+        public BranchNameDialog(bool isStash = false, string currentBranchName = null)
         {
             InitializeComponent();
             _isStash = isStash;
@@ -19,7 +19,14 @@ namespace HotKeyCommandApp.Views
                 HeadingText.Text = "スタッシュ作成";
                 NameLabel.Text = "メッセージ（省略可）";
             }
-            Loaded += (s, e) => BranchNameBox.Focus();
+            else if (currentBranchName != null)
+            {
+                Title = "ブランチ名の変更";
+                HeadingText.Text = "ブランチ名の変更";
+                SubmitButton.Content = "リネーム";
+                BranchNameBox.Text = currentBranchName;
+            }
+            Loaded += (s, e) => { BranchNameBox.Focus(); BranchNameBox.SelectAll(); };
         }
 
         private void CreateButton_Click(object sender, RoutedEventArgs e)

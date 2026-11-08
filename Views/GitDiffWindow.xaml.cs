@@ -1,6 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using HotKeyCommandApp.Models;
 using HotKeyCommandApp.Services;
 using HotKeyCommandApp.ViewModels;
 
@@ -17,11 +20,7 @@ namespace HotKeyCommandApp.Views
             DataContext = _viewModel;
             _viewModel.PropertyChanged += (_, args) =>
             {
-                if (args.PropertyName == nameof(GitDiffViewModel.Lines) && _viewModel.Lines.Count > 0)
-                    Dispatcher.BeginInvoke(() =>
-                    {
-                        if (_viewModel.Lines.Count > 0) DiffLines.ScrollIntoView(_viewModel.Lines[0]);
-                    });
+                if (args.PropertyName == nameof(GitDiffViewModel.Lines)) DiffLines.SetLines(_viewModel.Lines);
             };
             Loaded += async (_, _) => { await _viewModel.RefreshAsync(); FocusFileList(); };
             Closed += (_, _) => _viewModel.Dispose();
@@ -32,6 +31,48 @@ namespace HotKeyCommandApp.Views
             base.OnSourceInitialized(e);
             WindowHelper.DisableSystemMenu(this);
             WindowHelper.EnableWindowMoveShortcut(this);
+        }
+
+        protected override void OnClosing(CancelEventArgs e)
+        {
+            if (_viewModel.IsOperating) { e.Cancel = true; return; }
+            base.OnClosing(e);
+        }
+
+        private void CopyFileName(GitDiffFile file)
+        {
+            if (file == null) return;
+            try { Clipboard.SetText(file.FileName); _viewModel.SetOperationStatus($"{file.FileName} をコピーしました。"); }
+            catch (ExternalException) { _viewModel.SetOperationStatus("クリップボードにコピーできませんでした。もう一度お試しください。"); }
+        }
+
+        private void CopyFileNameButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button { DataContext: GitDiffFile file }) CopyFileName(file);
+            e.Handled = true;
+        }
+
+        private void CopySelectedFileNameButton_Click(object sender, RoutedEventArgs e) => CopyFileName(_viewModel.SelectedFile);
+
+        private async void StageFileButton_Click(object sender, RoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (sender is not Button { DataContext: GitDiffFile file } || _viewModel.IsBusy) return;
+            if (file.IsStaged) await _viewModel.UnstageFileAsync(file);
+            else await _viewModel.StageFileAsync(file);
+        }
+
+        private async void StageLinesButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_viewModel.CanStageLines) return;
+            await _viewModel.StageLinesAsync(DiffLines.GetSelectedLineIndices());
+        }
+
+        private async void CommitStagedButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_viewModel.IsBusy || !_viewModel.HasStagedChanges) return;
+            var dialog = new CommitMessageDialog(stagedOnly: true) { Owner = this };
+            if (dialog.ShowDialog() == true) await _viewModel.CommitStagedAsync(dialog.Message);
         }
 
         private void FocusFileList()
@@ -50,6 +91,7 @@ namespace HotKeyCommandApp.Views
 
         private async void RefreshButton_Click(object sender, RoutedEventArgs e)
         {
+            if (_viewModel.IsBusy) return;
             await _viewModel.RefreshAsync();
             FocusFileList();
         }
@@ -60,9 +102,12 @@ namespace HotKeyCommandApp.Views
             if (e.Key == Key.F5)
             {
                 e.Handled = true;
-                if (!_viewModel.IsRefreshing) { await _viewModel.RefreshAsync(); FocusFileList(); }
+                if (!_viewModel.IsBusy) { await _viewModel.RefreshAsync(); FocusFileList(); }
                 return;
             }
+            if ((DiffLines.IsKeyboardFocusWithin || SelectedFilePathBox.IsKeyboardFocusWithin) &&
+                Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && e.Key is Key.Left or Key.Right or Key.Up or Key.Down)
+                return;
             if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
             {
                 const double step = 10.0;
