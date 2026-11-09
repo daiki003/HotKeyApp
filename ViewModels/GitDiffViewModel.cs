@@ -12,6 +12,9 @@ namespace HotKeyCommandApp.ViewModels
     {
         private readonly GitDiffService _service;
         private readonly GitStageService _stageService;
+        private readonly GitBranchService _branchService;
+        private readonly GitSettingsManager _settingsManager;
+        private readonly string _repositoryPath;
         private GitDiffContent _displayedDiff;
         private CancellationTokenSource _refreshCts;
         private CancellationTokenSource _diffCts;
@@ -21,6 +24,9 @@ namespace HotKeyCommandApp.ViewModels
         {
             _service = new GitDiffService(repositoryPath);
             _stageService = new GitStageService(repositoryPath);
+            _branchService = new GitBranchService(repositoryPath);
+            _settingsManager = new GitSettingsManager();
+            _repositoryPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(repositoryPath));
             MovementSpeed = movementSpeed;
             RepositoryName = new DirectoryInfo(repositoryPath).Name;
             FileView = new ListCollectionView(Files);
@@ -34,6 +40,7 @@ namespace HotKeyCommandApp.ViewModels
         public int? AheadBy { get; private set; }
         public int? BehindBy { get; private set; }
         public string TrackedBranch { get; private set; } = string.Empty;
+        public bool HasTrackingCounts => AheadBy.HasValue && BehindBy.HasValue;
         private string _trackingStatusText = "集計中...";
         public string TrackingStatusText { get => _trackingStatusText; private set { _trackingStatusText = value; OnPropertyChanged(); } }
         private string _trackingStatusToolTip = string.Empty;
@@ -42,9 +49,17 @@ namespace HotKeyCommandApp.ViewModels
         public string CurrentBranchName
         {
             get => _currentBranchName;
-            private set { _currentBranchName = value; OnPropertyChanged(); OnPropertyChanged(nameof(CanCopyCurrentBranch)); }
+            private set { _currentBranchName = value; OnPropertyChanged(); OnPropertyChanged(nameof(CanCopyCurrentBranch)); OnPropertyChanged(nameof(CanOperateCurrentBranch)); }
         }
         public bool CanCopyCurrentBranch => !string.IsNullOrWhiteSpace(CurrentBranchName);
+        public bool CanOperateCurrentBranch => CanCopyCurrentBranch && !IsBusy;
+        private string _baseBranch = string.Empty;
+        public string BaseBranch
+        {
+            get => _baseBranch;
+            private set { _baseBranch = value; OnPropertyChanged(); OnPropertyChanged(nameof(BaseBranchDisplay)); }
+        }
+        public string BaseBranchDisplay => string.IsNullOrWhiteSpace(BaseBranch) ? "未設定" : BaseBranch;
         public ObservableCollection<GitDiffFile> Files { get; } = new();
         public ListCollectionView FileView { get; }
         public event PropertyChangedEventHandler PropertyChanged;
@@ -77,10 +92,10 @@ namespace HotKeyCommandApp.ViewModels
         private string _overview = "読み込み中...";
         public string Overview { get => _overview; private set { _overview = value; OnPropertyChanged(); } }
         private bool _isRefreshing;
-        public bool IsRefreshing { get => _isRefreshing; private set { _isRefreshing = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanStageLines)); } }
+        public bool IsRefreshing { get => _isRefreshing; private set { _isRefreshing = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanStageLines)); OnPropertyChanged(nameof(CanOperateCurrentBranch)); } }
 
         private bool _isOperating;
-        public bool IsOperating { get => _isOperating; private set { _isOperating = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanStageLines)); } }
+        public bool IsOperating { get => _isOperating; private set { _isOperating = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanStageLines)); OnPropertyChanged(nameof(CanOperateCurrentBranch)); } }
         public bool IsBusy => IsRefreshing || IsOperating;
         public bool CanStageLines => !IsBusy && SelectedFile is { IsStaged: false, IsConflicted: false } && _displayedDiff != null &&
             _displayedDiff.Lines.Any(line => line.Kind is GitDiffLineKind.Added or GitDiffLineKind.Deleted);
@@ -98,6 +113,21 @@ namespace HotKeyCommandApp.ViewModels
             return file == null ? Task.CompletedTask : RunOperationAsync(() => _stageService.StageLinesAsync(file, diff, indices), "選択した変更行をステージしました。");
         }
         public Task CommitStagedAsync(string message) => RunOperationAsync(() => _stageService.CommitStagedAsync(message), "ステージ済みの変更をコミットしました。");
+        public Task PushCurrentBranchAsync() => RunBranchOperationAsync(_branchService.PushCurrentBranchAsync, "現在のブランチをプッシュしました。");
+        public Task PullCurrentBranchAsync() => RunBranchOperationAsync(_branchService.PullCurrentBranchAsync, "現在のブランチをプルしました。");
+        public Task RenameCurrentBranchAsync(string expectedName, string newName) =>
+            RunBranchOperationAsync(() => _branchService.RenameCurrentBranchAsync(expectedName, newName), "ブランチ名を変更しました。");
+
+        private Task RunBranchOperationAsync(Func<Task> operation, string successMessage) => RunOperationAsync(async () =>
+        {
+            try { await operation(); }
+            catch
+            {
+                // プルが競合で失敗した場合も、変更された作業ツリーを表示へ反映する。
+                await RefreshAsync();
+                throw;
+            }
+        }, successMessage);
 
         private async Task RunOperationAsync(Func<Task> operation, string successMessage)
         {
@@ -132,6 +162,10 @@ namespace HotKeyCommandApp.ViewModels
             CurrentBranch = "読み込み中...";
             CurrentBranchName = string.Empty;
             SetTrackingInfo(null);
+            _settingsManager.LoadSettings();
+            BaseBranch = _settingsManager.CurrentSettings.RepositoryNameMappings.FirstOrDefault(mapping =>
+                string.Equals(Path.TrimEndingDirectorySeparator(mapping.Path ?? string.Empty), _repositoryPath, StringComparison.OrdinalIgnoreCase))
+                ?.BaseBranch?.Trim() ?? string.Empty;
             try
             {
                 var snapshot = await Task.Run(() => (Files: _service.ReadFiles(token), Branch: _service.ReadBranchInfo(token)), token);
@@ -169,6 +203,7 @@ namespace HotKeyCommandApp.ViewModels
             OnPropertyChanged(nameof(AheadBy));
             OnPropertyChanged(nameof(BehindBy));
             OnPropertyChanged(nameof(TrackedBranch));
+            OnPropertyChanged(nameof(HasTrackingCounts));
             TrackingStatusText = info == null ? "集計中..." : AheadBy.HasValue && BehindBy.HasValue
                 ? $"behind {BehindBy.Value}  ·  ahead {AheadBy.Value}" : string.IsNullOrEmpty(TrackedBranch) ? "追跡先なし" : "差分不明";
             TrackingStatusToolTip = string.IsNullOrEmpty(TrackedBranch)

@@ -33,6 +33,7 @@ internal static class Program
             {
                 TestShortcutSettings();
                 TestBranchInfo(workspace);
+                await TestBranchOperationsAsync(workspace);
                 await TestRepositoryTabsAsync(workspace);
                 Console.WriteLine("差分タブとショートカット設定のテストに成功しました。");
             }
@@ -94,6 +95,13 @@ internal static class Program
         string firstPath = CreateRepository(workspace, "first-repository", "first.txt");
         string secondPath = CreateRepository(workspace, "second-repository", "second.txt");
         CreateTrackingHistory(secondPath);
+        new GitSettingsManager().SaveSettings(new GitSettings
+        {
+            RepositoryNameMappings = new List<RepositoryNameMapping>
+            {
+                new RepositoryNameMapping { Path = secondPath, BaseBranch = "main" }
+            }
+        });
         GitDiffWindow.FocusExisting();
         Check(!Application.Current.Windows.OfType<GitDiffWindow>().Any(), "未表示時のフォーカスで新規作成しない");
 
@@ -105,6 +113,7 @@ internal static class Program
         await WaitForAsync(() => firstView.ViewModel.Files.Count == 1 && firstView.ViewModel.Lines.Count > 0 && !firstView.ViewModel.IsBusy);
         Check(window.Owner == null && window.ShowInTaskbar && !window.Topmost, "独立ウィンドウとして表示");
         var firstSelection = firstView.ViewModel.SelectedFile;
+        Check(firstView.ViewModel.BaseBranchDisplay == "未設定", "ベースブランチ未設定の表示");
 
         GitDiffWindow.ShowForRepository(secondPath);
         Check(Application.Current.Windows.OfType<GitDiffWindow>().Count() == 1 && tabs.Items.Count == 2, "別リポジトリは同じウィンドウに追加");
@@ -116,6 +125,11 @@ internal static class Program
               secondView.ViewModel.TrackingStatusText == "behind 1  ·  ahead 2", "リモートとの差分数をヘッダーへ反映");
         Check(secondView.ViewModel.CurrentBranchName == "feature/diff-header-and-tab-order" &&
               ((Button)secondView.FindName("CopyCurrentBranchButton")).IsEnabled, "現在のブランチ名をコピーするボタン");
+        Check(secondView.ViewModel.BaseBranch == "main" && ((TextBlock)secondView.FindName("BaseBranchText")).Text == "ベース: main",
+            "設定済みベースブランチをヘッダーに表示");
+        await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+        window.Activate();
+        TestHeaderNavigation(window, secondView);
 
         var reorderableTabs = (SettingsTabControl)tabs;
         Check(reorderableTabs.MoveSelectedTab(-1) && ReferenceEquals(tabs.Items[0], secondTab) &&
@@ -169,6 +183,86 @@ internal static class Program
         var reopened = Application.Current.Windows.OfType<GitDiffWindow>().Single();
         Check(!ReferenceEquals(reopened, window), "閉じた後の新規表示");
         reopened.Close();
+    }
+
+    private static void TestHeaderNavigation(Window window, GitDiffRepositoryView view)
+    {
+        string[] names = { "PushButton", "PullButton", "RefreshButton", "RenameBranchButton", "CopyCurrentBranchButton" };
+        var buttons = names.Select(name => (Button)view.FindName(name)).ToArray();
+        buttons[0].Focus();
+        for (int i = 0; i < buttons.Length - 1; i++)
+        {
+            PressArrow(window, buttons[i], Key.Down);
+            Check(buttons[i + 1].IsKeyboardFocused, "下キーでヘッダーボタンへ移動: " + names[i + 1]);
+        }
+        PressArrow(window, buttons[^1], Key.Down);
+        var files = (ListBox)view.FindName("FileList");
+        Check(files.IsKeyboardFocusWithin, "最後のヘッダーボタンから下キーでファイル一覧へ移動");
+        PressArrow(window, (UIElement)Keyboard.FocusedElement, Key.Up);
+        Check(buttons[^1].IsKeyboardFocused, "先頭ファイルから上キーでヘッダーへ移動");
+        for (int i = buttons.Length - 1; i > 0; i--)
+        {
+            PressArrow(window, buttons[i], Key.Up);
+            Check(buttons[i - 1].IsKeyboardFocused, "上キーでヘッダーボタンへ移動: " + names[i - 1]);
+        }
+        window.UpdateLayout();
+        var branch = (TextBlock)view.FindName("CurrentBranchText");
+        var copy = (Button)view.FindName("CopyCurrentBranchButton");
+        Check(ReferenceEquals(branch.Parent, copy.Parent), "ブランチ名の行にリネームとコピーボタンを配置");
+    }
+
+    private static void PressArrow(Window window, UIElement element, Key key)
+    {
+        element.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), 0, key)
+        {
+            RoutedEvent = Keyboard.PreviewKeyDownEvent
+        });
+    }
+
+    private static async Task TestBranchOperationsAsync(string workspace)
+    {
+        string remotePath = Path.Combine(workspace, "local-remote.git");
+        Repository.Init(remotePath, isBare: true);
+        string localPath = CreateRepository(workspace, "branch-operations", "untracked.txt");
+        var signature = new Signature("Test", "test@example.invalid", DateTimeOffset.UtcNow);
+        string originalName;
+        using (var repository = new Repository(localPath))
+        {
+            repository.Commit("initial", signature, signature, new CommitOptions { AllowEmptyCommit = true });
+            repository.Network.Remotes.Add("origin", remotePath);
+            originalName = repository.Head.FriendlyName;
+        }
+        using var viewModel = new GitDiffViewModel(localPath);
+        await viewModel.RefreshAsync();
+        await viewModel.PushCurrentBranchAsync();
+        using (var repository = new Repository(localPath))
+            Check(repository.Head.TrackedBranch?.FriendlyName == "origin/" + originalName, "初回プッシュで追跡先を設定");
+
+        string peerPath = Path.Combine(workspace, "branch-peer");
+        Repository.Clone(remotePath, peerPath, new CloneOptions { BranchName = originalName });
+        string remoteCommit;
+        using (var peer = new Repository(peerPath))
+            remoteCommit = peer.Commit("remote update", signature, signature, new CommitOptions { AllowEmptyCommit = true }).Sha;
+        await new GitBranchService(peerPath).PushCurrentBranchAsync();
+        var pull = viewModel.PullCurrentBranchAsync();
+        Check(viewModel.IsOperating && !viewModel.CanOperateCurrentBranch, "プル中は他のブランチ操作を無効化");
+        await pull;
+        using (var repository = new Repository(localPath)) Check(repository.Head.Tip.Sha == remoteCommit, "プルでローカルリモートの更新を取得");
+        Check(viewModel.AheadBy == 0 && viewModel.BehindBy == 0, "プル後に追跡差分を更新");
+
+        string renamed = "feature/renamed-from-diff";
+        await viewModel.RenameCurrentBranchAsync(originalName, renamed);
+        Check(viewModel.CurrentBranchName == renamed && viewModel.OperationStatus == "ブランチ名を変更しました。", "リネーム後に現在のブランチ表示を更新");
+        await viewModel.RenameCurrentBranchAsync(renamed, "invalid name");
+        Check(viewModel.CurrentBranchName == renamed && viewModel.OperationStatus.StartsWith("操作に失敗しました。") && !viewModel.IsBusy,
+            "不正なリネームの失敗から復帰");
+
+        string localCommit;
+        using (var repository = new Repository(localPath))
+            localCommit = repository.Commit("local update", signature, signature, new CommitOptions { AllowEmptyCommit = true }).Sha;
+        await viewModel.PushCurrentBranchAsync();
+        using (var remote = new Repository(remotePath))
+            Check(remote.Branches[originalName].Tip.Sha == localCommit, "リネーム後も設定済みの追跡先へプッシュ");
     }
 
     private static void TestBranchInfo(string workspace)

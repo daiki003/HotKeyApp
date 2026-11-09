@@ -13,6 +13,7 @@ namespace HotKeyCommandApp.Views.Controls
     {
         private readonly GitDiffViewModel _viewModel;
         private bool _initialized;
+        private bool _isRenameDialogOpen;
 
         public GitDiffRepositoryView(string repositoryPath, double movementSpeed)
         {
@@ -72,6 +73,47 @@ namespace HotKeyCommandApp.Views.Controls
             }
         }
 
+        private async void PushButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_viewModel.CanOperateCurrentBranch) return;
+            await _viewModel.PushCurrentBranchAsync();
+            FocusHeaderButton(PushButton);
+        }
+
+        private async void PullButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_viewModel.CanOperateCurrentBranch) return;
+            await _viewModel.PullCurrentBranchAsync();
+            FocusHeaderButton(PullButton);
+        }
+
+        private async void RenameBranchButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_viewModel.CanOperateCurrentBranch || _isRenameDialogOpen) return;
+            _isRenameDialogOpen = true;
+            try
+            {
+                string branchName = _viewModel.CurrentBranchName;
+                var dialog = new BranchNameDialog(currentBranchName: branchName) { Owner = Window.GetWindow(this) };
+                if (dialog.ShowDialog() == true) await _viewModel.RenameCurrentBranchAsync(branchName, dialog.BranchName);
+            }
+            finally
+            {
+                _isRenameDialogOpen = false;
+                FocusHeaderButton(RenameBranchButton);
+            }
+        }
+
+        private Button[] HeaderButtons => new[] { PushButton, PullButton, RefreshButton, RenameBranchButton, CopyCurrentBranchButton }
+            .Where(button => button.IsVisible && button.IsEnabled).ToArray();
+
+        private void FocusHeaderButton(Button preferred)
+        {
+            if (!IsVisible || Window.GetWindow(this)?.IsActive != true) return;
+            if (preferred.IsEnabled) preferred.Focus();
+            else HeaderButtons.FirstOrDefault()?.Focus();
+        }
+
         private async void StageFileButton_Click(object sender, RoutedEventArgs e)
         {
             e.Handled = true;
@@ -114,6 +156,25 @@ namespace HotKeyCommandApp.Views.Controls
 
         private void View_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.Up or Key.Down)
+            {
+                var buttons = HeaderButtons;
+                int index = Array.FindIndex(buttons, button => button.IsKeyboardFocusWithin);
+                if (index >= 0)
+                {
+                    if (e.Key == Key.Down && index == buttons.Length - 1) FocusFileList();
+                    else buttons[Math.Clamp(index + (e.Key == Key.Down ? 1 : -1), 0, buttons.Length - 1)].Focus();
+                    e.Handled = true;
+                    return;
+                }
+                if (e.Key == Key.Up && FileList.IsKeyboardFocusWithin &&
+                    (FileList.SelectedItem == null || _viewModel.FileView.IndexOf(FileList.SelectedItem) == 0) && buttons.Length > 0)
+                {
+                    buttons[^1].Focus();
+                    e.Handled = true;
+                    return;
+                }
+            }
             if (Keyboard.Modifiers == ModifierKeys.None && FileList.IsKeyboardFocusWithin &&
                 e.Key is Key.Left or Key.Right) e.Handled = true;
         }
