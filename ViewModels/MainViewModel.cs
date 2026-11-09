@@ -301,6 +301,12 @@ namespace HotKeyCommandApp.ViewModels
             set { _appSettings.CreateButtonShortcut = value; OnPropertyChanged(); }
         }
 
+        public string GitDiffFocusShortcut
+        {
+            get => _appSettings.GitDiffFocusShortcut;
+            set { _appSettings.GitDiffFocusShortcut = value; OnPropertyChanged(); }
+        }
+
         private double _editingMovementSpeed;
         public double EditingMovementSpeed
         {
@@ -341,6 +347,13 @@ namespace HotKeyCommandApp.ViewModels
         {
             get => _editingCreateButtonShortcut;
             set { _editingCreateButtonShortcut = value; OnPropertyChanged(); }
+        }
+
+        private string _editingGitDiffFocusShortcut = string.Empty;
+        public string EditingGitDiffFocusShortcut
+        {
+            get => _editingGitDiffFocusShortcut;
+            set { _editingGitDiffFocusShortcut = value; OnPropertyChanged(); }
         }
 
         private bool _isCapturingHotkey;
@@ -1776,6 +1789,7 @@ namespace HotKeyCommandApp.ViewModels
             GlobalHotkey = _appSettings.GlobalHotkey;
             SettingsShortcut = _appSettings.SettingsShortcut;
             CreateButtonShortcut = _appSettings.CreateButtonShortcut;
+            GitDiffFocusShortcut = _appSettings.GitDiffFocusShortcut;
             _configService.SaveSettings(_appSettings);
             RequestSync?.Invoke();
             SettingsSaved?.Invoke();
@@ -1791,6 +1805,7 @@ namespace HotKeyCommandApp.ViewModels
             EditingGlobalHotkey = session.GlobalHotkey;
             EditingSettingsShortcut = session.SettingsShortcut;
             EditingCreateButtonShortcut = session.CreateButtonShortcut;
+            EditingGitDiffFocusShortcut = session.GitDiffFocusShortcut;
             EditingConstants = new ObservableCollection<ConstantEntry>(session.Constants);
             EditingConstantFolders = new ObservableCollection<PairEntryFolder>(session.ConstantFolders);
             EditingSelectTemplates = new ObservableCollection<SelectTemplate>(session.SelectTemplates);
@@ -1809,6 +1824,7 @@ namespace HotKeyCommandApp.ViewModels
                 GlobalHotkey = EditingGlobalHotkey,
                 SettingsShortcut = EditingSettingsShortcut,
                 CreateButtonShortcut = EditingCreateButtonShortcut,
+                GitDiffFocusShortcut = EditingGitDiffFocusShortcut,
                 Constants = EditingConstants.ToList(),
                 ConstantFolders = EditingConstantFolders.ToList(),
                 SelectTemplates = EditingSelectTemplates.ToList(),

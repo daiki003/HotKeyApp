@@ -14,7 +14,6 @@ namespace HotKeyCommandApp.Views
     {
         private readonly MainViewModel _mainVm;
         private TimeSpan _lastRenderingTime = TimeSpan.Zero;
-        private bool _isDiffWindowOpen;
         private bool _isCommitDialogOpen;
         private bool _isRenameDialogOpen;
         private bool _isConsoleAtBottom = true;
@@ -25,6 +24,7 @@ namespace HotKeyCommandApp.Views
             InitializeComponent();
             var vm = new GitCommandViewModel(repositoryPath, _mainVm);
             DataContext = vm;
+            vm.RequestDiffWindow += ShowDiffWindow;
             vm.PropertyChanged += (s, e) =>
             {
                 if (e.PropertyName == nameof(GitCommandViewModel.IsFrontMode))
@@ -388,20 +388,12 @@ namespace HotKeyCommandApp.Views
             FocusSelectedBranchButton();
         }
 
-        private void DiffButton_Click(object sender, RoutedEventArgs e)
+        private void DiffButton_Click(object sender, RoutedEventArgs e) => ShowDiffWindow();
+
+        private void ShowDiffWindow()
         {
-            if (DataContext is not GitCommandViewModel vm || vm.IsBranchOperationBusy || _isDiffWindowOpen) return;
-            _isDiffWindowOpen = true;
-            try
-            {
-                var window = new GitDiffWindow(vm.RepositoryPath, vm.MovementSpeed) { Owner = this, Topmost = Topmost };
-                window.ShowDialog();
-            }
-            finally
-            {
-                _isDiffWindowOpen = false;
-                DiffButton.Focus();
-            }
+            if (DataContext is not GitCommandViewModel vm || vm.IsBranchOperationBusy) return;
+            GitDiffWindow.ShowForRepository(vm.RepositoryPath, vm.MovementSpeed);
         }
 
         private async void CommitButton_Click(object sender, RoutedEventArgs e)

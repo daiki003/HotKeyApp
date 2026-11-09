@@ -31,6 +31,20 @@ namespace HotKeyCommandApp.ViewModels
         public double MovementSpeed { get; }
         private string _currentBranch = "読み込み中...";
         public string CurrentBranch { get => _currentBranch; private set { _currentBranch = value; OnPropertyChanged(); } }
+        public int? AheadBy { get; private set; }
+        public int? BehindBy { get; private set; }
+        public string TrackedBranch { get; private set; } = string.Empty;
+        private string _trackingStatusText = "集計中...";
+        public string TrackingStatusText { get => _trackingStatusText; private set { _trackingStatusText = value; OnPropertyChanged(); } }
+        private string _trackingStatusToolTip = string.Empty;
+        public string TrackingStatusToolTip { get => _trackingStatusToolTip; private set { _trackingStatusToolTip = value; OnPropertyChanged(); } }
+        private string _currentBranchName = string.Empty;
+        public string CurrentBranchName
+        {
+            get => _currentBranchName;
+            private set { _currentBranchName = value; OnPropertyChanged(); OnPropertyChanged(nameof(CanCopyCurrentBranch)); }
+        }
+        public bool CanCopyCurrentBranch => !string.IsNullOrWhiteSpace(CurrentBranchName);
         public ObservableCollection<GitDiffFile> Files { get; } = new();
         public ListCollectionView FileView { get; }
         public event PropertyChangedEventHandler PropertyChanged;
@@ -115,12 +129,17 @@ namespace HotKeyCommandApp.ViewModels
             IsRefreshing = true;
             SelectedFile = null;
             Message = "ファイル一覧を読み込んでいます...";
+            CurrentBranch = "読み込み中...";
+            CurrentBranchName = string.Empty;
+            SetTrackingInfo(null);
             try
             {
-                var snapshot = await Task.Run(() => (Files: _service.ReadFiles(token), Branch: _service.ReadCurrentBranch(token)), token);
+                var snapshot = await Task.Run(() => (Files: _service.ReadFiles(token), Branch: _service.ReadBranchInfo(token)), token);
                 if (token.IsCancellationRequested || _disposed) return;
                 var files = snapshot.Files;
-                CurrentBranch = snapshot.Branch;
+                CurrentBranch = snapshot.Branch.CurrentBranch;
+                CurrentBranchName = snapshot.Branch.BranchName;
+                SetTrackingInfo(snapshot.Branch);
                 Files.Clear();
                 foreach (var file in files) Files.Add(file);
                 OnPropertyChanged(nameof(HasStagedChanges));
@@ -135,9 +154,26 @@ namespace HotKeyCommandApp.ViewModels
                 Files.Clear();
                 OnPropertyChanged(nameof(HasStagedChanges));
                 Overview = "読み込み失敗";
+                CurrentBranch = "取得失敗";
+                TrackingStatusText = "取得失敗";
                 Message = $"ファイル一覧を取得できませんでした。\n{ex.Message}";
             }
             finally { if (!token.IsCancellationRequested && !_disposed) IsRefreshing = false; }
+        }
+
+        private void SetTrackingInfo(GitDiffBranchInfo info)
+        {
+            AheadBy = info?.AheadBy;
+            BehindBy = info?.BehindBy;
+            TrackedBranch = info?.TrackedBranch ?? string.Empty;
+            OnPropertyChanged(nameof(AheadBy));
+            OnPropertyChanged(nameof(BehindBy));
+            OnPropertyChanged(nameof(TrackedBranch));
+            TrackingStatusText = info == null ? "集計中..." : AheadBy.HasValue && BehindBy.HasValue
+                ? $"behind {BehindBy.Value}  ·  ahead {AheadBy.Value}" : string.IsNullOrEmpty(TrackedBranch) ? "追跡先なし" : "差分不明";
+            TrackingStatusToolTip = string.IsNullOrEmpty(TrackedBranch)
+                ? "追跡先が未設定か、取得済みのリモート情報に追跡先がありません。"
+                : $"追跡先: {TrackedBranch}\nbehind: リモート側だけにあるコミット数\nahead: ローカル側だけにあるコミット数\n最終 fetch / pull で取得したリモート情報に基づきます。";
         }
 
         private async Task LoadDiffAsync(GitDiffFile file)

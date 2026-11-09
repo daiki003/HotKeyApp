@@ -22,6 +22,34 @@ namespace HotKeyCommandApp.Services
                 : repository.Head.FriendlyName;
         }
 
+        public GitDiffBranchInfo ReadBranchInfo(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var repository = new Repository(_repositoryPath);
+            var branch = repository.Head;
+            string name = repository.Info.IsHeadDetached
+                ? $"detached HEAD ({branch.Tip.Id.Sha[..7]})" : branch.FriendlyName;
+            string branchName = repository.Info.IsHeadDetached ? string.Empty : branch.FriendlyName;
+            if (repository.Info.IsHeadDetached || branch.Tip == null)
+                return new GitDiffBranchInfo(name, branchName, string.Empty, null, null);
+
+            var trackedBranch = branch.TrackedBranch;
+            if (trackedBranch?.Tip == null) return new GitDiffBranchInfo(name, branchName, string.Empty, null, null);
+            try
+            {
+                var tracking = branch.TrackingDetails;
+                int? ahead = tracking.AheadBy;
+                int? behind = tracking.BehindBy;
+                cancellationToken.ThrowIfCancellationRequested();
+                return new GitDiffBranchInfo(name, branchName, trackedBranch.FriendlyName, ahead, behind);
+            }
+            catch (LibGit2SharpException)
+            {
+                // コミット履歴を集計できなくても、ファイル差分は表示できるようにする。
+                return new GitDiffBranchInfo(name, branchName, trackedBranch.FriendlyName, null, null);
+            }
+        }
+
         public IReadOnlyList<GitDiffFile> ReadFiles(CancellationToken cancellationToken)
         {
             using var repository = new Repository(_repositoryPath);

@@ -9,6 +9,7 @@ namespace HotKeyCommandApp.Views.Controls
         public event EventHandler? GlobalHotkeyRequested;
         public event EventHandler? SettingsHotkeyRequested;
         public event EventHandler? CreateHotkeyRequested;
+        public event EventHandler? GitDiffFocusHotkeyRequested;
 
         public ShortcutSettingsSectionControl()
         {
@@ -62,6 +63,9 @@ namespace HotKeyCommandApp.Views.Controls
                     break;
                 case "Create":
                     CreateHotkeyRequested?.Invoke(this, EventArgs.Empty);
+                    break;
+                case "GitDiffFocus":
+                    GitDiffFocusHotkeyRequested?.Invoke(this, EventArgs.Empty);
                     break;
             }
         }

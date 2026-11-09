@@ -331,11 +331,16 @@ namespace HotKeyCommandApp.Views
                 vm.SettingsSaved += () =>
                 {
                     _hotKeyService.UpdateHotKey(vm.GlobalHotkey);
+                    _hotKeyService.UpdateHotKey(HotKeyService.GitDiffFocusHotkeyId, vm.GitDiffFocusShortcut);
                     vm.IsCapturingHotkey = false;
                 };
             }
 
             _hotKeyService.Register(this, hotkey);
+            if (DataContext is MainViewModel shortcutsVm)
+            {
+                _hotKeyService.UpdateHotKey(HotKeyService.GitDiffFocusHotkeyId, shortcutsVm.GitDiffFocusShortcut);
+            }
 
             if (DataContext is MainViewModel mainVm)
             {
@@ -345,7 +350,11 @@ namespace HotKeyCommandApp.Views
 
         private void OnHotKeyPressed(int id)
         {
-            if (id == 9000) // デフォルトのホットキー (Win+Alt+Z)
+            if (id == HotKeyService.GitDiffFocusHotkeyId)
+            {
+                GitDiffWindow.FocusExisting();
+            }
+            else if (id == 9000) // デフォルトのホットキー (Win+Alt+Z)
             {
                 if (this.IsVisible)
                 {

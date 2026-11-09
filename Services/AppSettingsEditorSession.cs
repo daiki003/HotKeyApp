@@ -14,6 +14,7 @@ namespace HotKeyCommandApp.Services
         public string GlobalHotkey { get; set; } = "Win+Alt+Z";
         public string SettingsShortcut { get; set; } = "Ctrl+Comma";
         public string CreateButtonShortcut { get; set; } = "Ctrl+Plus";
+        public string GitDiffFocusShortcut { get; set; } = string.Empty;
         public List<ConstantEntry> Constants { get; set; } = new();
         public List<PairEntryFolder> ConstantFolders { get; set; } = new();
         public List<SelectTemplate> SelectTemplates { get; set; } = new();
@@ -31,6 +32,7 @@ namespace HotKeyCommandApp.Services
                 GlobalHotkey = source.GlobalHotkey,
                 SettingsShortcut = source.SettingsShortcut,
                 CreateButtonShortcut = source.CreateButtonShortcut,
+                GitDiffFocusShortcut = source.GitDiffFocusShortcut,
                 Constants = CloneConstants(source.Constants),
                 ConstantFolders = CloneFolders(source.ConstantFolders),
                 SelectTemplates = CloneSelectTemplates(source.SelectTemplates),
@@ -53,6 +55,7 @@ namespace HotKeyCommandApp.Services
             target.GlobalHotkey = GlobalHotkey;
             target.SettingsShortcut = SettingsShortcut;
             target.CreateButtonShortcut = CreateButtonShortcut;
+            target.GitDiffFocusShortcut = GitDiffFocusShortcut;
             target.Constants = NormalizeConstants(Constants);
             target.ConstantFolders = new List<PairEntryFolder>();
             target.SelectTemplates = NormalizeSelectTemplates(SelectTemplates);

@@ -15,4 +15,6 @@ namespace HotKeyCommandApp.Models
     public sealed record GitDiffLine(string OldNumber, string NewNumber, string Marker, string Text, GitDiffLineKind Kind);
 
     public sealed record GitDiffContent(IReadOnlyList<GitDiffLine> Lines, int Added, int Deleted, string Message, string RawPatch = "");
+
+    public sealed record GitDiffBranchInfo(string CurrentBranch, string BranchName, string TrackedBranch, int? AheadBy, int? BehindBy);
 }

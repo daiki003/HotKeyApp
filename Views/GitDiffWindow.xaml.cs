@@ -1,29 +1,154 @@
+using System.ComponentModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.ComponentModel;
-using System.Runtime.InteropServices;
-using HotKeyCommandApp.Models;
+using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using HotKeyCommandApp.Services;
-using HotKeyCommandApp.ViewModels;
+using HotKeyCommandApp.Views.Controls;
 
 namespace HotKeyCommandApp.Views
 {
     public partial class GitDiffWindow : Window
     {
-        private readonly GitDiffViewModel _viewModel;
+        private const string TabReorderDataFormat = "HotKeyCommandApp.GitDiffRepositoryTab";
+        private Point _tabDragStartPoint;
+        private TabItem _draggedTab;
+        private GitDiffRepositoryView ActiveView => (RepositoryTabs.SelectedItem as TabItem)?.Content as GitDiffRepositoryView;
+        private IEnumerable<GitDiffRepositoryView> RepositoryViews =>
+            RepositoryTabs.Items.Cast<TabItem>().Select(tab => (GitDiffRepositoryView)tab.Content);
+
+        public static void ShowForRepository(string repositoryPath, double movementSpeed = 1200.0)
+        {
+            var window = Application.Current.Windows.OfType<GitDiffWindow>().FirstOrDefault();
+            if (window == null)
+            {
+                window = new GitDiffWindow(repositoryPath, movementSpeed);
+                window.Show();
+            }
+            else
+            {
+                window.SelectRepository(repositoryPath, movementSpeed);
+            }
+            window.FocusWindow();
+        }
+
+        public static void FocusExisting()
+        {
+            Application.Current.Windows.OfType<GitDiffWindow>().FirstOrDefault()?.FocusWindow();
+        }
 
         public GitDiffWindow(string repositoryPath, double movementSpeed = 1200.0)
         {
             InitializeComponent();
-            _viewModel = new GitDiffViewModel(repositoryPath, movementSpeed);
-            DataContext = _viewModel;
-            _viewModel.PropertyChanged += (_, args) =>
+            SelectRepository(repositoryPath, movementSpeed);
+            Closed += (_, _) =>
             {
-                if (args.PropertyName == nameof(GitDiffViewModel.Lines)) DiffLines.SetLines(_viewModel.Lines);
+                foreach (var view in RepositoryViews) view.Dispose();
             };
-            Loaded += async (_, _) => { await _viewModel.RefreshAsync(); FocusFileList(); };
-            Closed += (_, _) => _viewModel.Dispose();
+        }
+
+        private void SelectRepository(string repositoryPath, double movementSpeed)
+        {
+            string fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(repositoryPath));
+            var tab = RepositoryTabs.Items.Cast<TabItem>().FirstOrDefault(item =>
+                string.Equals(((GitDiffRepositoryView)item.Content).RepositoryPath, fullPath, StringComparison.OrdinalIgnoreCase));
+            if (tab == null)
+            {
+                var view = new GitDiffRepositoryView(fullPath, movementSpeed);
+                tab = new TabItem { Header = view.ViewModel, Content = view, ToolTip = fullPath };
+                RepositoryTabs.Items.Add(tab);
+            }
+            RepositoryTabs.SelectedItem = tab;
+        }
+
+        private void FocusWindow()
+        {
+            if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+            var target = OwnedWindows.Cast<Window>().LastOrDefault(window => window.IsVisible) ?? this;
+            target.Activate();
+            target.Focus();
+            if (target == this)
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (IsActive) ActiveView?.FocusFileList();
+                }, System.Windows.Threading.DispatcherPriority.Input);
+            }
+        }
+
+        private void RepositoryTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (e.Source != RepositoryTabs) return;
+            DataContext = ActiveView?.ViewModel;
+        }
+
+        private void CloseTabButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button { Tag: TabItem tab }) CloseTab(tab);
+            e.Handled = true;
+        }
+
+        private void CloseTab(TabItem tab)
+        {
+            if (tab.Content is not GitDiffRepositoryView view || view.ViewModel.IsOperating) return;
+            if (RepositoryTabs.Items.Count == 1) { Close(); return; }
+            RepositoryTabs.Items.Remove(tab);
+            view.Dispose();
+        }
+
+        private void TabHeader_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            _draggedTab = null;
+            for (var element = e.OriginalSource as DependencyObject; element != null && element != sender;
+                 element = VisualTreeHelper.GetParent(element))
+            {
+                if (element is ButtonBase) return;
+            }
+            if (sender is FrameworkElement { Tag: TabItem tab })
+            {
+                _tabDragStartPoint = e.GetPosition(this);
+                _draggedTab = tab;
+            }
+        }
+
+        private void TabHeader_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed) { _draggedTab = null; return; }
+            if (_draggedTab == null || sender is not FrameworkElement header) return;
+            Vector offset = e.GetPosition(this) - _tabDragStartPoint;
+            if (Math.Abs(offset.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(offset.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+
+            var tab = _draggedTab;
+            _draggedTab = null;
+            DragDrop.DoDragDrop(header, new DataObject(TabReorderDataFormat, tab), DragDropEffects.Move);
+            e.Handled = true;
+        }
+
+        private void TabHeader_DragOver(object sender, DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent(TabReorderDataFormat)) return;
+            e.Effects = e.Data.GetData(TabReorderDataFormat) is TabItem tab && RepositoryTabs.Items.Contains(tab)
+                ? DragDropEffects.Move : DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        private void TabHeader_Drop(object sender, DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent(TabReorderDataFormat) ||
+                e.Data.GetData(TabReorderDataFormat) is not TabItem source ||
+                sender is not FrameworkElement { Tag: TabItem target } header) return;
+
+            int sourceIndex = RepositoryTabs.Items.IndexOf(source);
+            int targetIndex = RepositoryTabs.Items.IndexOf(target);
+            if (sourceIndex < 0 || targetIndex < 0) return;
+            int insertionIndex = targetIndex + (e.GetPosition(header).X >= header.ActualWidth / 2 ? 1 : 0);
+            if (sourceIndex < insertionIndex) insertionIndex--;
+            RepositoryTabs.MoveTab(source, insertionIndex);
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
         }
 
         protected override void OnSourceInitialized(EventArgs e)
@@ -35,81 +160,46 @@ namespace HotKeyCommandApp.Views
 
         protected override void OnClosing(CancelEventArgs e)
         {
-            if (_viewModel.IsOperating) { e.Cancel = true; return; }
+            if (RepositoryViews.Any(view => view.ViewModel.IsOperating)) { e.Cancel = true; return; }
             base.OnClosing(e);
-        }
-
-        private void CopyFileName(GitDiffFile file)
-        {
-            if (file == null) return;
-            try { Clipboard.SetText(file.FileName); _viewModel.SetOperationStatus($"{file.FileName} をコピーしました。"); }
-            catch (ExternalException) { _viewModel.SetOperationStatus("クリップボードにコピーできませんでした。もう一度お試しください。"); }
-        }
-
-        private void CopyFileNameButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is Button { DataContext: GitDiffFile file }) CopyFileName(file);
-            e.Handled = true;
-        }
-
-        private void CopySelectedFileNameButton_Click(object sender, RoutedEventArgs e) => CopyFileName(_viewModel.SelectedFile);
-
-        private async void StageFileButton_Click(object sender, RoutedEventArgs e)
-        {
-            e.Handled = true;
-            if (sender is not Button { DataContext: GitDiffFile file } || _viewModel.IsBusy) return;
-            if (file.IsStaged) await _viewModel.UnstageFileAsync(file);
-            else await _viewModel.StageFileAsync(file);
-        }
-
-        private async void StageLinesButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (!_viewModel.CanStageLines) return;
-            await _viewModel.StageLinesAsync(DiffLines.GetSelectedLineIndices());
-        }
-
-        private async void CommitStagedButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (_viewModel.IsBusy || !_viewModel.HasStagedChanges) return;
-            var dialog = new CommitMessageDialog(stagedOnly: true) { Owner = this };
-            if (dialog.ShowDialog() == true) await _viewModel.CommitStagedAsync(dialog.Message);
-        }
-
-        private void FocusFileList()
-        {
-            if (_viewModel.SelectedFile == null) { FileList.Focus(); return; }
-            FileList.ScrollIntoView(_viewModel.SelectedFile);
-            FileList.UpdateLayout();
-            if (FileList.ItemContainerGenerator.ContainerFromItem(_viewModel.SelectedFile) is ListBoxItem item) item.Focus();
-            else FileList.Focus();
-        }
-
-        private void FileList_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (FileList.SelectedItem != null) FileList.ScrollIntoView(FileList.SelectedItem);
-        }
-
-        private async void RefreshButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (_viewModel.IsBusy) return;
-            await _viewModel.RefreshAsync();
-            FocusFileList();
         }
 
         private async void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Escape) { Close(); e.Handled = true; return; }
+            if (Keyboard.Modifiers == ModifierKeys.Control)
+            {
+                if (e.Key is Key.PageUp or Key.PageDown)
+                {
+                    RepositoryTabs.MoveSelection(e.Key == Key.PageDown ? 1 : -1);
+                    ActiveView?.FocusFileList();
+                    e.Handled = true;
+                    return;
+                }
+                if (e.Key == Key.W && RepositoryTabs.SelectedItem is TabItem tab)
+                {
+                    CloseTab(tab);
+                    e.Handled = true;
+                    return;
+                }
+            }
             if (e.Key == Key.F5)
             {
                 e.Handled = true;
-                if (!_viewModel.IsBusy) { await _viewModel.RefreshAsync(); FocusFileList(); }
+                if (ActiveView != null) await ActiveView.RefreshAsync();
                 return;
             }
-            if ((DiffLines.IsKeyboardFocusWithin || SelectedFilePathBox.IsKeyboardFocusWithin) &&
+            if (ActiveView?.IsDiffTextFocused == true &&
                 Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && e.Key is Key.Left or Key.Right or Key.Up or Key.Down)
                 return;
             if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
             {
+                if (e.Key is Key.PageUp or Key.PageDown)
+                {
+                    RepositoryTabs.MoveSelectedTab(e.Key == Key.PageDown ? 1 : -1);
+                    ActiveView?.FocusFileList();
+                    e.Handled = true;
+                    return;
+                }
                 const double step = 10.0;
                 if (e.Key == Key.Left) { Width = Math.Clamp(Width - step, MinWidth, MaxWidth); e.Handled = true; }
                 else if (e.Key == Key.Right) { Width = Math.Clamp(Width + step, MinWidth, MaxWidth); e.Handled = true; }
@@ -122,18 +212,12 @@ namespace HotKeyCommandApp.Views
                 if (!e.IsRepeat)
                 {
                     // 描画前にキーを離す単押しでも、ウィンドウを確実に移動する。
-                    double step = _viewModel.MovementSpeed / 60.0;
-                    double offsetX = e.Key == Key.Left ? -step : e.Key == Key.Right ? step : 0;
-                    double offsetY = e.Key == Key.Up ? -step : e.Key == Key.Down ? step : 0;
-                    Left += offsetX;
-                    Top += offsetY;
-                    if (Owner != null) { Owner.Left += offsetX; Owner.Top += offsetY; }
+                    double step = (ActiveView?.ViewModel.MovementSpeed ?? 1200.0) / 60.0;
+                    Left += e.Key == Key.Left ? -step : e.Key == Key.Right ? step : 0;
+                    Top += e.Key == Key.Up ? -step : e.Key == Key.Down ? step : 0;
                 }
                 e.Handled = true;
-                return;
             }
-            if (Keyboard.Modifiers != ModifierKeys.None) return;
-            if (FileList.IsKeyboardFocusWithin && e.Key is Key.Left or Key.Right) e.Handled = true;
         }
     }
 }

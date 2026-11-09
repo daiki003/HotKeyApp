@@ -12,6 +12,7 @@ namespace HotKeyCommandApp.ViewModels.Settings
         private string _editingGlobalHotkey;
         private string _editingSettingsShortcut;
         private string _editingCreateButtonShortcut;
+        private string _editingGitDiffFocusShortcut;
         private bool _isCapturingHotkey;
         private string _captureTarget = string.Empty;
 
@@ -23,7 +24,9 @@ namespace HotKeyCommandApp.ViewModels.Settings
             {
                 new ActionValueRecordViewModel("Global", "起動ショートカット", () => EditingGlobalHotkey),
                 new ActionValueRecordViewModel("Settings", "設定を開く", () => EditingSettingsShortcut),
-                new ActionValueRecordViewModel("Create", "ボタン作成", () => EditingCreateButtonShortcut)
+                new ActionValueRecordViewModel("Create", "ボタン作成", () => EditingCreateButtonShortcut),
+                new ActionValueRecordViewModel("GitDiffFocus", "差分ウィンドウにフォーカス", () =>
+                    string.IsNullOrWhiteSpace(EditingGitDiffFocusShortcut) ? "未設定" : EditingGitDiffFocusShortcut)
             };
             Reset();
         }
@@ -46,6 +49,12 @@ namespace HotKeyCommandApp.ViewModels.Settings
         {
             get => _editingCreateButtonShortcut;
             set { _editingCreateButtonShortcut = value; OnPropertyChanged(); RefreshRecords(); }
+        }
+
+        public string EditingGitDiffFocusShortcut
+        {
+            get => _editingGitDiffFocusShortcut;
+            set { _editingGitDiffFocusShortcut = value; OnPropertyChanged(); RefreshRecords(); }
         }
 
         public bool IsCapturingHotkey
@@ -75,6 +84,9 @@ namespace HotKeyCommandApp.ViewModels.Settings
                 case "Create":
                     EditingCreateButtonShortcut = CapturePrompt;
                     break;
+                case "GitDiffFocus":
+                    EditingGitDiffFocusShortcut = CapturePrompt;
+                    break;
             }
         }
 
@@ -90,6 +102,9 @@ namespace HotKeyCommandApp.ViewModels.Settings
                     break;
                 case "Create":
                     EditingCreateButtonShortcut = finalHotkey;
+                    break;
+                case "GitDiffFocus":
+                    EditingGitDiffFocusShortcut = finalHotkey;
                     break;
             }
 
@@ -111,6 +126,9 @@ namespace HotKeyCommandApp.ViewModels.Settings
                 case "Create":
                     EditingCreateButtonShortcut = _source.CreateButtonShortcut;
                     break;
+                case "GitDiffFocus":
+                    EditingGitDiffFocusShortcut = _source.GitDiffFocusShortcut;
+                    break;
             }
 
             CaptureTarget = string.Empty;
@@ -121,6 +139,7 @@ namespace HotKeyCommandApp.ViewModels.Settings
             _source.EditingGlobalHotkey = EditingGlobalHotkey;
             _source.EditingSettingsShortcut = EditingSettingsShortcut;
             _source.EditingCreateButtonShortcut = EditingCreateButtonShortcut;
+            _source.EditingGitDiffFocusShortcut = EditingGitDiffFocusShortcut;
             _source.IsCapturingHotkey = IsCapturingHotkey;
             _source.CaptureTarget = CaptureTarget;
         }
@@ -130,6 +149,7 @@ namespace HotKeyCommandApp.ViewModels.Settings
             EditingGlobalHotkey = _source.EditingGlobalHotkey;
             EditingSettingsShortcut = _source.EditingSettingsShortcut;
             EditingCreateButtonShortcut = _source.EditingCreateButtonShortcut;
+            EditingGitDiffFocusShortcut = _source.EditingGitDiffFocusShortcut;
             IsCapturingHotkey = _source.IsCapturingHotkey;
             CaptureTarget = _source.CaptureTarget;
             RefreshRecords();

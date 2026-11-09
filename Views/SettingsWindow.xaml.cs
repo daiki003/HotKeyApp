@@ -49,6 +49,11 @@ namespace HotKeyCommandApp.Views
             ShortcutsPanel.GlobalHotkeyRequested += (_, _) => BeginGlobalHotkeyCapture();
             ShortcutsPanel.SettingsHotkeyRequested += (_, _) => BeginSettingsHotkeyCapture();
             ShortcutsPanel.CreateHotkeyRequested += (_, _) => BeginCreateHotkeyCapture();
+            ShortcutsPanel.GitDiffFocusHotkeyRequested += (_, _) =>
+            {
+                _shortcutsSectionViewModel.BeginCapture("GitDiffFocus");
+                SyncCaptureStateToMainViewModel();
+            };
             MainTabControl.SelectionChanged += MainTabControl_SelectionChanged;
 
             this.Loaded += (s, e) =>
@@ -173,6 +178,15 @@ namespace HotKeyCommandApp.Views
                 if (actualKey == Key.Escape)
                 {
                     CancelCapture();
+                    e.Handled = true;
+                    return;
+                }
+
+                if (_shortcutsSectionViewModel.CaptureTarget == "GitDiffFocus" &&
+                    Keyboard.Modifiers == ModifierKeys.None && actualKey is Key.Delete or Key.Back)
+                {
+                    _shortcutsSectionViewModel.CompleteCapture(string.Empty);
+                    SyncCaptureStateToMainViewModel();
                     e.Handled = true;
                     return;
                 }

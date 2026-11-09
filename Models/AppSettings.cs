@@ -27,6 +27,7 @@ namespace HotKeyCommandApp.Models
         public string GlobalHotkey { get; set; } = "Win+Alt+Z";
         public string SettingsShortcut { get; set; } = "Ctrl+Comma";
         public string CreateButtonShortcut { get; set; } = "Ctrl+Plus";
+        public string GitDiffFocusShortcut { get; set; } = string.Empty;
 
         public List<RegisteredApp> RegisteredApps { get; set; } = new();
         public List<string> SlackTeamIdHistory { get; set; } = new();

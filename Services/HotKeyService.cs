@@ -11,6 +11,7 @@ namespace HotKeyCommandApp.Services
         private const uint MOD_ALT = 0x0001;
         private const uint MOD_WIN = 0x0008;
         private const int DEFAULT_HOTKEY_ID = 9000;
+        public const int GitDiffFocusHotkeyId = 8999;
 
         private IntPtr _hWnd;
         public event Action<int>? HotKeyPressed;
@@ -61,8 +62,16 @@ namespace HotKeyCommandApp.Services
                 else if (p == "SHIFT") modifiers |= 0x0004;
                 else
                 {
-                    // parse key
-                    if (Enum.TryParse<System.Windows.Input.Key>(part.Trim(), true, out var key))
+                    // 設定画面で表示する記号キー名を WPF のキー名へ戻す。
+                    string keyName = p switch
+                    {
+                        "PLUS" => "OemPlus",
+                        "COMMA" => "OemComma",
+                        "MINUS" => "OemMinus",
+                        "PERIOD" => "OemPeriod",
+                        _ => part.Trim()
+                    };
+                    if (Enum.TryParse<System.Windows.Input.Key>(keyName, true, out var key))
                     {
                         vk = (uint)System.Windows.Input.KeyInterop.VirtualKeyFromKey(key);
                     }
@@ -112,7 +121,7 @@ namespace HotKeyCommandApp.Services
                 var ids = new System.Collections.Generic.List<int>(_registeredHotKeys.Keys);
                 foreach (var id in ids)
                 {
-                    if (id != DEFAULT_HOTKEY_ID)
+                    if (id != DEFAULT_HOTKEY_ID && id != GitDiffFocusHotkeyId)
                     {
                         NativeMethods.UnregisterHotKey(_hWnd, id);
                         _registeredHotKeys.Remove(id);

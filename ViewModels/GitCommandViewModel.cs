@@ -968,6 +968,12 @@ namespace HotKeyCommandApp.ViewModels
             }
             _historyIndex = _commandHistory.Count;
 
+            if (string.Equals(rawInput, "diff", StringComparison.OrdinalIgnoreCase))
+            {
+                RequestDiffWindow?.Invoke();
+                return;
+            }
+
             bool shouldStartQueueProcessor = false;
             lock (_commandQueueLock)
             {
@@ -1917,6 +1923,7 @@ namespace HotKeyCommandApp.ViewModels
             }
         }
 
+        public event Action? RequestDiffWindow;
         public event Func<CommandEntry, string, string?>? RequestArgumentInput;
         public event Func<CommandEntry, string, List<string>, string?>? RequestSelectInput;
 
