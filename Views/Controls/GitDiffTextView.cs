@@ -4,16 +4,18 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using HotKeyCommandApp.Models;
+using HotKeyCommandApp.Services;
 
 namespace HotKeyCommandApp.Views.Controls
 {
     public sealed class GitDiffTextView : Grid
     {
-        private const double GutterWidth = 120;
+        private const double DefaultGutterWidth = 120;
         private readonly TextBox _textBox;
         private readonly DiffBackground _background;
         private bool _rowsDirty;
         private bool _updatePending;
+        private CancellationTokenSource _highlightCts;
         public event EventHandler SelectionChanged;
 
         public GitDiffTextView()
@@ -21,11 +23,12 @@ namespace HotKeyCommandApp.Views.Controls
             Background = Brushes.Transparent;
             _textBox = new TextBox
             {
-                Margin = new Thickness(GutterWidth, 0, 0, 0),
+                Margin = new Thickness(DefaultGutterWidth, 0, 0, 0),
                 Padding = new Thickness(0, 2, 16, 2),
                 BorderThickness = new Thickness(0),
                 Background = Brushes.Transparent,
-                Foreground = new SolidColorBrush(Color.FromRgb(224, 224, 224)),
+                Foreground = Brushes.Transparent,
+                CaretBrush = Brushes.White,
                 IsReadOnly = true,
                 IsReadOnlyCaretVisible = true,
                 AcceptsReturn = true,
@@ -44,13 +47,60 @@ namespace HotKeyCommandApp.Views.Controls
             _textBox.SelectionChanged += (_, _) => SelectionChanged?.Invoke(this, EventArgs.Empty);
         }
 
-        public void SetLines(IReadOnlyList<GitDiffLine> lines)
+        public void SetLines(IReadOnlyList<GitDiffLine> lines, GitDiffFile file = null, string repositoryPath = null)
         {
+            CancelHighlighting();
             _background.Lines = lines;
+            _background.Syntax = Array.Empty<IReadOnlyList<GitDiffSyntaxSpan>>();
             _background.ClearRows();
+            UpdateGutterWidth();
             _textBox.Text = string.Join("\r\n", lines.Select(line => line.Text));
             _textBox.ScrollToHome();
             RequestRowsUpdate();
+            if (lines.Count > 0 && file != null)
+            {
+                _highlightCts = new CancellationTokenSource();
+                _ = HighlightAsync(lines, file, repositoryPath, _highlightCts.Token);
+            }
+        }
+
+        public void CancelHighlighting()
+        {
+            _highlightCts?.Cancel();
+            _highlightCts?.Dispose();
+            _highlightCts = null;
+        }
+
+        private async Task HighlightAsync(IReadOnlyList<GitDiffLine> lines, GitDiffFile file, string repositoryPath, CancellationToken token)
+        {
+            try
+            {
+                var syntax = await Task.Run(() => GitDiffSyntaxHighlighter.Highlight(lines, file.Path, token, repositoryPath, file), token);
+                if (token.IsCancellationRequested) return;
+                _background.Syntax = syntax;
+                _background.InvalidateVisual();
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception) { }
+        }
+
+        public void SetFontSize(double fontSize)
+        {
+            _textBox.SetCurrentValue(Control.FontSizeProperty, fontSize);
+            UpdateGutterWidth();
+            _background.ClearRows();
+            RequestRowsUpdate();
+        }
+
+        private void UpdateGutterWidth()
+        {
+            int digits = Math.Max(3, _background.Lines.Select(line => Math.Max(line.OldNumber?.Length ?? 0, line.NewNumber?.Length ?? 0))
+                .DefaultIfEmpty(0).Max());
+            double numberWidth = Math.Max(48, Math.Ceiling(_textBox.FontSize * 0.65 * digits) + 9);
+            double markerWidth = Math.Max(24, Math.Ceiling(_textBox.FontSize * 1.4));
+            _background.NumberColumnWidth = numberWidth;
+            _background.MarkerColumnWidth = markerWidth;
+            _textBox.Margin = new Thickness(numberWidth * 2 + markerWidth, 0, 0, 0);
         }
 
         public IReadOnlyList<int> GetSelectedLineIndices()
@@ -89,13 +139,18 @@ namespace HotKeyCommandApp.Views.Controls
             private static readonly Brush HunkBackground = Brush("#20364B");
             private static readonly Brush NumberForeground = Brush("#999999");
             private static readonly Brush MarkerForeground = Brush("#C8C8C8");
+            private static readonly Brush TextForeground = Brush("#D4D4D4");
             private readonly TextBox _textBox;
+            private readonly Dictionary<string, Brush> _syntaxBrushes = new(StringComparer.OrdinalIgnoreCase);
             private IReadOnlyList<VisibleRow> _rows = Array.Empty<VisibleRow>();
+            public double NumberColumnWidth { get; set; } = 48;
+            public double MarkerColumnWidth { get; set; } = 24;
 
-            private readonly record struct VisibleRow(GitDiffLine Line, Rect Bounds);
+            private readonly record struct VisibleRow(GitDiffLine Line, Rect Bounds, int Index);
 
             public DiffBackground(TextBox textBox) => _textBox = textBox;
             public IReadOnlyList<GitDiffLine> Lines { get; set; } = Array.Empty<GitDiffLine>();
+            public IReadOnlyList<GitDiffSyntaxSpan>[] Syntax { get; set; } = Array.Empty<IReadOnlyList<GitDiffSyntaxSpan>>();
 
             public void ClearRows()
             {
@@ -121,7 +176,7 @@ namespace HotKeyCommandApp.Views.Controls
                         int index = _textBox.GetCharacterIndexFromLineIndex(i);
                         if (index < 0) continue;
                         Rect rect = _textBox.GetRectFromCharacterIndex(index);
-                        if (!rect.IsEmpty) rows.Add(new VisibleRow(Lines[i], rect));
+                        if (!rect.IsEmpty) rows.Add(new VisibleRow(Lines[i], rect, i));
                     }
                     _rows = rows;
                     InvalidateVisual();
@@ -153,9 +208,25 @@ namespace HotKeyCommandApp.Views.Controls
                         _ => DefaultBackground
                     };
                     drawingContext.DrawRectangle(background, null, new Rect(0, rect.Top, ActualWidth, rect.Height));
-                    DrawText(drawingContext, line.OldNumber, NumberForeground, typeface, pixelsPerDip, 39, rect.Top, false);
-                    DrawText(drawingContext, line.NewNumber, NumberForeground, typeface, pixelsPerDip, 87, rect.Top, false);
-                    DrawText(drawingContext, line.Marker, MarkerForeground, typeface, pixelsPerDip, 108, rect.Top, true);
+                    DrawText(drawingContext, line.OldNumber, NumberForeground, typeface, pixelsPerDip, NumberColumnWidth - 9, rect.Top, false);
+                    DrawText(drawingContext, line.NewNumber, NumberForeground, typeface, pixelsPerDip, NumberColumnWidth * 2 - 9, rect.Top, false);
+                    DrawText(drawingContext, line.Marker, MarkerForeground, typeface, pixelsPerDip, NumberColumnWidth * 2 + MarkerColumnWidth / 2, rect.Top, true);
+                    if (string.IsNullOrEmpty(line.Text)) continue;
+                    var text = new FormattedText(line.Text, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
+                        typeface, _textBox.FontSize, TextForeground, pixelsPerDip);
+                    if (row.Index < Syntax.Length)
+                    {
+                        foreach (var span in Syntax[row.Index])
+                        {
+                            if (!_syntaxBrushes.TryGetValue(span.Color, out var brush))
+                                _syntaxBrushes[span.Color] = brush = Brush(span.Color);
+                            text.SetForegroundBrush(brush, span.Start, span.Length);
+                        }
+                    }
+                    drawingContext.PushClip(new RectangleGeometry(new Rect(_textBox.Margin.Left, 0,
+                        Math.Max(0, ActualWidth - _textBox.Margin.Left), ActualHeight)));
+                    drawingContext.DrawText(text, new Point(_textBox.Margin.Left + rect.Left, rect.Top));
+                    drawingContext.Pop();
                 }
             }
 

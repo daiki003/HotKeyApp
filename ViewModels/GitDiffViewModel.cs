@@ -76,6 +76,7 @@ namespace HotKeyCommandApp.ViewModels
                 OnPropertyChanged(nameof(SelectedFilePath));
                 OnPropertyChanged(nameof(Comparison));
                 OnPropertyChanged(nameof(CanStageLines));
+                OnPropertyChanged(nameof(CanDiscardFile));
                 _ = LoadDiffAsync(value);
             }
         }
@@ -92,19 +93,35 @@ namespace HotKeyCommandApp.ViewModels
         private string _overview = "読み込み中...";
         public string Overview { get => _overview; private set { _overview = value; OnPropertyChanged(); } }
         private bool _isRefreshing;
-        public bool IsRefreshing { get => _isRefreshing; private set { _isRefreshing = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanStageLines)); OnPropertyChanged(nameof(CanOperateCurrentBranch)); } }
+        public bool IsRefreshing { get => _isRefreshing; private set { _isRefreshing = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanStageLines)); OnPropertyChanged(nameof(CanDiscardFile)); OnPropertyChanged(nameof(CanOperateCurrentBranch)); } }
 
         private bool _isOperating;
-        public bool IsOperating { get => _isOperating; private set { _isOperating = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanStageLines)); OnPropertyChanged(nameof(CanOperateCurrentBranch)); } }
+        public bool IsOperating { get => _isOperating; private set { _isOperating = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanStageLines)); OnPropertyChanged(nameof(CanDiscardFile)); OnPropertyChanged(nameof(CanOperateCurrentBranch)); } }
         public bool IsBusy => IsRefreshing || IsOperating;
         public bool CanStageLines => !IsBusy && SelectedFile is { IsStaged: false, IsConflicted: false } && _displayedDiff != null &&
             _displayedDiff.Lines.Any(line => line.Kind is GitDiffLineKind.Added or GitDiffLineKind.Deleted);
+        public bool CanDiscardFile => !IsBusy && SelectedFile is { IsStaged: false, IsConflicted: false } &&
+            (string.IsNullOrEmpty(SelectedFile.OldPath) || SelectedFile.OldPath == SelectedFile.Path) && !string.IsNullOrEmpty(_displayedDiff?.RawPatch);
         public bool HasStagedChanges => Files.Any(file => file.IsStaged);
+        public bool HasUnstagedChanges => Files.Any(file => !file.IsStaged);
         private string _operationStatus = "";
         public string OperationStatus { get => _operationStatus; private set { _operationStatus = value; OnPropertyChanged(); } }
         public void SetOperationStatus(string message) => OperationStatus = message;
 
         public Task StageFileAsync(GitDiffFile file) => RunOperationAsync(() => _stageService.StageFileAsync(file), $"{file.FileName} をステージしました。");
+        public Task StageAllAsync() => RunOperationAsync(() => _stageService.StageAllAsync(), "すべての変更をステージしました。");
+        public Task DiscardFileAsync()
+        {
+            var file = SelectedFile;
+            var diff = _displayedDiff;
+            return file == null ? Task.CompletedTask : RunOperationAsync(() => _stageService.DiscardFileAsync(file, diff), $"{file.FileName} の未ステージ変更を破棄しました。");
+        }
+        public Task DiscardLinesAsync(IReadOnlyCollection<int> indices)
+        {
+            var file = SelectedFile;
+            var diff = _displayedDiff;
+            return file == null ? Task.CompletedTask : RunOperationAsync(() => _stageService.DiscardLinesAsync(file, diff, indices), "選択した変更行を破棄しました。");
+        }
         public Task UnstageFileAsync(GitDiffFile file) => RunOperationAsync(() => _stageService.UnstageFileAsync(file), $"{file.FileName} のステージを解除しました。");
         public Task StageLinesAsync(IReadOnlyCollection<int> indices)
         {
@@ -177,6 +194,7 @@ namespace HotKeyCommandApp.ViewModels
                 Files.Clear();
                 foreach (var file in files) Files.Add(file);
                 OnPropertyChanged(nameof(HasStagedChanges));
+                OnPropertyChanged(nameof(HasUnstagedChanges));
                 Overview = $"未ステージ {files.Count(file => !file.IsStaged)} 件  /  ステージ済み {files.Count(file => file.IsStaged)} 件";
                 SelectedFile = files.FirstOrDefault(file => file.Key == selectedKey) ?? files.FirstOrDefault();
                 if (SelectedFile == null) Message = "未コミットの変更はありません。";
@@ -187,6 +205,7 @@ namespace HotKeyCommandApp.ViewModels
                 if (token.IsCancellationRequested || _disposed) return;
                 Files.Clear();
                 OnPropertyChanged(nameof(HasStagedChanges));
+                OnPropertyChanged(nameof(HasUnstagedChanges));
                 Overview = "読み込み失敗";
                 CurrentBranch = "取得失敗";
                 TrackingStatusText = "取得失敗";
@@ -219,6 +238,7 @@ namespace HotKeyCommandApp.ViewModels
             var token = _diffCts.Token;
             _displayedDiff = null;
             OnPropertyChanged(nameof(CanStageLines));
+            OnPropertyChanged(nameof(CanDiscardFile));
             Lines = Array.Empty<GitDiffLine>();
             Summary = "";
             if (file == null || _disposed) return;
@@ -230,6 +250,7 @@ namespace HotKeyCommandApp.ViewModels
                 _displayedDiff = diff;
                 Lines = diff.Lines;
                 OnPropertyChanged(nameof(CanStageLines));
+                OnPropertyChanged(nameof(CanDiscardFile));
                 Summary = $"+{diff.Added}  −{diff.Deleted}";
                 Message = diff.Message;
             }

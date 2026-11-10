@@ -20,6 +20,7 @@ internal static class Program
         {
             await TestPartialChangesAsync(Path.Combine(workspace, "repository"));
             await TestInitialCommitAsync(Path.Combine(workspace, "unborn"));
+            await TestDiscardAndStageAllAsync(Path.Combine(workspace, "discard"));
             Console.WriteLine("すべての Git ステージ操作テストに成功しました。");
         }
         finally
@@ -189,6 +190,89 @@ internal static class Program
         await stage.StageFileAsync(Entry(diff, "first.txt"));
         await stage.CommitStagedAsync("first commit fixture");
         Check(Git(root, "show", "HEAD:first.txt") == "first\n", "初回コミット");
+    }
+
+    private static async Task TestDiscardAndStageAllAsync(string root)
+    {
+        Initialize(root);
+        string path = Path.Combine(root, "tracked.txt");
+        WriteLines(path, "one", "old", "end");
+        WriteLines(Path.Combine(root, "other.txt"), "base");
+        Git(root, "add", "--all");
+        Git(root, "commit", "-m", "fixture");
+        var diff = new GitDiffService(root);
+        var stage = new GitStageService(root);
+        WriteLines(Path.Combine(root, "other.txt"), "staged");
+        Git(root, "add", "other.txt");
+        WriteLines(path, "one", "new", "end");
+        var file = Entry(diff, "tracked.txt");
+        var snapshot = diff.ReadDiff(file, CancellationToken.None);
+        await stage.DiscardLinesAsync(file, snapshot, Select(snapshot, "old", "new"));
+        Check(File.ReadAllText(path) == "one\nold\nend\n" && Git(root, "show", ":other.txt") == "staged\n", "選択行の破棄と別ファイルのステージを維持");
+        WriteLines(path, "one", "new", "end");
+        file = Entry(diff, "tracked.txt"); snapshot = diff.ReadDiff(file, CancellationToken.None);
+        await stage.DiscardLinesAsync(file, snapshot, Select(snapshot, "new"));
+        Check(File.ReadAllText(path) == "one\nend\n", "追加行のみ破棄");
+        WriteLines(path, "one", "new", "end");
+        file = Entry(diff, "tracked.txt"); snapshot = diff.ReadDiff(file, CancellationToken.None);
+        await stage.DiscardLinesAsync(file, snapshot, Select(snapshot, "old"));
+        Check(File.ReadAllText(path) == "one\nold\nnew\nend\n", "削除行のみ破棄");
+        file = Entry(diff, "tracked.txt"); snapshot = diff.ReadDiff(file, CancellationToken.None);
+        File.AppendAllText(path, "external\n", Utf8);
+        bool rejected = false;
+        try { await stage.DiscardLinesAsync(file, snapshot, Select(snapshot, "new")); }
+        catch (InvalidOperationException ex) { rejected = ex.Message.Contains("変更されました"); }
+        Check(rejected && File.ReadAllText(path).Contains("external"), "古い差分の破棄を拒否");
+        file = Entry(diff, "tracked.txt"); snapshot = diff.ReadDiff(file, CancellationToken.None);
+        await stage.DiscardFileAsync(file, snapshot);
+        Check(File.ReadAllText(path) == "one\nold\nend\n", "ファイル単位の破棄");
+        WriteLines(Path.Combine(root, "new.txt"), "untracked");
+        file = Entry(diff, "new.txt"); snapshot = diff.ReadDiff(file, CancellationToken.None);
+        await stage.DiscardFileAsync(file, snapshot);
+        Check(!File.Exists(Path.Combine(root, "new.txt")), "未追跡ファイルの破棄");
+        WriteLines(Path.Combine(root, "new.txt"), "first", "second");
+        file = Entry(diff, "new.txt"); snapshot = diff.ReadDiff(file, CancellationToken.None);
+        await stage.DiscardLinesAsync(file, snapshot, Select(snapshot, "first"));
+        Check(File.ReadAllText(Path.Combine(root, "new.txt")) == "second\n", "未追跡ファイルの選択行を破棄");
+        File.Delete(path);
+        file = Entry(diff, "tracked.txt"); snapshot = diff.ReadDiff(file, CancellationToken.None);
+        await stage.DiscardLinesAsync(file, snapshot, Select(snapshot, "old"));
+        Check(File.ReadAllText(path) == "old\n", "削除ファイルの選択行を復元");
+        WriteLines(path, "one", "old", "end");
+        File.WriteAllText(path, "one\nnew\nend", Utf8);
+        file = Entry(diff, "tracked.txt"); snapshot = diff.ReadDiff(file, CancellationToken.None);
+        await stage.DiscardLinesAsync(file, snapshot, Select(snapshot, "old", "new"));
+        Check(File.ReadAllText(path) == "one\nold\nend", "末尾改行のない差分の部分破棄");
+        WriteLines(Path.Combine(root, ".gitattributes"), "crlf.txt text eol=crlf");
+        File.WriteAllText(Path.Combine(root, "crlf.txt"), "one\r\nold\r\nend\r\n", Utf8);
+        Git(root, "add", "--", ".gitattributes", "crlf.txt");
+        Git(root, "commit", "-m", "crlf fixture");
+        File.WriteAllText(Path.Combine(root, "crlf.txt"), "one\r\nnew\r\nend\r\n", Utf8);
+        file = Entry(diff, "crlf.txt"); snapshot = diff.ReadDiff(file, CancellationToken.None);
+        await stage.DiscardLinesAsync(file, snapshot, Select(snapshot, "old", "new"));
+        Check(File.ReadAllText(Path.Combine(root, "crlf.txt")) == "one\r\nold\r\nend\r\n", "CRLFを維持して選択行を破棄");
+        File.WriteAllText(Path.Combine(root, "no-end.txt"), "old", Utf8);
+        Git(root, "add", "--", "no-end.txt");
+        Git(root, "commit", "-m", "no newline fixture");
+        File.WriteAllText(Path.Combine(root, "no-end.txt"), "new", Utf8);
+        file = Entry(diff, "no-end.txt"); snapshot = diff.ReadDiff(file, CancellationToken.None);
+        await stage.DiscardLinesAsync(file, snapshot, Select(snapshot, "old", "new"));
+        Check(File.ReadAllText(Path.Combine(root, "no-end.txt")) == "old", "末尾改行のない最終行の置換を破棄");
+        var many = Enumerable.Range(0, 40).Select(i => "line-" + i).ToArray();
+        WriteLines(Path.Combine(root, "many.txt"), many);
+        Git(root, "add", "--", "many.txt");
+        Git(root, "commit", "-m", "multiple hunks fixture");
+        many[2] = "changed-2"; many[35] = "changed-35";
+        WriteLines(Path.Combine(root, "many.txt"), many);
+        file = Entry(diff, "many.txt"); snapshot = diff.ReadDiff(file, CancellationToken.None);
+        await stage.DiscardLinesAsync(file, snapshot, Select(snapshot, "line-2", "changed-2", "line-35", "changed-35"));
+        Check(File.ReadAllText(Path.Combine(root, "many.txt")).Contains("line-2\n") &&
+            File.ReadAllText(Path.Combine(root, "many.txt")).Contains("line-35\n"), "複数箇所の選択行を破棄");
+        WriteLines(Path.Combine(root, "new.txt"), "new");
+        WriteLines(path, "updated");
+        await stage.StageAllAsync();
+        Check(Git(root, "show", ":new.txt") == "new\n" && Git(root, "show", ":tracked.txt") == "updated\n" &&
+            Git(root, "show", ":other.txt") == "staged\n", "すべてステージして既存ステージを維持");
     }
 
     private static void Initialize(string root)

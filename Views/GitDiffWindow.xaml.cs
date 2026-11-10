@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -13,8 +14,10 @@ namespace HotKeyCommandApp.Views
     public partial class GitDiffWindow : Window
     {
         private const string TabReorderDataFormat = "HotKeyCommandApp.GitDiffRepositoryTab";
+        private static readonly string PlacementPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "git_diff_window_placement.json");
         private Point _tabDragStartPoint;
         private TabItem _draggedTab;
+        private WindowState _lastNonMinimizedWindowState = WindowState.Normal;
         private GitDiffRepositoryView ActiveView => (RepositoryTabs.SelectedItem as TabItem)?.Content as GitDiffRepositoryView;
         private IEnumerable<GitDiffRepositoryView> RepositoryViews =>
             RepositoryTabs.Items.Cast<TabItem>().Select(tab => (GitDiffRepositoryView)tab.Content);
@@ -42,11 +45,65 @@ namespace HotKeyCommandApp.Views
         public GitDiffWindow(string repositoryPath, double movementSpeed = 1200.0)
         {
             InitializeComponent();
+            RestorePlacement();
+            _lastNonMinimizedWindowState = WindowState;
+            StateChanged += (_, _) => { if (WindowState != WindowState.Minimized) _lastNonMinimizedWindowState = WindowState; };
             SelectRepository(repositoryPath, movementSpeed);
+            ContentRendered += (_, _) => FocusActiveViewIfNeeded();
+            Activated += (_, _) => Dispatcher.BeginInvoke(FocusActiveViewIfNeeded, System.Windows.Threading.DispatcherPriority.Loaded);
             Closed += (_, _) =>
             {
                 foreach (var view in RepositoryViews) view.Dispose();
             };
+        }
+
+        private sealed record WindowPlacement(double Left, double Top, double Width, double Height, bool Maximized);
+
+        private void RestorePlacement()
+        {
+            try
+            {
+                if (!File.Exists(PlacementPath)) return;
+                var placement = JsonSerializer.Deserialize<WindowPlacement>(File.ReadAllText(PlacementPath));
+                if (placement == null || !double.IsFinite(placement.Left) || !double.IsFinite(placement.Top) ||
+                    !double.IsFinite(placement.Width) || !double.IsFinite(placement.Height) ||
+                    placement.Width < MinWidth || placement.Height < MinHeight) return;
+
+                Width = placement.Width;
+                Height = placement.Height;
+                var screen = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
+                    SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+                var titleArea = new Rect(placement.Left, placement.Top, placement.Width, Math.Min(32, placement.Height));
+                titleArea.Intersect(screen);
+                if (!titleArea.IsEmpty && titleArea.Width >= 80 && titleArea.Height >= 16)
+                {
+                    WindowStartupLocation = WindowStartupLocation.Manual;
+                    Left = placement.Left;
+                    Top = placement.Top;
+                }
+                if (placement.Maximized) WindowState = WindowState.Maximized;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException) { }
+        }
+
+        private void SavePlacement()
+        {
+            Rect bounds = WindowState == WindowState.Normal ? new Rect(Left, Top, ActualWidth, ActualHeight) : RestoreBounds;
+            if (bounds.IsEmpty || !double.IsFinite(bounds.Left) || !double.IsFinite(bounds.Top) ||
+                !double.IsFinite(bounds.Width) || !double.IsFinite(bounds.Height) || bounds.Width < MinWidth || bounds.Height < MinHeight) return;
+            try
+            {
+                File.WriteAllText(PlacementPath, JsonSerializer.Serialize(new WindowPlacement(
+                    bounds.Left, bounds.Top, bounds.Width, bounds.Height, _lastNonMinimizedWindowState == WindowState.Maximized)));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+
+        private void FocusActiveViewIfNeeded()
+        {
+            if (!IsActive || ActiveView == null || ActiveView.IsKeyboardFocusWithin ||
+                OwnedWindows.Cast<Window>().Any(window => window.IsActive)) return;
+            ActiveView.FocusFileList();
         }
 
         private void SelectRepository(string repositoryPath, double movementSpeed)
@@ -162,6 +219,7 @@ namespace HotKeyCommandApp.Views
         {
             if (RepositoryViews.Any(view => view.ViewModel.IsOperating)) { e.Cancel = true; return; }
             base.OnClosing(e);
+            if (!e.Cancel) SavePlacement();
         }
 
         private async void Window_PreviewKeyDown(object sender, KeyEventArgs e)

@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:HotKeyCommandApp.Views.Controls"
              Background="#1E1E1E" Foreground="#D4D4D4"
-             PreviewKeyDown="View_PreviewKeyDown">
+             PreviewKeyDown="View_PreviewKeyDown" PreviewMouseLeftButtonDown="View_PreviewMouseLeftButtonDown">
     <UserControl.Resources>
         <Style TargetType="Button" BasedOn="{StaticResource ActionButtonStyle}">
             <Setter Property="Background" Value="#383838"/>
@@ -124,7 +124,17 @@
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="変更ファイル" FontWeight="SemiBold" Margin="14,13,14,4"/>
                     <StackPanel DockPanel.Dock="Bottom" Margin="8,6,8,8">
-                        <Button Content="ステージ済みをコミット" Click="CommitStagedButton_Click" Padding="8,5">
+                        <Button x:Name="StageAllButton" Content="すべてステージ" Click="StageAllButton_Click" Padding="8,5" Margin="0,0,0,6">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasUnstagedChanges}" Value="False"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
+                                        <DataTrigger Binding="{Binding IsBusy}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                        <Button x:Name="CommitStagedButton" Content="ステージ済みをコミット" Click="CommitStagedButton_Click" Padding="8,5">
                             <Button.Style>
                                 <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                     <Style.Triggers>
@@ -168,9 +178,16 @@
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="Background" Value="#303033"/></Trigger>
                                                 <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="Row" Property="Background" Value="#303033"/>
+                                                </Trigger>
+                                                <MultiTrigger>
+                                                  <MultiTrigger.Conditions>
+                                                    <Condition Property="IsSelected" Value="True"/>
+                                                    <Condition Property="IsKeyboardFocused" Value="True"/>
+                                                  </MultiTrigger.Conditions>
                                                     <Setter TargetName="Row" Property="Background" Value="#163849"/>
                                                     <Setter TargetName="Row" Property="BorderBrush" Value="#007ACC"/>
-                                                </Trigger>
+                                                </MultiTrigger>
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>
                                     </Setter.Value>
@@ -186,9 +203,9 @@
                                         <TextBlock Text="{Binding DirectoryName}" Foreground="#999999" FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
                                     </StackPanel>
                                     <TextBlock Grid.Column="1" Text="{Binding Change}" Foreground="#8CBFE5" FontSize="10" Margin="8,0,0,0" VerticalAlignment="Center"/>
-                                    <Button Grid.Column="2" Content="⧉" ToolTip="ファイル名をコピー" Click="CopyFileNameButton_Click"
+                                    <Button x:Name="FileCopyButton" Grid.Column="2" Content="⧉" ToolTip="ファイル名をコピー" Click="CopyFileNameButton_Click"
                                             Padding="5,2" Margin="4,0,0,0" VerticalAlignment="Center"/>
-                                    <Button Grid.Column="3" Click="StageFileButton_Click" Padding="5,2" Margin="4,0,0,0" VerticalAlignment="Center">
+                                    <Button x:Name="FileStageButton" Grid.Column="3" Click="StageFileButton_Click" Padding="5,2" Margin="4,0,0,0" VerticalAlignment="Center">
                                         <Button.Style>
                                             <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                                 <Setter Property="Content" Value="ステージ"/>
@@ -214,9 +231,8 @@
             <Grid Grid.Column="2">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Border Background="#252526" BorderBrush="#3A3A3A" BorderThickness="0,0,0,1" Padding="14,12">
+                  <StackPanel>
                     <DockPanel>
-                        <Button DockPanel.Dock="Right" Content="選択行をステージ" Click="StageLinesButton_Click" Margin="12,0,0,0" Padding="8,4"
-                                IsEnabled="{Binding CanStageLines}" ToolTip="差分コード内で選択した追加行・削除行をステージ"/>
                         <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" FontFamily="Consolas" Foreground="#B0C4B1" Margin="16,0,0,0"/>
                         <Button DockPanel.Dock="Right" Content="⧉" Click="CopySelectedFileNameButton_Click" Padding="5,2" Margin="8,0,0,0"
                                 ToolTip="ファイル名をコピー"/>
@@ -227,6 +243,23 @@
                             <TextBlock Text="{Binding Comparison}" Foreground="#999999" FontSize="11" Margin="0,5,0,0"/>
                         </StackPanel>
                     </DockPanel>
+                    <WrapPanel Margin="0,8,0,0">
+                        <Button Content="選択行をステージ" Click="StageLinesButton_Click" Padding="8,4" Margin="0,0,6,0"
+                                IsEnabled="{Binding CanStageLines}" ToolTip="差分コード内で選択した追加行・削除行をステージ"/>
+                        <Button Content="選択行を破棄" Click="DiscardLinesButton_Click" Padding="8,4" Margin="0,0,6,0"
+                                IsEnabled="{Binding CanStageLines}" ToolTip="選択した未ステージの変更行を元に戻す"/>
+                        <Button Content="ファイルの変更を破棄" Click="DiscardFileButton_Click" Padding="8,4"
+                                IsEnabled="{Binding CanDiscardFile}" ToolTip="このファイルの未ステージ変更を元に戻す"/>
+                        <StackPanel Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center">
+                            <Button x:Name="DecreaseDiffFontButton" Content="−" Width="25" Padding="0,4" Click="DecreaseDiffFontButton_Click"
+                                    ToolTip="差分の文字を小さくする" AutomationProperties.Name="差分の文字を小さくする"/>
+                            <TextBlock x:Name="DiffFontSizeText" Text="12" Width="28" TextAlignment="Center" VerticalAlignment="Center"
+                                       ToolTip="差分の文字サイズ"/>
+                            <Button x:Name="IncreaseDiffFontButton" Content="＋" Width="25" Padding="0,4" Click="IncreaseDiffFontButton_Click"
+                                    ToolTip="差分の文字を大きくする" AutomationProperties.Name="差分の文字を大きくする"/>
+                        </StackPanel>
+                    </WrapPanel>
+                  </StackPanel>
                 </Border>
                 <TextBlock Grid.Row="1" Text="{Binding Message}" TextWrapping="Wrap" Foreground="#B7B7B7">
                     <TextBlock.Style>
