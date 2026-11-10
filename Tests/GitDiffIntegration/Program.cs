@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -16,6 +17,15 @@ using LibGit2Sharp;
 
 internal static class Program
 {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string windowName);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr GetWindow(IntPtr window, uint command);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+
     [STAThread]
     private static int Main()
     {
@@ -37,6 +47,7 @@ internal static class Program
                 TestBranchInfo(workspace);
                 await TestBranchOperationsAsync(workspace);
                 await TestRepositoryTabsAsync(workspace);
+                await TestRefreshOnActivationAsync(workspace);
                 await TestSyntaxViewAsync(workspace);
                 await TestFileActionNavigationAsync(workspace);
                 await TestPlacementAndInitialFocusAsync(workspace);
@@ -247,6 +258,98 @@ internal static class Program
         var reopened = Application.Current.Windows.OfType<GitDiffWindow>().Single();
         Check(!ReferenceEquals(reopened, window), "閉じた後の新規表示");
         reopened.Close();
+    }
+
+    private static async Task TestRefreshOnActivationAsync(string workspace)
+    {
+        string firstPath = CreateRepository(workspace, "activation-first", "first.txt");
+        string secondPath = CreateRepository(workspace, "activation-second", "second.txt");
+        GitDiffWindow.ShowForRepository(firstPath);
+        var window = Application.Current.Windows.OfType<GitDiffWindow>().Single();
+        var tabs = (TabControl)window.FindName("RepositoryTabs");
+        var firstTab = (TabItem)tabs.SelectedItem;
+        var firstView = (GitDiffRepositoryView)firstTab.Content;
+        await WaitForAsync(() => !firstView.ViewModel.IsBusy && firstView.ViewModel.Lines.Count > 0);
+        GitDiffWindow.ShowForRepository(secondPath);
+        var secondTab = (TabItem)tabs.SelectedItem;
+        var secondView = (GitDiffRepositoryView)secondTab.Content;
+        await WaitForAsync(() => !secondView.ViewModel.IsBusy && secondView.ViewModel.Lines.Count > 0);
+
+        var other = new Window { Width = 200, Height = 100, ShowInTaskbar = false, Title = "フォーカス切り替えテスト" };
+        other.Show();
+        other.Activate();
+        await WaitForAsync(() => !window.IsActive);
+        File.WriteAllText(Path.Combine(firstPath, "first.txt"), "updated first\n");
+        File.WriteAllText(Path.Combine(secondPath, "second.txt"), "updated second\n");
+        File.WriteAllText(Path.Combine(secondPath, "additional.txt"), "new file\n");
+        window.Activate();
+        await WaitForAsync(() => !secondView.ViewModel.IsBusy && secondView.ViewModel.Files.Count == 2 &&
+            secondView.ViewModel.Lines.Any(line => line.Text == "updated second"));
+        Check(secondView.ViewModel.SelectedFile?.FileName == "second.txt", "再フォーカスで選択ファイルを保ち差分と一覧を更新");
+
+        int busyRefreshes = 0;
+        secondView.ViewModel.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(GitDiffViewModel.IsRefreshing) && secondView.ViewModel.IsRefreshing) busyRefreshes++;
+        };
+        var operation = secondView.ViewModel.StageFileAsync(secondView.ViewModel.SelectedFile);
+        Check(secondView.ViewModel.IsOperating, "Git操作中に自動更新を要求");
+        secondView.RequestRefreshOnActivation();
+        await operation;
+        await WaitForAsync(() => busyRefreshes >= 2 && !secondView.ViewModel.IsBusy);
+        Check(busyRefreshes >= 2, "Git操作後に保留した自動更新を実行");
+
+        tabs.SelectedItem = firstTab;
+        await WaitForAsync(() => !firstView.ViewModel.IsBusy && firstView.ViewModel.Lines.Any(line => line.Text == "updated first"));
+        Check(firstView.ViewModel.SelectedFile?.FileName == "first.txt", "非表示だったタブも選択時に更新");
+
+        using (var repository = new Repository(firstPath)) Commands.Stage(repository, "first.txt");
+        await firstView.RefreshAsync();
+        await WaitForAsync(() => firstView.ViewModel.HasStagedChanges && !firstView.ViewModel.IsBusy);
+        int refreshes = 0, activations = 0;
+        firstView.ViewModel.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(GitDiffViewModel.IsRefreshing) && firstView.ViewModel.IsRefreshing) refreshes++;
+        };
+        window.Activated += (_, _) => activations++;
+        var commit = (Button)firstView.FindName("CommitStagedButton");
+        _ = Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            var dialog = Application.Current.Windows.OfType<CommitMessageDialog>().Single();
+            dialog.Close();
+        }, System.Windows.Threading.DispatcherPriority.Background);
+        commit.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        Check(activations > 0 && refreshes == 0 && firstView.ViewModel.SelectedFile != null,
+            "確認ダイアログを閉じた際は自動更新しない");
+
+        File.WriteAllText(Path.Combine(firstPath, "first.txt"), "discard this change\n");
+        await firstView.RefreshAsync();
+        firstView.ViewModel.SelectedFile = firstView.ViewModel.Files.Single(file => !file.IsStaged);
+        await WaitForAsync(() => firstView.ViewModel.CanDiscardFile);
+        refreshes = 0;
+        activations = 0;
+        var confirmationTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
+        confirmationTimer.Tick += (_, _) =>
+        {
+            var owner = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+            var dialog = IntPtr.Zero;
+            while ((dialog = FindWindowEx(IntPtr.Zero, dialog, null, "変更の破棄")) != IntPtr.Zero)
+            {
+                if (GetWindow(dialog, 4) != owner) continue;
+                confirmationTimer.Stop();
+                PostMessage(dialog, 0x0111, new IntPtr(6), IntPtr.Zero);
+                break;
+            }
+        };
+        var discard = FindVisuals<Button>(firstView).Single(button => button.ToolTip?.ToString() == "このファイルの未ステージ変更を元に戻す");
+        confirmationTimer.Start();
+        discard.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await WaitForAsync(() => !firstView.ViewModel.IsBusy && firstView.ViewModel.OperationStatus.Contains("未ステージ変更を破棄しました"));
+        Check(activations > 0 && refreshes == 1 && File.ReadAllText(Path.Combine(firstPath, "first.txt")).Replace("\r\n", "\n") == "updated first\n",
+            "破棄の確認後も対象を維持し正しく実行");
+        other.Close();
+        window.Close();
     }
 
     private static async Task TestSyntaxViewAsync(string workspace)

@@ -16,6 +16,10 @@ namespace HotKeyCommandApp.Views.Controls
         private readonly GitDiffViewModel _viewModel;
         private bool _initialized;
         private bool _isRenameDialogOpen;
+        private bool _isModalDialogOpen;
+        private bool _activationRefreshPending;
+        private bool _activationRefreshRunning;
+        private bool _disposed;
         private int _inputVersion;
         private int _diffFontSize = 12;
 
@@ -28,6 +32,7 @@ namespace HotKeyCommandApp.Views.Controls
             _viewModel.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(GitDiffViewModel.Lines)) DiffLines.SetLines(_viewModel.Lines, _viewModel.SelectedFile, RepositoryPath);
+                if (args.PropertyName == nameof(GitDiffViewModel.IsBusy) && !_viewModel.IsBusy) ProcessActivationRefresh();
             };
             Loaded += async (_, _) =>
             {
@@ -40,6 +45,39 @@ namespace HotKeyCommandApp.Views.Controls
         public string RepositoryPath { get; }
         public GitDiffViewModel ViewModel => _viewModel;
         public bool IsDiffTextFocused => DiffLines.IsKeyboardFocusWithin || SelectedFilePathBox.IsKeyboardFocusWithin;
+        public bool IsModalDialogOpen => _isModalDialogOpen;
+
+        public void RequestRefreshOnActivation()
+        {
+            if (!_initialized || _disposed || _isModalDialogOpen) return;
+            _activationRefreshPending = true;
+            ProcessActivationRefresh();
+        }
+
+        public async void ProcessActivationRefresh()
+        {
+            if (!_activationRefreshPending || _activationRefreshRunning || _disposed || _viewModel.IsBusy ||
+                _isModalDialogOpen || !IsVisible || Window.GetWindow(this)?.IsActive != true) return;
+            _activationRefreshPending = false;
+            _activationRefreshRunning = true;
+            try { await RefreshAsync(); }
+            finally
+            {
+                _activationRefreshRunning = false;
+                if (_activationRefreshPending) ProcessActivationRefresh();
+            }
+        }
+
+        private T ShowModal<T>(Func<T> show)
+        {
+            _isModalDialogOpen = true;
+            try { return show(); }
+            finally
+            {
+                _isModalDialogOpen = false;
+                Dispatcher.BeginInvoke(ProcessActivationRefresh, System.Windows.Threading.DispatcherPriority.Background);
+            }
+        }
 
         public async Task RefreshAsync()
         {
@@ -99,7 +137,7 @@ namespace HotKeyCommandApp.Views.Controls
             {
                 string branchName = _viewModel.CurrentBranchName;
                 var dialog = new BranchNameDialog(currentBranchName: branchName) { Owner = Window.GetWindow(this) };
-                if (dialog.ShowDialog() == true) await _viewModel.RenameCurrentBranchAsync(branchName, dialog.BranchName);
+                if (ShowModal(dialog.ShowDialog) == true) await _viewModel.RenameCurrentBranchAsync(branchName, dialog.BranchName);
             }
             finally
             {
@@ -169,8 +207,8 @@ namespace HotKeyCommandApp.Views.Controls
         private async void DiscardFileButton_Click(object sender, RoutedEventArgs e)
         {
             if (!_viewModel.CanDiscardFile) return;
-            if (MessageBox.Show(Window.GetWindow(this), $"「{_viewModel.SelectedFile.DisplayPath}」の未ステージ変更を破棄します。元に戻せません。\n続行しますか？",
-                "変更の破棄", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes)
+            if (ShowModal(() => MessageBox.Show(Window.GetWindow(this), $"「{_viewModel.SelectedFile.DisplayPath}」の未ステージ変更を破棄します。元に戻せません。\n続行しますか？",
+                "変更の破棄", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No)) == MessageBoxResult.Yes)
                 await _viewModel.DiscardFileAsync();
         }
 
@@ -184,8 +222,8 @@ namespace HotKeyCommandApp.Views.Controls
                 _viewModel.SetOperationStatus("破棄する追加行または削除行を選択してください。");
                 return;
             }
-            if (MessageBox.Show(Window.GetWindow(this), "選択した未ステージの変更行を破棄します。元に戻せません。\n続行しますか？",
-                "選択行の破棄", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes)
+            if (ShowModal(() => MessageBox.Show(Window.GetWindow(this), "選択した未ステージの変更行を破棄します。元に戻せません。\n続行しますか？",
+                "選択行の破棄", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No)) == MessageBoxResult.Yes)
                 await _viewModel.DiscardLinesAsync(indices);
         }
 
@@ -193,7 +231,7 @@ namespace HotKeyCommandApp.Views.Controls
         {
             if (_viewModel.IsBusy || !_viewModel.HasStagedChanges) return;
             var dialog = new CommitMessageDialog(stagedOnly: true) { Owner = Window.GetWindow(this) };
-            if (dialog.ShowDialog() == true) await _viewModel.CommitStagedAsync(dialog.Message);
+            if (ShowModal(dialog.ShowDialog) == true) await _viewModel.CommitStagedAsync(dialog.Message);
         }
 
         public void FocusFileList()
@@ -342,6 +380,6 @@ namespace HotKeyCommandApp.Views.Controls
             return buttons.OrderBy(button => button.Name == "FileCopyButton" ? 0 : 1).ToArray();
         }
 
-        public void Dispose() { DiffLines.CancelHighlighting(); _viewModel.Dispose(); }
+        public void Dispose() { _disposed = true; DiffLines.CancelHighlighting(); _viewModel.Dispose(); }
     }
 }

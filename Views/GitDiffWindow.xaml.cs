@@ -50,7 +50,12 @@ namespace HotKeyCommandApp.Views
             StateChanged += (_, _) => { if (WindowState != WindowState.Minimized) _lastNonMinimizedWindowState = WindowState; };
             SelectRepository(repositoryPath, movementSpeed);
             ContentRendered += (_, _) => FocusActiveViewIfNeeded();
-            Activated += (_, _) => Dispatcher.BeginInvoke(FocusActiveViewIfNeeded, System.Windows.Threading.DispatcherPriority.Loaded);
+            Activated += (_, _) =>
+            {
+                if (ActiveView?.IsModalDialogOpen != true)
+                    foreach (var view in RepositoryViews) view.RequestRefreshOnActivation();
+                Dispatcher.BeginInvoke(FocusActiveViewIfNeeded, System.Windows.Threading.DispatcherPriority.Loaded);
+            };
             Closed += (_, _) =>
             {
                 foreach (var view in RepositoryViews) view.Dispose();
@@ -139,6 +144,11 @@ namespace HotKeyCommandApp.Views
         {
             if (e.Source != RepositoryTabs) return;
             DataContext = ActiveView?.ViewModel;
+            var selected = ActiveView;
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (IsActive && ReferenceEquals(ActiveView, selected)) selected?.ProcessActivationRefresh();
+            }, System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         private void CloseTabButton_Click(object sender, RoutedEventArgs e)
