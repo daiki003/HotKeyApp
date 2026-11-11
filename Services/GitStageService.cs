@@ -31,10 +31,14 @@ namespace HotKeyCommandApp.Services
         public async Task DiscardFileAsync(GitDiffFile file, GitDiffContent displayed)
         {
             await ValidateDiscardAsync(file, displayed);
-            var tracked = await RunGitAsync(new[] { "--literal-pathspecs", "ls-files", "--error-unmatch", "--", file.Path });
-            if (tracked.ExitCode == 0)
+            bool tracked = await Task.Run(() =>
+            {
+                using var repository = new Repository(_repositoryPath);
+                return repository.Index[file.Path] != null;
+            });
+            if (tracked)
                 await RunRequiredAsync(new[] { "--literal-pathspecs", "restore", "--worktree", "--", file.Path });
-            else if (tracked.ExitCode == 1 && file.Change == "追加")
+            else if (file.Change == "追加")
                 await RunRequiredAsync(new[] { "--literal-pathspecs", "clean", "-f", "--", file.Path });
             else
                 throw new InvalidOperationException("ファイルの状態を確認できませんでした。F5 で更新してください。");

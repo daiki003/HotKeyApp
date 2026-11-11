@@ -6,6 +6,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using HotKeyCommandApp.Models;
+using HotKeyCommandApp.Services;
 using HotKeyCommandApp.ViewModels;
 using HotKeyCommandApp.Views;
 
@@ -14,6 +15,7 @@ namespace HotKeyCommandApp.Views.Controls
     public partial class GitDiffRepositoryView : UserControl, IDisposable
     {
         private readonly GitDiffViewModel _viewModel;
+        private readonly Func<string, string, int?, Task> _openFile;
         private bool _initialized;
         private bool _isRenameDialogOpen;
         private bool _isModalDialogOpen;
@@ -23,12 +25,14 @@ namespace HotKeyCommandApp.Views.Controls
         private int _inputVersion;
         private int _diffFontSize = 12;
 
-        public GitDiffRepositoryView(string repositoryPath, double movementSpeed)
+        public GitDiffRepositoryView(string repositoryPath, double movementSpeed, Func<string, string, int?, Task> openFile = null)
         {
             RepositoryPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(repositoryPath));
+            _openFile = openFile ?? VsCodeFileOpener.OpenAsync;
             InitializeComponent();
             _viewModel = new GitDiffViewModel(RepositoryPath, movementSpeed);
             DataContext = _viewModel;
+            DiffLines.LineOpenRequested += line => _ = OpenFileAsync(_viewModel.SelectedFile, line);
             _viewModel.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(GitDiffViewModel.Lines)) DiffLines.SetLines(_viewModel.Lines, _viewModel.SelectedFile, RepositoryPath);
@@ -60,7 +64,7 @@ namespace HotKeyCommandApp.Views.Controls
                 _isModalDialogOpen || !IsVisible || Window.GetWindow(this)?.IsActive != true) return;
             _activationRefreshPending = false;
             _activationRefreshRunning = true;
-            try { await RefreshAsync(); }
+            try { await _viewModel.RefreshAsync(); }
             finally
             {
                 _activationRefreshRunning = false;
@@ -81,7 +85,7 @@ namespace HotKeyCommandApp.Views.Controls
 
         public async Task RefreshAsync()
         {
-            if (_viewModel.IsBusy) return;
+            if (_viewModel.IsOperating) return;
             await _viewModel.RefreshAsync();
             if (IsVisible && Window.GetWindow(this)?.IsActive == true) FocusFileList();
         }
@@ -100,6 +104,32 @@ namespace HotKeyCommandApp.Views.Controls
         }
 
         private void CopySelectedFileNameButton_Click(object sender, RoutedEventArgs e) => CopyFileName(_viewModel.SelectedFile);
+
+        private void FileNameButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button { Tag: GitDiffFile file }) return;
+            e.Handled = true;
+            _viewModel.SelectedFile = file;
+        }
+
+        private async void FileNameButton_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left || sender is not Button { Tag: GitDiffFile file }) return;
+            e.Handled = true;
+            _viewModel.SelectedFile = file;
+            await OpenFileAsync(file, null);
+        }
+
+        private async Task OpenFileAsync(GitDiffFile file, int? line)
+        {
+            if (file == null || _disposed) return;
+            try
+            {
+                await _openFile(RepositoryPath, file.Path, line);
+                if (!_disposed) _viewModel.SetOperationStatus($"{file.FileName} を VS Code で開きました。");
+            }
+            catch (Exception ex) { if (!_disposed) _viewModel.SetOperationStatus($"VS Code でファイルを開けませんでした。\n{ex.Message}"); }
+        }
 
         private void CopyCurrentBranchButton_Click(object sender, RoutedEventArgs e)
         {
@@ -210,6 +240,19 @@ namespace HotKeyCommandApp.Views.Controls
             if (ShowModal(() => MessageBox.Show(Window.GetWindow(this), $"「{_viewModel.SelectedFile.DisplayPath}」の未ステージ変更を破棄します。元に戻せません。\n続行しますか？",
                 "変更の破棄", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No)) == MessageBoxResult.Yes)
                 await _viewModel.DiscardFileAsync();
+        }
+
+        private async void FileRowDiscardButton_Click(object sender, RoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (sender is not Button { DataContext: GitDiffFile file } button || _viewModel.IsBusy || file.IsStaged || file.IsConflicted ||
+                (!string.IsNullOrEmpty(file.OldPath) && file.OldPath != file.Path)) return;
+            bool restoreFocus = button.IsKeyboardFocused;
+            int inputVersion = _inputVersion;
+            if (ShowModal(() => MessageBox.Show(Window.GetWindow(this), $"「{file.DisplayPath}」の未ステージ変更を破棄します。元に戻せません。\n続行しますか？",
+                "変更の破棄", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No)) == MessageBoxResult.Yes)
+                await _viewModel.DiscardFileAsync(file);
+            if (restoreFocus && CanRestoreFocus(inputVersion)) FocusFileList();
         }
 
         private async void DiscardLinesButton_Click(object sender, RoutedEventArgs e)
@@ -372,12 +415,12 @@ namespace HotKeyCommandApp.Views.Controls
             var buttons = new List<Button>();
             void Visit(DependencyObject parent)
             {
-                if (parent is Button button && button.Name is "FileCopyButton" or "FileStageButton" && button.IsVisible && button.IsEnabled)
+                if (parent is Button button && button.Name is "FileCopyButton" or "FileStageButton" or "FileDiscardButton" && button.IsVisible && button.IsEnabled)
                     buttons.Add(button);
                 for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++) Visit(VisualTreeHelper.GetChild(parent, i));
             }
             Visit(element);
-            return buttons.OrderBy(button => button.Name == "FileCopyButton" ? 0 : 1).ToArray();
+            return buttons.OrderBy(button => button.Name == "FileCopyButton" ? 0 : button.Name == "FileStageButton" ? 1 : 2).ToArray();
         }
 
         public void Dispose() { _disposed = true; DiffLines.CancelHighlighting(); _viewModel.Dispose(); }

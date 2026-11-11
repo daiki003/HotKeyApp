@@ -17,6 +17,28 @@
             <Setter Property="MinHeight" Value="30"/>
             <Setter Property="FontSize" Value="12"/>
         </Style>
+        <Style x:Key="FileLinkButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#EEEEEE"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="#75BEFF"/></Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="Foreground" Value="#75BEFF"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -197,11 +219,14 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <Grid ToolTip="{Binding DisplayPath}">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding FileName}" Foreground="#EEEEEE" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Text="{Binding DirectoryName}" Foreground="#999999" FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
-                                    </StackPanel>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <Button x:Name="FileOpenButton" Style="{StaticResource FileLinkButtonStyle}" Click="FileNameButton_Click"
+                                            MouseDoubleClick="FileNameButton_MouseDoubleClick" Tag="{Binding}" ToolTip="ダブルクリックで VS Code で開く" Focusable="False">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding DirectoryName}" Foreground="#999999" FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </Button>
                                     <TextBlock Grid.Column="1" Text="{Binding Change}" Foreground="#8CBFE5" FontSize="10" Margin="8,0,0,0" VerticalAlignment="Center"/>
                                     <Button x:Name="FileCopyButton" Grid.Column="2" Content="⧉" ToolTip="ファイル名をコピー" Click="CopyFileNameButton_Click"
                                             Padding="5,2" Margin="4,0,0,0" VerticalAlignment="Center"/>
@@ -217,6 +242,19 @@
                                                     <DataTrigger Binding="{Binding DataContext.IsBusy, RelativeSource={RelativeSource AncestorType=controls:GitDiffRepositoryView}}" Value="True">
                                                         <Setter Property="IsEnabled" Value="False"/>
                                                     </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                    <Button x:Name="FileDiscardButton" Grid.Column="4" Content="破棄" ToolTip="このファイルの未ステージ変更を破棄" Click="FileRowDiscardButton_Click"
+                                            Padding="5,2" Margin="4,0,0,0" VerticalAlignment="Center">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsStaged}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
+                                                    <DataTrigger Binding="{Binding IsConflicted}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
+                                                    <DataTrigger Binding="{Binding Change}" Value="名前変更"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
+                                                    <DataTrigger Binding="{Binding DataContext.IsBusy, RelativeSource={RelativeSource AncestorType=controls:GitDiffRepositoryView}}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
                                         </Button.Style>
@@ -237,9 +275,11 @@
                         <Button DockPanel.Dock="Right" Content="⧉" Click="CopySelectedFileNameButton_Click" Padding="5,2" Margin="8,0,0,0"
                                 ToolTip="ファイル名をコピー"/>
                         <StackPanel>
-                            <TextBox x:Name="SelectedFilePathBox" Text="{Binding SelectedFilePath, Mode=OneWay}" Foreground="White" FontWeight="SemiBold"
-                                     Background="Transparent" BorderThickness="0" Padding="0" IsReadOnly="True" IsReadOnlyCaretVisible="True"
-                                     ToolTip="{Binding SelectedFilePath}"/>
+                            <Button x:Name="SelectedFilePathBox" Style="{StaticResource FileLinkButtonStyle}" Tag="{Binding SelectedFile}"
+                                    Click="FileNameButton_Click" MouseDoubleClick="FileNameButton_MouseDoubleClick"
+                                    FontWeight="SemiBold" ToolTip="ダブルクリックで VS Code で開く">
+                                <TextBlock Text="{Binding SelectedFilePath}" TextTrimming="CharacterEllipsis"/>
+                            </Button>
                             <TextBlock Text="{Binding Comparison}" Foreground="#999999" FontSize="11" Margin="0,5,0,0"/>
                         </StackPanel>
                     </DockPanel>

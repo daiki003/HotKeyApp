@@ -116,6 +116,12 @@ namespace HotKeyCommandApp.ViewModels
             var diff = _displayedDiff;
             return file == null ? Task.CompletedTask : RunOperationAsync(() => _stageService.DiscardFileAsync(file, diff), $"{file.FileName} の未ステージ変更を破棄しました。");
         }
+        public Task DiscardFileAsync(GitDiffFile file) => file == null ? Task.CompletedTask : RunOperationAsync(async () =>
+        {
+            var diff = ReferenceEquals(file, SelectedFile) && _displayedDiff != null
+                ? _displayedDiff : await Task.Run(() => _service.ReadDiff(file, CancellationToken.None));
+            await _stageService.DiscardFileAsync(file, diff);
+        }, $"{file.FileName} の未ステージ変更を破棄しました。");
         public Task DiscardLinesAsync(IReadOnlyCollection<int> indices)
         {
             var file = SelectedFile;
@@ -172,31 +178,42 @@ namespace HotKeyCommandApp.ViewModels
             _refreshCts?.Dispose();
             _refreshCts = new CancellationTokenSource();
             var token = _refreshCts.Token;
-            string selectedKey = SelectedFile?.Key;
+            var initialSelection = SelectedFile;
+            string selectedKey = initialSelection?.Key;
             IsRefreshing = true;
-            SelectedFile = null;
-            Message = "ファイル一覧を読み込んでいます...";
-            CurrentBranch = "読み込み中...";
-            CurrentBranchName = string.Empty;
-            SetTrackingInfo(null);
             _settingsManager.LoadSettings();
             BaseBranch = _settingsManager.CurrentSettings.RepositoryNameMappings.FirstOrDefault(mapping =>
                 string.Equals(Path.TrimEndingDirectorySeparator(mapping.Path ?? string.Empty), _repositoryPath, StringComparison.OrdinalIgnoreCase))
                 ?.BaseBranch?.Trim() ?? string.Empty;
             try
             {
-                var snapshot = await Task.Run(() => (Files: _service.ReadFiles(token), Branch: _service.ReadBranchInfo(token)), token);
+                var filesTask = Task.Run(() => _service.ReadFiles(token), token);
+                var branchTask = Task.Run(() => _service.ReadBranchInfo(token), token);
+                await Task.WhenAll(filesTask, branchTask);
+                var snapshot = (Files: await filesTask, Branch: await branchTask);
                 if (token.IsCancellationRequested || _disposed) return;
                 var files = snapshot.Files;
                 CurrentBranch = snapshot.Branch.CurrentBranch;
                 CurrentBranchName = snapshot.Branch.BranchName;
                 SetTrackingInfo(snapshot.Branch);
-                Files.Clear();
-                foreach (var file in files) Files.Add(file);
+                var fileSet = files.ToHashSet();
+                for (int i = Files.Count - 1; i >= 0; i--)
+                    if (!fileSet.Contains(Files[i])) Files.RemoveAt(i);
+                for (int i = 0; i < files.Count; i++)
+                {
+                    int existingIndex = Files.IndexOf(files[i]);
+                    if (existingIndex < 0) Files.Insert(i, files[i]);
+                    else if (existingIndex != i) Files.Move(existingIndex, i);
+                }
                 OnPropertyChanged(nameof(HasStagedChanges));
                 OnPropertyChanged(nameof(HasUnstagedChanges));
                 Overview = $"未ステージ {files.Count(file => !file.IsStaged)} 件  /  ステージ済み {files.Count(file => file.IsStaged)} 件";
-                SelectedFile = files.FirstOrDefault(file => file.Key == selectedKey) ?? files.FirstOrDefault();
+                var previousSelection = SelectedFile;
+                if (previousSelection != null && !ReferenceEquals(previousSelection, initialSelection))
+                    selectedKey = previousSelection.Key;
+                SelectedFile = Files.FirstOrDefault(file => file.Key == selectedKey) ?? Files.FirstOrDefault();
+                if (ReferenceEquals(previousSelection, SelectedFile) && SelectedFile != null)
+                    await LoadDiffAsync(SelectedFile, preserveDisplay: true);
                 if (SelectedFile == null) Message = "未コミットの変更はありません。";
             }
             catch (OperationCanceledException) { }
@@ -230,25 +247,32 @@ namespace HotKeyCommandApp.ViewModels
                 : $"追跡先: {TrackedBranch}\nbehind: リモート側だけにあるコミット数\nahead: ローカル側だけにあるコミット数\n最終 fetch / pull で取得したリモート情報に基づきます。";
         }
 
-        private async Task LoadDiffAsync(GitDiffFile file)
+        private async Task LoadDiffAsync(GitDiffFile file, bool preserveDisplay = false)
         {
             _diffCts?.Cancel();
             _diffCts?.Dispose();
             _diffCts = new CancellationTokenSource();
             var token = _diffCts.Token;
-            _displayedDiff = null;
-            OnPropertyChanged(nameof(CanStageLines));
-            OnPropertyChanged(nameof(CanDiscardFile));
-            Lines = Array.Empty<GitDiffLine>();
-            Summary = "";
+            if (!preserveDisplay)
+            {
+                _displayedDiff = null;
+                OnPropertyChanged(nameof(CanStageLines));
+                OnPropertyChanged(nameof(CanDiscardFile));
+                Lines = Array.Empty<GitDiffLine>();
+                Summary = "";
+            }
             if (file == null || _disposed) return;
-            Message = "差分を読み込んでいます...";
+            if (!preserveDisplay) Message = "差分を読み込んでいます...";
             try
             {
-                var diff = await Task.Run(() => _service.ReadDiff(file, token), token);
+                var previousDiff = preserveDisplay ? _displayedDiff : null;
+                var diff = await Task.Run(() => _service.ReadDiff(file, token, previousDiff), token);
                 if (token.IsCancellationRequested || _disposed) return;
+                bool unchanged = preserveDisplay && _displayedDiff != null &&
+                    _displayedDiff.RawPatch == diff.RawPatch && _displayedDiff.Message == diff.Message &&
+                    _displayedDiff.Added == diff.Added && _displayedDiff.Deleted == diff.Deleted;
                 _displayedDiff = diff;
-                Lines = diff.Lines;
+                if (!unchanged) Lines = diff.Lines;
                 OnPropertyChanged(nameof(CanStageLines));
                 OnPropertyChanged(nameof(CanDiscardFile));
                 Summary = $"+{diff.Added}  −{diff.Deleted}";

@@ -135,7 +135,7 @@ namespace HotKeyCommandApp.Views
             {
                 Dispatcher.BeginInvoke(() =>
                 {
-                    if (IsActive) ActiveView?.FocusFileList();
+                    FocusActiveViewIfNeeded();
                 }, System.Windows.Threading.DispatcherPriority.Input);
             }
         }

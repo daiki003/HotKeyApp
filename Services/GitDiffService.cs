@@ -88,7 +88,7 @@ namespace HotKeyCommandApp.Services
             return "変更";
         }
 
-        public GitDiffContent ReadDiff(GitDiffFile file, CancellationToken cancellationToken)
+        public GitDiffContent ReadDiff(GitDiffFile file, CancellationToken cancellationToken, GitDiffContent previous = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (file.IsConflicted)
@@ -107,10 +107,13 @@ namespace HotKeyCommandApp.Services
             if (!patch.Any())
                 return new GitDiffContent(Array.Empty<GitDiffLine>(), 0, 0, "現在、このファイルに表示できる差分はありません。F5 で一覧を更新できます。");
 
-            var lines = ParsePatch(patch.Content, cancellationToken, out bool truncated);
+            string content = patch.Content;
+            if (previous != null && previous.RawPatch == content && previous.Added == patch.LinesAdded && previous.Deleted == patch.LinesDeleted)
+                return previous;
+            var lines = ParsePatch(content, cancellationToken, out bool truncated);
             string message = truncated ? $"差分が大きいため、先頭 {MaxDisplayedLines:N0} 行まで表示しています。" :
                 lines.Count == 0 ? "ファイル名またはファイル属性のみが変更されています。" : string.Empty;
-            return new GitDiffContent(lines, patch.LinesAdded, patch.LinesDeleted, message, patch.Content);
+            return new GitDiffContent(lines, patch.LinesAdded, patch.LinesDeleted, message, content);
         }
 
         private static IReadOnlyList<GitDiffLine> ParsePatch(string patch, CancellationToken cancellationToken, out bool truncated)

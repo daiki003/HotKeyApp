@@ -27,15 +27,21 @@ internal static class Program
     private static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 
     [STAThread]
-    private static int Main()
+    private static int Main(string[] args)
     {
-        string workspace = Path.Combine(Path.GetTempPath(), "HotKeyGitDiffTests-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workspace);
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary
         {
             Source = new Uri("/HotKeyCommandApp;component/Views/Controls/SettingsSharedResources.xaml", UriKind.Relative)
         });
+        if (args.Length == 2 && args[0] == "--preview")
+        {
+            app.ShutdownMode = ShutdownMode.OnLastWindowClose;
+            app.Startup += (_, _) => GitDiffWindow.ShowForRepository(args[1]);
+            return app.Run();
+        }
+        string workspace = Path.Combine(Path.GetTempPath(), "HotKeyGitDiffTests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(workspace);
         app.Startup += async (_, _) =>
         {
             int result = 0;
@@ -43,11 +49,15 @@ internal static class Program
             {
                 TestShortcutSettings();
                 TestSyntaxHighlighting();
+                TestIntralineHighlighting();
+                await TestVsCodeArgumentsAsync(workspace);
                 TestSyntaxContext(workspace);
                 TestBranchInfo(workspace);
                 await TestBranchOperationsAsync(workspace);
                 await TestRepositoryTabsAsync(workspace);
                 await TestRefreshOnActivationAsync(workspace);
+                await TestIntralineViewAsync(workspace);
+                await TestFileNavigationAsync(workspace);
                 await TestSyntaxViewAsync(workspace);
                 await TestFileActionNavigationAsync(workspace);
                 await TestPlacementAndInitialFocusAsync(workspace);
@@ -68,6 +78,61 @@ internal static class Program
             }
         };
         return app.Run();
+    }
+
+    private static void TestIntralineHighlighting()
+    {
+        var lines = new[]
+        {
+            new GitDiffLine("1", "", "−", "alpha old value end", GitDiffLineKind.Deleted),
+            new GitDiffLine("", "1", "+", "alpha new value end", GitDiffLineKind.Added),
+            new GitDiffLine("2", "2", "", "context", GitDiffLineKind.Context),
+            new GitDiffLine("3", "", "−", "call(foo);", GitDiffLineKind.Deleted),
+            new GitDiffLine("", "3", "+", "call(foo, bar);", GitDiffLineKind.Added)
+        };
+        var spans = GitDiffIntralineHighlighter.Highlight(lines, CancellationToken.None);
+        Check(string.Concat(spans[0].Select(span => lines[0].Text.Substring(span.Start, span.Length))) == "old" &&
+            string.Concat(spans[1].Select(span => lines[1].Text.Substring(span.Start, span.Length))) == "new", "変更された文字だけを強調");
+        Check(spans[2].Count == 0 && spans[3].Count == 0 && spans[4].Single() == new GitDiffChangeSpan(8, 5), "追加文字と変更なしの箇所を区別");
+        var unrelated = new[]
+        {
+            new GitDiffLine("1", "", "−", "    delete previous content", GitDiffLineKind.Deleted),
+            new GitDiffLine("", "1", "+", "    entirely different replacement", GitDiffLineKind.Added)
+        };
+        Check(GitDiffIntralineHighlighter.Highlight(unrelated, CancellationToken.None).All(line => line.Count == 0), "大部分が異なる行にはマーカーを付けない");
+        Check(GitDiffIntralineHighlighter.Highlight(new[] { lines[0], lines[0], lines[1], lines[1] }, CancellationToken.None)
+            .All(line => line.Count == 0), "複数行の置換を強制的に対応付けない");
+        var wordChange = new[]
+        {
+            new GitDiffLine("1", "", "−", "return settings.CurrentBranch;", GitDiffLineKind.Deleted),
+            new GitDiffLine("", "1", "+", "return settings.DefaultBranch;", GitDiffLineKind.Added)
+        };
+        var words = GitDiffIntralineHighlighter.Highlight(wordChange, CancellationToken.None);
+        Check(words[0].Single() == new GitDiffChangeSpan(16, 13) && words[1].Single() == new GitDiffChangeSpan(16, 13),
+            "変更された単語の中を細切れにしない");
+    }
+
+    private static async Task TestVsCodeArgumentsAsync(string workspace)
+    {
+        var method = typeof(VsCodeFileOpener).GetMethod("CreateStartInfo", BindingFlags.NonPublic | BindingFlags.Static);
+        string directory = Path.Combine(workspace, "VS Code");
+        string cliPath = Path.Combine(directory, "resources", "app", "out", "cli.js");
+        Directory.CreateDirectory(Path.GetDirectoryName(cliPath));
+        File.WriteAllText(cliPath, "");
+        var start = (ProcessStartInfo)method.Invoke(null, new object[] { Path.Combine(directory, "Code.exe"), @"C:\repo space", @"C:\repo space\file name.cs", 42 });
+        Check(start.ArgumentList.SequenceEqual(new[] { cliPath, "--reuse-window", @"C:\repo space", "--goto", @"C:\repo space\file name.cs:42" }) &&
+            start.WorkingDirectory == @"C:\repo space" && start.Environment["ELECTRON_RUN_AS_NODE"] == "1", "VS Code の CLI、リポジトリ、行番号を引数に指定");
+        var fileOnly = (ProcessStartInfo)method.Invoke(null, new object[] { Path.Combine(directory, "Code.exe"), @"C:\repo space", @"C:\repo space\file name.cs", null });
+        Check(fileOnly.ArgumentList.SequenceEqual(new[] { cliPath, "--reuse-window", @"C:\repo space", @"C:\repo space\file name.cs" }),
+            "ファイル名から開く場合は行移動の引数を付けない");
+        string executable = (string)typeof(VsCodeFileOpener).GetMethod("FindExecutable", BindingFlags.NonPublic | BindingFlags.Static).Invoke(null, null);
+        if (executable == null) return;
+        start = (ProcessStartInfo)method.Invoke(null, new object[] { executable, workspace, cliPath, 42 });
+        start.ArgumentList.Add("--version");
+        using var process = Process.Start(start);
+        Task<string> stdout = process.StandardOutput.ReadToEndAsync(), stderr = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        Check(process.ExitCode == 0 && (await stdout).Contains('.') && string.IsNullOrWhiteSpace(await stderr), "実際の VS Code CLI が継承環境でも正常起動");
     }
 
     private static void TestSyntaxHighlighting()
@@ -348,14 +413,94 @@ internal static class Program
         await WaitForAsync(() => !firstView.ViewModel.IsBusy && firstView.ViewModel.OperationStatus.Contains("未ステージ変更を破棄しました"));
         Check(activations > 0 && refreshes == 1 && File.ReadAllText(Path.Combine(firstPath, "first.txt")).Replace("\r\n", "\n") == "updated first\n",
             "破棄の確認後も対象を維持し正しく実行");
+        File.WriteAllText(Path.Combine(firstPath, "second.txt"), "untracked\n");
+        await firstView.RefreshAsync();
+        firstView.ViewModel.SelectedFile = firstView.ViewModel.Files.Single(file => file.IsStaged);
+        var fileList = (ListBox)firstView.FindName("FileList");
+        fileList.UpdateLayout();
+        var otherFile = firstView.ViewModel.Files.Single(file => file.Path == "second.txt");
+        var otherItem = (ListBoxItem)fileList.ItemContainerGenerator.ContainerFromItem(otherFile);
+        var rowDiscard = FindVisuals<Button>(otherItem).Single(button => button.Name == "FileDiscardButton");
+        Check(rowDiscard.IsEnabled, "未ステージ行の破棄ボタンを表示");
+        confirmationTimer.Start();
+        rowDiscard.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await WaitForAsync(() => !firstView.ViewModel.IsBusy && !File.Exists(Path.Combine(firstPath, "second.txt")));
+        Check(firstView.ViewModel.SelectedFile?.IsStaged == true && File.Exists(Path.Combine(firstPath, "first.txt")),
+            "未選択行の破棄は指定ファイルだけに適用");
         other.Close();
+        window.Close();
+    }
+
+    private static async Task TestIntralineViewAsync(string workspace)
+    {
+        string path = CreateRepository(workspace, "intraline-view", "sample.cs");
+        File.WriteAllText(Path.Combine(path, "sample.cs"), "class Example {\n    string text = \"old value\";\n}\n");
+        using (var repository = new Repository(path))
+        {
+            Commands.Stage(repository, "sample.cs");
+            var signature = new Signature("Test", "test@example.invalid", DateTimeOffset.UtcNow);
+            repository.Commit("initial", signature, signature);
+        }
+        File.WriteAllText(Path.Combine(path, "sample.cs"), "class Example {\n    string text = \"new value\";\n}\n");
+        GitDiffWindow.ShowForRepository(path);
+        var window = Application.Current.Windows.OfType<GitDiffWindow>().Single();
+        var tabs = (TabControl)window.FindName("RepositoryTabs");
+        var view = (GitDiffRepositoryView)((TabItem)tabs.SelectedItem).Content;
+        var diff = (GitDiffTextView)view.FindName("DiffLines");
+        var background = FindVisuals<FrameworkElement>(diff).Single(element => element.GetType().Name == "DiffBackground");
+        var changes = background.GetType().GetProperty("Changes");
+        await WaitForAsync(() => changes.GetValue(background) is IReadOnlyList<GitDiffChangeSpan>[] spans && spans.Count(line => line.Count > 0) == 2);
+        await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        window.UpdateLayout();
+        SavePreview(window, "intraline-highlight.png");
+        Check(FindVisuals<Button>(diff).Any(button => button.Name == "OpenDiffLineButton" && button.Tag is 2),
+            "差分の行番号の左に行移動ボタンを表示");
+        window.Close();
+    }
+
+    private static async Task TestFileNavigationAsync(string workspace)
+    {
+        string path = CreateRepository(workspace, "file-navigation-links", "sample.cs");
+        File.WriteAllLines(Path.Combine(path, "sample.cs"), Enumerable.Range(1, 100).Select(line => $"line {line}"));
+        var opened = new List<(string Repository, string File, int? Line)>();
+        using var view = new GitDiffRepositoryView(path, 1200, (repository, file, line) =>
+        {
+            opened.Add((repository, file, line));
+            return Task.CompletedTask;
+        });
+        var window = new Window { Content = view, Width = 1000, Height = 600 };
+        window.Show();
+        await WaitForAsync(() => view.ViewModel.Lines.Count > 0 && !view.ViewModel.IsBusy);
+        await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        window.UpdateLayout();
+        var fileButton = FindVisuals<Button>(view).Single(button => button.Name == "FileOpenButton");
+        fileButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(opened.Count == 0, "ファイル名のシングルクリックでは VS Code を開かない");
+        fileButton.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left) { RoutedEvent = Control.MouseDoubleClickEvent });
+        Check(opened.Count == 1 && opened[0] == (path, "sample.cs", (int?)null), "ファイル名のダブルクリックで行指定なしに開く");
+        var header = (Button)view.FindName("SelectedFilePathBox");
+        header.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(opened.Count == 1, "見出しのファイル名もシングルクリックでは開かない");
+        header.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left) { RoutedEvent = Control.MouseDoubleClickEvent });
+        Check(opened.Count == 2 && opened[1].Line == null, "見出しもダブルクリックで行指定なしに開く");
+        var diff = (GitDiffTextView)view.FindName("DiffLines");
+        var lineButton = FindVisuals<Button>(diff).Single(button => button.Name == "OpenDiffLineButton" && button.Tag is 2);
+        lineButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(opened.Count == 3 && opened[2] == (path, "sample.cs", (int?)2), "行番号の左のボタンで該当行に移動");
+        var text = FindVisuals<TextBox>(diff).Single();
+        text.ScrollToEnd();
+        await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        await WaitForAsync(() => FindVisuals<Button>(diff).Any(button => button.Name == "OpenDiffLineButton" && button.Tag is 100));
+        lineButton = FindVisuals<Button>(diff).Single(button => button.Name == "OpenDiffLineButton" && button.Tag is 100);
+        lineButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(opened.Count == 4 && opened[3].Line == 100, "スクロール後も表示行と移動先の行が一致");
         window.Close();
     }
 
     private static async Task TestSyntaxViewAsync(string workspace)
     {
         string path = CreateRepository(workspace, "syntax-view", "sample.cs");
-        File.WriteAllText(Path.Combine(path, "sample.cs"), "public class Example\n{\n\tstring text = \"日本語\"; // comment\n\tint number = 42;\n\tstring longText = \"" + new string('x', 220) + "\";\n}\n");
+        File.WriteAllText(Path.Combine(path, "sample.cs"), "public class Example\n{\n\tstring text = \"日本語\"; // comment\n\tint number = 42;\n\tstring longText = \"" + new string('x', 1000) + "\";\n}\n");
         GitDiffWindow.ShowForRepository(path);
         var window = Application.Current.Windows.OfType<GitDiffWindow>().Single();
         var tabs = (TabControl)window.FindName("RepositoryTabs");
@@ -382,10 +527,35 @@ internal static class Program
             probe.BuildHighlightGeometry(new Point(0, 0), 1, 1).Bounds.Left) < 1, "タブ文字の描画と選択位置が一致");
         SavePreview(window, "syntax-highlight.png");
         Check(diff.GetSelectedLineIndices().Count == 1 && text.SelectedText == "string", "色分け後もテキスト選択と行選択を維持");
+        var originalLines = view.ViewModel.Lines;
+        int originalStart = text.SelectionStart;
+        view.RequestRefreshOnActivation();
+        await WaitForAsync(() => !view.ViewModel.IsBusy);
+        Check(ReferenceEquals(originalLines, view.ViewModel.Lines) && text.IsKeyboardFocused &&
+            text.SelectionStart == originalStart && text.SelectionLength == 6, "Unchanged refresh preserves display, focus and selection");
+        File.AppendAllText(Path.Combine(path, "sample.cs"), "// appended\n");
+        view.RequestRefreshOnActivation();
+        await WaitForAsync(() => !view.ViewModel.IsBusy);
+        Check(!ReferenceEquals(originalLines, view.ViewModel.Lines) && text.IsKeyboardFocused &&
+            text.SelectionStart == originalStart && text.SelectionLength == 6, "Changed refresh preserves focus and selection");
+        window.UpdateLayout();
         text.ScrollToHorizontalOffset(200);
         await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         window.UpdateLayout();
         Check(text.HorizontalOffset > 0 && !text.GetRectFromCharacterIndex(rowStart).IsEmpty, "横スクロール中も色付きの行を描画できる");
+        var wheelHandler = typeof(GitDiffTextView).GetMethod("OnWindowMessage", BindingFlags.NonPublic | BindingFlags.Instance);
+        var position = diff.PointToScreen(new Point(diff.ActualWidth / 2, diff.ActualHeight / 2));
+        var coordinates = new IntPtr(((long)(ushort)(short)position.Y << 16) | (ushort)(short)position.X);
+        double offset = text.HorizontalOffset;
+        object[] wheelArgs = { IntPtr.Zero, 0x020E, new IntPtr(120 << 16), coordinates, false };
+        wheelHandler.Invoke(diff, wheelArgs);
+        await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        Check((bool)wheelArgs[4] && text.HorizontalOffset < offset, "横ホイールの正の入力で逆方向へスクロール");
+        offset = text.HorizontalOffset;
+        wheelArgs = new object[] { IntPtr.Zero, 0x020E, new IntPtr(-120 << 16), coordinates, false };
+        wheelHandler.Invoke(diff, wheelArgs);
+        await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        Check((bool)wheelArgs[4] && text.HorizontalOffset > offset, "横ホイールの負の入力でも逆方向へスクロール");
         SavePreview(window, "syntax-horizontal.png");
         window.Close();
     }
@@ -445,6 +615,10 @@ internal static class Program
         Check(rowButtons[0].IsKeyboardFocused, "ファイルから右キーでコピーへ移動");
         PressArrow(window, rowButtons[0], Key.Right);
         Check(rowButtons[1].IsKeyboardFocused, "コピーから右キーでステージへ移動");
+        var discardButton = FindVisuals<Button>(item).Single(button => button.Name == "FileDiscardButton");
+        PressArrow(window, rowButtons[1], Key.Right);
+        Check(discardButton.IsKeyboardFocused, "ステージの右から破棄へ移動");
+        PressArrow(window, discardButton, Key.Left);
         PressArrow(window, rowButtons[1], Key.Left);
         Check(rowButtons[0].IsKeyboardFocused, "ステージから左キーでコピーへ移動");
         PressArrow(window, rowButtons[0], Key.Left);
