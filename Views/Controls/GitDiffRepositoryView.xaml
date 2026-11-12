@@ -5,6 +5,10 @@
              Background="#1E1E1E" Foreground="#D4D4D4"
              PreviewKeyDown="View_PreviewKeyDown" PreviewMouseLeftButtonDown="View_PreviewMouseLeftButtonDown">
     <UserControl.Resources>
+        <SolidColorBrush x:Key="UnstagedAccentBrush" Color="#E5B567"/>
+        <SolidColorBrush x:Key="StagedAccentBrush" Color="#8BD5A4"/>
+        <SolidColorBrush x:Key="UnstagedHeaderBrush" Color="#332C20"/>
+        <SolidColorBrush x:Key="StagedHeaderBrush" Color="#23382C"/>
         <Style TargetType="Button" BasedOn="{StaticResource ActionButtonStyle}">
             <Setter Property="Background" Value="#383838"/>
             <Setter Property="Foreground" Value="White"/>
@@ -16,6 +20,38 @@
             <Setter Property="Padding" Value="8,4"/>
             <Setter Property="MinHeight" Value="30"/>
             <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style x:Key="SectionActionButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="2" CornerRadius="3"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter x:Name="ButtonContent" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#005A86"/>
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#75BEFF"/>
+                                <Setter TargetName="ButtonContent" Property="TextElement.Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#007ACC"/>
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#B8E4FF"/>
+                                <Setter TargetName="ButtonContent" Property="TextElement.Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#004A78"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="FileLinkButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
@@ -138,7 +174,7 @@
         </Border>
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="280" MinWidth="180"/>
+                <ColumnDefinition Width="280" MinWidth="250"/>
                 <ColumnDefinition Width="5"/>
                 <ColumnDefinition Width="*" MinWidth="350"/>
             </Grid.ColumnDefinitions>
@@ -146,16 +182,6 @@
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="変更ファイル" FontWeight="SemiBold" Margin="14,13,14,4"/>
                     <StackPanel DockPanel.Dock="Bottom" Margin="8,6,8,8">
-                        <Button x:Name="StageAllButton" Content="すべてステージ" Click="StageAllButton_Click" Padding="8,5" Margin="0,0,0,6">
-                            <Button.Style>
-                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding HasUnstagedChanges}" Value="False"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
-                                        <DataTrigger Binding="{Binding IsBusy}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Button.Style>
-                        </Button>
                         <Button x:Name="CommitStagedButton" Content="ステージ済みをコミット" Click="CommitStagedButton_Click" Padding="8,5">
                             <Button.Style>
                                 <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
@@ -177,10 +203,41 @@
                             <GroupStyle>
                                 <GroupStyle.HeaderTemplate>
                                     <DataTemplate>
-                                        <DockPanel Margin="8,14,8,7">
-                                            <TextBlock Text="{Binding ItemCount}" DockPanel.Dock="Right" Foreground="#999999"/>
-                                            <TextBlock Text="{Binding Name}" Foreground="#B7B7B7" FontWeight="SemiBold"/>
-                                        </DockPanel>
+                                        <Border x:Name="SectionHeader" Background="{StaticResource UnstagedHeaderBrush}"
+                                                BorderBrush="{StaticResource UnstagedAccentBrush}" BorderThickness="3,0,0,0"
+                                                Margin="0,10,0,5" Padding="7,7">
+                                            <DockPanel LastChildFill="True">
+                                                <TextBlock Text="{Binding ItemCount}" DockPanel.Dock="Right" MinWidth="18" TextAlignment="Right"
+                                                           Foreground="{Binding Foreground, ElementName=SectionTitle}" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                                <Button x:Name="SectionActionButton" DockPanel.Dock="Right" Content="すべてステージ"
+                                                        Click="SectionActionButton_Click" Padding="5,3" FontSize="11" Margin="6,0,0,0"
+                                                        Foreground="{StaticResource UnstagedAccentBrush}" BorderBrush="{StaticResource UnstagedAccentBrush}">
+                                                    <Button.Style>
+                                                        <Style TargetType="Button" BasedOn="{StaticResource SectionActionButtonStyle}">
+                                                            <Setter Property="ToolTip" Value="このリポジトリの未ステージ変更をすべてステージ"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding DataContext.IsBusy, RelativeSource={RelativeSource AncestorType=controls:GitDiffRepositoryView}}" Value="True">
+                                                                    <Setter Property="IsEnabled" Value="False"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Button.Style>
+                                                </Button>
+                                                <TextBlock x:Name="SectionTitle" Text="{Binding Name}" Foreground="{StaticResource UnstagedAccentBrush}"
+                                                           FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                            </DockPanel>
+                                        </Border>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding Name}" Value="ステージ済み">
+                                                <Setter TargetName="SectionHeader" Property="Background" Value="{StaticResource StagedHeaderBrush}"/>
+                                                <Setter TargetName="SectionHeader" Property="BorderBrush" Value="{StaticResource StagedAccentBrush}"/>
+                                                <Setter TargetName="SectionTitle" Property="Foreground" Value="{StaticResource StagedAccentBrush}"/>
+                                                <Setter TargetName="SectionActionButton" Property="Content" Value="すべて解除"/>
+                                                <Setter TargetName="SectionActionButton" Property="ToolTip" Value="作業中のファイルを残して、このリポジトリのステージをすべて解除"/>
+                                                <Setter TargetName="SectionActionButton" Property="Foreground" Value="{StaticResource StagedAccentBrush}"/>
+                                                <Setter TargetName="SectionActionButton" Property="BorderBrush" Value="{StaticResource StagedAccentBrush}"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
                                     </DataTemplate>
                                 </GroupStyle.HeaderTemplate>
                             </GroupStyle>
@@ -194,10 +251,16 @@
                                 <Setter Property="Template">
                                     <Setter.Value>
                                         <ControlTemplate TargetType="ListBoxItem">
-                                            <Border x:Name="Row" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" Padding="{TemplateBinding Padding}">
-                                                <ContentPresenter/>
+                                            <Border x:Name="StateIndicator" BorderBrush="{StaticResource UnstagedAccentBrush}" BorderThickness="3,0,0,0">
+                                                <Border x:Name="Row" Background="#2C2822" BorderBrush="Transparent" BorderThickness="1" Padding="{TemplateBinding Padding}">
+                                                    <ContentPresenter/>
+                                                </Border>
                                             </Border>
                                             <ControlTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding IsStaged}" Value="True">
+                                                    <Setter TargetName="StateIndicator" Property="BorderBrush" Value="{StaticResource StagedAccentBrush}"/>
+                                                    <Setter TargetName="Row" Property="Background" Value="#232F29"/>
+                                                </DataTrigger>
                                                 <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="Background" Value="#303033"/></Trigger>
                                                 <Trigger Property="IsSelected" Value="True">
                                                     <Setter TargetName="Row" Property="Background" Value="#303033"/>
@@ -280,7 +343,7 @@
                                     FontWeight="SemiBold" ToolTip="ダブルクリックで VS Code で開く">
                                 <TextBlock Text="{Binding SelectedFilePath}" TextTrimming="CharacterEllipsis"/>
                             </Button>
-                            <TextBlock Text="{Binding Comparison}" Foreground="#999999" FontSize="11" Margin="0,5,0,0"/>
+                            <TextBlock Text="{Binding SelectedFile.Comparison}" Foreground="#999999" FontSize="11" Margin="0,5,0,0"/>
                         </StackPanel>
                     </DockPanel>
                     <WrapPanel Margin="0,8,0,0">

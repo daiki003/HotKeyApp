@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -625,19 +626,27 @@ internal static class Program
         Check(item.IsKeyboardFocused, "コピーから左キーでファイルへ戻る");
         PressArrow(window, item, Key.Right);
         PressArrow(window, rowButtons[0], Key.Down);
+        var stageAll = FindSectionActionButton(view, isStaged: false);
+        var unstageAll = FindSectionActionButton(view, isStaged: true);
+        Check(unstageAll.IsKeyboardFocused, "未ステージの末尾からステージ済みの一括解除へ移動");
+        PressArrow(window, unstageAll, Key.Down);
         var lastItem = (ListBoxItem)list.ItemContainerGenerator.ContainerFromItem(list.SelectedItem);
         var lastButtons = FindVisuals<Button>(lastItem).Where(button => button.Name is "FileCopyButton" or "FileStageButton").ToArray();
-        Check(lastButtons[0].IsKeyboardFocused && !ReferenceEquals(lastItem, item), "行内ボタンから上下キーで隣のファイルの同じボタンへ移動");
-        var stageAll = (Button)view.FindName("StageAllButton");
+        Check(lastItem.IsKeyboardFocused && !ReferenceEquals(lastItem, item), "一括解除から下キーでステージ済みファイルへ移動");
+        PressArrow(window, lastItem, Key.Right);
         var commit = (Button)view.FindName("CommitStagedButton");
         PressArrow(window, lastButtons[0], Key.Down);
-        Check(stageAll.IsKeyboardFocused, "最後のファイルからすべてステージへ移動");
-        PressArrow(window, stageAll, Key.Down);
-        Check(commit.IsKeyboardFocused, "すべてステージからコミットへ移動");
+        Check(commit.IsKeyboardFocused, "最後のファイルからコミットへ移動");
         PressArrow(window, commit, Key.Up);
-        Check(stageAll.IsKeyboardFocused, "コミットからすべてステージへ戻る");
-        PressArrow(window, stageAll, Key.Up);
-        Check(lastItem.IsKeyboardFocused, "すべてステージから最後のファイルへ戻る");
+        Check(lastItem.IsKeyboardFocused, "コミットから最後のファイルへ戻る");
+        PressArrow(window, lastItem, Key.Up);
+        Check(unstageAll.IsKeyboardFocused, "ステージ済みの先頭から一括解除へ移動");
+        PressArrow(window, unstageAll, Key.Up);
+        Check(item.IsKeyboardFocused, "一括解除から前の未ステージファイルへ戻る");
+        PressArrow(window, item, Key.Up);
+        Check(stageAll.IsKeyboardFocused, "未ステージの先頭からすべてステージへ移動");
+        PressArrow(window, stageAll, Key.Down);
+        Check(item.IsKeyboardFocused, "すべてステージから下キーで未ステージファイルへ移動");
         stageAll.Focus();
         int inputEvents = 0;
         window.AddHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler((_, _) => inputEvents++), true);
@@ -650,7 +659,7 @@ internal static class Program
         else Console.WriteLine("スキップ: 処理中に入力があったため完了後のフォーカスを維持");
         commit.Focus();
         PressArrow(window, commit, Key.Up);
-        Check(list.IsKeyboardFocusWithin, "無効なすべてステージを飛ばしてファイルへ移動");
+        Check(list.IsKeyboardFocusWithin, "コミットから上キーでファイルへ移動");
         var selectedItem = (ListBoxItem)list.ItemContainerGenerator.ContainerFromItem(list.SelectedItem);
         var unstage = FindVisuals<Button>(selectedItem).Single(button => button.Name == "FileStageButton");
         unstage.Focus();
@@ -660,6 +669,12 @@ internal static class Program
         await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         if (inputEvents == inputBeforeOperation) Check(list.IsKeyboardFocusWithin && Keyboard.FocusedElement is ListBoxItem, "ファイルのステージ解除後も一覧で操作を継続");
         else Console.WriteLine("スキップ: 処理中に入力があったため完了後のフォーカスを維持");
+        unstageAll = FindSectionActionButton(view, isStaged: true);
+        unstageAll.Focus();
+        unstageAll.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await WaitForAsync(() => !view.ViewModel.IsBusy && !view.ViewModel.HasStagedChanges);
+        Check(view.ViewModel.Files.Count == 2 && File.ReadAllText(Path.Combine(path, "tracked.txt")) == "staged\n" &&
+            File.ReadAllText(Path.Combine(path, "unstaged.txt")) == "new\n", "見出しのすべて解除で作業ファイルを維持して未ステージへ移動");
         window.Close();
     }
 
@@ -738,7 +753,7 @@ internal static class Program
         var item = (ListBoxItem)files.ItemContainerGenerator.ContainerFromItem(files.SelectedItem);
         var row = (Border)item.Template.FindName("Row", item);
         Check(((SolidColorBrush)row.BorderBrush).Color == Color.FromRgb(0, 122, 204), "ファイルにフォーカス中は枠を強調");
-        var stageAll = (Button)view.FindName("StageAllButton");
+        var stageAll = FindSectionActionButton(view, isStaged: false);
         stageAll.Focus();
         Check(item.IsSelected && ((SolidColorBrush)row.BorderBrush).Color == Colors.Transparent,
             "ボタンへフォーカスするとファイルの選択を保ちつつ枠の強調を解除");
@@ -748,12 +763,18 @@ internal static class Program
             "ファイル行内のボタンでも枠の強調を解除");
         item.Focus();
         PressArrow(window, (UIElement)Keyboard.FocusedElement, Key.Up);
+        Check(stageAll.IsKeyboardFocused, "先頭ファイルから上キーで見出しのすべてステージへ移動");
+        PressArrow(window, stageAll, Key.Up);
         Check(copy.IsKeyboardFocused, "先頭ファイルから上キーでヘッダーへ移動");
         window.UpdateLayout();
         Check(ReferenceEquals(branch.Parent, copy.Parent), "ブランチ名の行にリネームとコピーボタンを配置");
         branch.ClearValue(FrameworkElement.WidthProperty);
         branchHeader.Margin = new Thickness(0, 4, 0, 0);
     }
+
+    private static Button FindSectionActionButton(GitDiffRepositoryView view, bool isStaged) =>
+        FindVisuals<Button>(view).Single(button => button.Name == "SectionActionButton" &&
+            button.DataContext is CollectionViewGroup group && group.Items.OfType<GitDiffFile>().FirstOrDefault()?.IsStaged == isStaged);
 
     private static void PressArrow(Window window, UIElement element, Key key)
     {

@@ -28,6 +28,15 @@ namespace HotKeyCommandApp.Services
 
         public Task StageAllAsync() => RunRequiredAsync(new[] { "add", "--all", "--", ":/" });
 
+        public async Task UnstageAllAsync()
+        {
+            bool hasHead;
+            using (var repository = new Repository(_repositoryPath)) hasHead = repository.Head.Tip != null;
+            await RunRequiredAsync(hasHead
+                ? new[] { "reset", "-q", "HEAD", "--", ":/" }
+                : new[] { "rm", "--cached", "-r", "-f", "--ignore-unmatch", "--", ":/" });
+        }
+
         public async Task DiscardFileAsync(GitDiffFile file, GitDiffContent displayed)
         {
             await ValidateDiscardAsync(file, displayed);

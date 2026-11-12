@@ -110,6 +110,7 @@ namespace HotKeyCommandApp.ViewModels
 
         public Task StageFileAsync(GitDiffFile file) => RunOperationAsync(() => _stageService.StageFileAsync(file), $"{file.FileName} をステージしました。");
         public Task StageAllAsync() => RunOperationAsync(() => _stageService.StageAllAsync(), "すべての変更をステージしました。");
+        public Task UnstageAllAsync() => RunOperationAsync(() => _stageService.UnstageAllAsync(), "すべてのステージを解除しました。");
         public Task DiscardFileAsync()
         {
             var file = SelectedFile;

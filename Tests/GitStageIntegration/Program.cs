@@ -20,6 +20,7 @@ internal static class Program
         {
             await TestPartialChangesAsync(Path.Combine(workspace, "repository"));
             await TestInitialCommitAsync(Path.Combine(workspace, "unborn"));
+            await TestUnstageAllBeforeInitialCommitAsync(Path.Combine(workspace, "unborn-all"));
             await TestDiscardAndStageAllAsync(Path.Combine(workspace, "discard"));
             Console.WriteLine("すべての Git ステージ操作テストに成功しました。");
         }
@@ -192,6 +193,22 @@ internal static class Program
         Check(Git(root, "show", "HEAD:first.txt") == "first\n", "初回コミット");
     }
 
+    private static async Task TestUnstageAllBeforeInitialCommitAsync(string root)
+    {
+        Initialize(root);
+        string path = Path.Combine(root, "first 日本語.txt");
+        WriteLines(path, "staged");
+        WriteLines(Path.Combine(root, "second.txt"), "second");
+        var diff = new GitDiffService(root);
+        var stage = new GitStageService(root);
+        await stage.StageAllAsync();
+        WriteLines(path, "working");
+        await stage.UnstageAllAsync();
+        Check(Git(root, "ls-files").Length == 0 && File.ReadAllText(path) == "working\n" &&
+            File.ReadAllText(Path.Combine(root, "second.txt")) == "second\n" && !diff.ReadFiles(CancellationToken.None).Any(file => file.IsStaged),
+            "初回コミット前の一括解除で作業中の変更と新規ファイルを維持");
+    }
+
     private static async Task TestDiscardAndStageAllAsync(string root)
     {
         Initialize(root);
@@ -273,6 +290,15 @@ internal static class Program
         await stage.StageAllAsync();
         Check(Git(root, "show", ":new.txt") == "new\n" && Git(root, "show", ":tracked.txt") == "updated\n" &&
             Git(root, "show", ":other.txt") == "staged\n", "すべてステージして既存ステージを維持");
+        Git(root, "mv", "--", "other.txt", "renamed 日本語.txt");
+        File.Delete(Path.Combine(root, "no-end.txt"));
+        await stage.StageAllAsync();
+        File.AppendAllText(path, "unstaged\n", Utf8);
+        await stage.UnstageAllAsync();
+        Check(Git(root, "diff", "--cached", "--name-only").Length == 0 && !diff.ReadFiles(CancellationToken.None).Any(file => file.IsStaged) &&
+            File.ReadAllText(path) == "updated\nunstaged\n" && File.ReadAllText(Path.Combine(root, "new.txt")) == "new\n" &&
+            File.ReadAllText(Path.Combine(root, "renamed 日本語.txt")) == "staged\n" && !File.Exists(Path.Combine(root, "other.txt")) &&
+            !File.Exists(Path.Combine(root, "no-end.txt")), "一括解除で部分ステージ・新規・改名・削除の作業状態を維持");
     }
 
     private static void Initialize(string root)

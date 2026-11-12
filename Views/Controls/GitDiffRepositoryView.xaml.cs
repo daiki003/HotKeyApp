@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using HotKeyCommandApp.Models;
@@ -179,7 +180,7 @@ namespace HotKeyCommandApp.Views.Controls
         private Button[] HeaderButtons => new[] { PushButton, PullButton, RefreshButton, RenameBranchButton, CopyCurrentBranchButton }
             .Where(button => button.IsVisible && button.IsEnabled).ToArray();
 
-        private Button[] FileActionButtons => new[] { StageAllButton, CommitStagedButton }
+        private Button[] FileActionButtons => new[] { CommitStagedButton }
             .Where(button => button.IsVisible && button.IsEnabled).ToArray();
 
         private void FocusHeaderButton(Button preferred)
@@ -219,15 +220,19 @@ namespace HotKeyCommandApp.Views.Controls
             DiffLines.SetFontSize(size);
         }
 
-        private async void StageAllButton_Click(object sender, RoutedEventArgs e)
+        private async void SectionActionButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_viewModel.IsBusy || !_viewModel.HasUnstagedChanges) return;
-            bool restoreFocus = StageAllButton.IsKeyboardFocused;
+            e.Handled = true;
+            if (sender is not Button { DataContext: CollectionViewGroup group } button || _viewModel.IsBusy) return;
+            bool isStaged = group.Items.OfType<GitDiffFile>().FirstOrDefault()?.IsStaged == true;
+            if (isStaged ? !_viewModel.HasStagedChanges : !_viewModel.HasUnstagedChanges) return;
+            bool restoreFocus = button.IsKeyboardFocused;
             int inputVersion = _inputVersion;
-            await _viewModel.StageAllAsync();
+            if (isStaged) await _viewModel.UnstageAllAsync();
+            else await _viewModel.StageAllAsync();
             if (restoreFocus && CanRestoreFocus(inputVersion))
             {
-                if (CommitStagedButton.IsEnabled) CommitStagedButton.Focus();
+                if (!isStaged && CommitStagedButton.IsEnabled) CommitStagedButton.Focus();
                 else FocusFileList();
             }
         }
@@ -355,6 +360,16 @@ namespace HotKeyCommandApp.Views.Controls
                     e.Handled = true;
                     return;
                 }
+                if (Keyboard.FocusedElement is Button { Name: "SectionActionButton", DataContext: CollectionViewGroup group } &&
+                    e.Key is Key.Up or Key.Down && group.Items.Count > 0)
+                {
+                    int firstIndex = FileList.Items.IndexOf(group.Items[0]);
+                    if (e.Key == Key.Down) FocusFileAt(firstIndex);
+                    else if (firstIndex > 0) FocusFileAt(firstIndex - 1);
+                    else FocusHeaderButton(HeaderButtons.LastOrDefault() ?? RefreshButton);
+                    e.Handled = true;
+                    return;
+                }
                 if (FileList.IsKeyboardFocusWithin && Keyboard.FocusedElement is DependencyObject focusedElement &&
                     ItemsControl.ContainerFromElement(FileList, focusedElement) is ListBoxItem item)
                 {
@@ -373,6 +388,20 @@ namespace HotKeyCommandApp.Views.Controls
                             if (buttonIndex > 0) rowButtons[buttonIndex - 1].Focus();
                             else if (buttonIndex == 0) item.Focus();
                         }
+                        e.Handled = true;
+                        return;
+                    }
+                    if (e.Key == Key.Up && item.DataContext is GitDiffFile currentFile &&
+                        (fileIndex == 0 || FileList.Items[fileIndex - 1] is GitDiffFile previousFile && previousFile.IsStaged != currentFile.IsStaged) &&
+                        TryFocusSectionAction(currentFile))
+                    {
+                        e.Handled = true;
+                        return;
+                    }
+                    if (e.Key == Key.Down && fileIndex + 1 < FileList.Items.Count &&
+                        item.DataContext is GitDiffFile sourceFile && FileList.Items[fileIndex + 1] is GitDiffFile nextFile &&
+                        sourceFile.IsStaged != nextFile.IsStaged && TryFocusSectionAction(nextFile))
+                    {
                         e.Handled = true;
                         return;
                     }
@@ -408,6 +437,24 @@ namespace HotKeyCommandApp.Views.Controls
             var buttons = FindFileButtons(item);
             if (buttonIndex >= 0 && buttonIndex < buttons.Length) buttons[buttonIndex].Focus();
             else item.Focus();
+        }
+
+        private bool TryFocusSectionAction(GitDiffFile file)
+        {
+            FileList.ScrollIntoView(file);
+            FileList.UpdateLayout();
+            Button FindButton(DependencyObject parent)
+            {
+                if (parent is Button { Name: "SectionActionButton", DataContext: CollectionViewGroup group } button &&
+                    group.Items.Contains(file) && button.IsVisible && button.IsEnabled) return button;
+                for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+                {
+                    var found = FindButton(VisualTreeHelper.GetChild(parent, i));
+                    if (found != null) return found;
+                }
+                return null;
+            }
+            return FindButton(FileList)?.Focus() == true;
         }
 
         private static Button[] FindFileButtons(DependencyObject element)

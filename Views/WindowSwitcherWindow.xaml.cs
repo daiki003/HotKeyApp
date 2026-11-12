@@ -38,21 +38,28 @@ namespace HotKeyCommandApp.Views
                 // 表示前に位置を確定させているため、ここでは配置を行わない
             };
 
+            EventHandler? enableThumbnailsHandler = null;
+            this.Closed += (s, e) =>
+            {
+                if (enableThumbnailsHandler != null)
+                    System.Windows.Media.CompositionTarget.Rendering -= enableThumbnailsHandler;
+            };
+
             this.ContentRendered += (s, e) =>
             {
                 // サムネイルを有効化（背景の描画更新のタイミングを待って実行）
                 // CompositionTarget.Rendering は次の描画フレームの直前に発生する
-                EventHandler? handler = null;
-                handler = (s2, e2) =>
+                enableThumbnailsHandler = (s2, e2) =>
                 {
-                    System.Windows.Media.CompositionTarget.Rendering -= handler;
+                    System.Windows.Media.CompositionTarget.Rendering -= enableThumbnailsHandler;
+                    enableThumbnailsHandler = null;
                     this.IsThumbnailEnabled = true;
 
                     this.Activate();
                     this.Focus();
                     SwitcherListBox.Focus();
                 };
-                System.Windows.Media.CompositionTarget.Rendering += handler;
+                System.Windows.Media.CompositionTarget.Rendering += enableThumbnailsHandler;
             };
 
             // アイテムが選択されていない場合は初期アイテムを選択（Alt+Tab挙動）

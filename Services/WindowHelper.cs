@@ -166,7 +166,7 @@ namespace HotKeyCommandApp.Services
         {
             TimeSpan lastRenderingTime = TimeSpan.Zero;
 
-            CompositionTarget.Rendering += (s, e) =>
+            EventHandler renderingHandler = (s, e) =>
             {
                 if (!window.IsVisible || !window.IsActive) return;
                 if (IsTextInputFocused(window)) return;
@@ -218,6 +218,8 @@ namespace HotKeyCommandApp.Services
                     }
                 }
             };
+            CompositionTarget.Rendering += renderingHandler;
+            window.Closed += (s, e) => CompositionTarget.Rendering -= renderingHandler;
         }
 
         /// <summary>
