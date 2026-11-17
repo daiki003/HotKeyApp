@@ -180,7 +180,7 @@ namespace HotKeyCommandApp.Views.Controls
         private Button[] HeaderButtons => new[] { PushButton, PullButton, RefreshButton, RenameBranchButton, CopyCurrentBranchButton }
             .Where(button => button.IsVisible && button.IsEnabled).ToArray();
 
-        private Button[] FileActionButtons => new[] { CommitStagedButton }
+        private Button[] FileActionButtons => new[] { CommitStagedButton, StashPreparedButton }
             .Where(button => button.IsVisible && button.IsEnabled).ToArray();
 
         private void FocusHeaderButton(Button preferred)
@@ -193,11 +193,29 @@ namespace HotKeyCommandApp.Views.Controls
         private async void StageFileButton_Click(object sender, RoutedEventArgs e)
         {
             e.Handled = true;
-            if (sender is not Button { DataContext: GitDiffFile file } || _viewModel.IsBusy) return;
+            if (sender is not Button { DataContext: GitDiffFile file } || _viewModel.IsBusy || file.IsStashPrepared) return;
             bool restoreFocus = ((Button)sender).IsKeyboardFocused;
             int inputVersion = _inputVersion;
             if (file.IsStaged) await _viewModel.UnstageFileAsync(file);
             else await _viewModel.StageFileAsync(file);
+            if (restoreFocus && CanRestoreFocus(inputVersion)) FocusFileList();
+        }
+
+        private void FileStashButton_Click(object sender, RoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (sender is not Button { DataContext: GitDiffFile file } button || _viewModel.IsBusy) return;
+            bool restoreFocus = button.IsKeyboardFocused;
+            _viewModel.ToggleStashPreparation(file);
+            if (restoreFocus && IsVisible && Window.GetWindow(this)?.IsActive == true) FocusFileList();
+        }
+
+        private async void StashPreparedButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_viewModel.CanStashPreparedFiles) return;
+            int inputVersion = _inputVersion;
+            bool restoreFocus = StashPreparedButton.IsKeyboardFocused;
+            await _viewModel.StashPreparedFilesAsync();
             if (restoreFocus && CanRestoreFocus(inputVersion)) FocusFileList();
         }
 
@@ -224,6 +242,13 @@ namespace HotKeyCommandApp.Views.Controls
         {
             e.Handled = true;
             if (sender is not Button { DataContext: CollectionViewGroup group } button || _viewModel.IsBusy) return;
+            if (group.Name as string == "スタッシュ準備群")
+            {
+                bool restorePreparationFocus = button.IsKeyboardFocused;
+                _viewModel.ClearStashPreparation();
+                if (restorePreparationFocus) FocusFileList();
+                return;
+            }
             bool isStaged = group.Items.OfType<GitDiffFile>().FirstOrDefault()?.IsStaged == true;
             if (isStaged ? !_viewModel.HasStagedChanges : !_viewModel.HasUnstagedChanges) return;
             bool restoreFocus = button.IsKeyboardFocused;
@@ -250,7 +275,7 @@ namespace HotKeyCommandApp.Views.Controls
         private async void FileRowDiscardButton_Click(object sender, RoutedEventArgs e)
         {
             e.Handled = true;
-            if (sender is not Button { DataContext: GitDiffFile file } button || _viewModel.IsBusy || file.IsStaged || file.IsConflicted ||
+            if (sender is not Button { DataContext: GitDiffFile file } button || _viewModel.IsBusy || file.IsStaged || file.IsConflicted || file.IsStashPrepared ||
                 (!string.IsNullOrEmpty(file.OldPath) && file.OldPath != file.Path)) return;
             bool restoreFocus = button.IsKeyboardFocused;
             int inputVersion = _inputVersion;
@@ -277,7 +302,7 @@ namespace HotKeyCommandApp.Views.Controls
 
         private async void CommitStagedButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_viewModel.IsBusy || !_viewModel.HasStagedChanges) return;
+            if (!_viewModel.CanCommitStagedChanges) return;
             var dialog = new CommitMessageDialog(stagedOnly: true) { Owner = Window.GetWindow(this) };
             if (ShowModal(dialog.ShowDialog) == true) await _viewModel.CommitStagedAsync(dialog.Message);
         }
@@ -392,7 +417,7 @@ namespace HotKeyCommandApp.Views.Controls
                         return;
                     }
                     if (e.Key == Key.Up && item.DataContext is GitDiffFile currentFile &&
-                        (fileIndex == 0 || FileList.Items[fileIndex - 1] is GitDiffFile previousFile && previousFile.IsStaged != currentFile.IsStaged) &&
+                        (fileIndex == 0 || FileList.Items[fileIndex - 1] is GitDiffFile previousFile && previousFile.Section != currentFile.Section) &&
                         TryFocusSectionAction(currentFile))
                     {
                         e.Handled = true;
@@ -400,7 +425,7 @@ namespace HotKeyCommandApp.Views.Controls
                     }
                     if (e.Key == Key.Down && fileIndex + 1 < FileList.Items.Count &&
                         item.DataContext is GitDiffFile sourceFile && FileList.Items[fileIndex + 1] is GitDiffFile nextFile &&
-                        sourceFile.IsStaged != nextFile.IsStaged && TryFocusSectionAction(nextFile))
+                        sourceFile.Section != nextFile.Section && TryFocusSectionAction(nextFile))
                     {
                         e.Handled = true;
                         return;
@@ -462,12 +487,12 @@ namespace HotKeyCommandApp.Views.Controls
             var buttons = new List<Button>();
             void Visit(DependencyObject parent)
             {
-                if (parent is Button button && button.Name is "FileCopyButton" or "FileStageButton" or "FileDiscardButton" && button.IsVisible && button.IsEnabled)
+                if (parent is Button button && button.Name is "FileCopyButton" or "FileStageButton" or "FileStashButton" or "FileDiscardButton" && button.IsVisible && button.IsEnabled)
                     buttons.Add(button);
                 for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++) Visit(VisualTreeHelper.GetChild(parent, i));
             }
             Visit(element);
-            return buttons.OrderBy(button => button.Name == "FileCopyButton" ? 0 : button.Name == "FileStageButton" ? 1 : 2).ToArray();
+            return buttons.OrderBy(button => button.Name == "FileCopyButton" ? 0 : button.Name == "FileStageButton" ? 1 : button.Name == "FileStashButton" ? 2 : 3).ToArray();
         }
 
         public void Dispose() { _disposed = true; DiffLines.CancelHighlighting(); _viewModel.Dispose(); }

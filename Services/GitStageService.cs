@@ -28,6 +28,19 @@ namespace HotKeyCommandApp.Services
 
         public Task StageAllAsync() => RunRequiredAsync(new[] { "add", "--all", "--", ":/" });
 
+        public Task StageFilesAsync(IReadOnlyCollection<GitDiffFile> files) => files.Count == 0 ? Task.CompletedTask :
+            RunRequiredAsync(new[] { "--literal-pathspecs", "add", "--all", "--" }.Concat(files.SelectMany(Paths).Distinct(StringComparer.Ordinal)));
+
+        public async Task UnstageFilesAsync(IReadOnlyCollection<GitDiffFile> files)
+        {
+            if (files.Count == 0) return;
+            bool hasHead;
+            using (var repository = new Repository(_repositoryPath)) hasHead = repository.Head.Tip != null;
+            var args = hasHead ? new[] { "--literal-pathspecs", "reset", "-q", "HEAD", "--" }
+                : new[] { "--literal-pathspecs", "rm", "--cached", "-r", "-f", "--ignore-unmatch", "--" };
+            await RunRequiredAsync(args.Concat(files.SelectMany(Paths).Distinct(StringComparer.Ordinal)));
+        }
+
         public async Task UnstageAllAsync()
         {
             bool hasHead;

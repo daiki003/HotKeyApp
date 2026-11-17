@@ -1,8 +1,8 @@
 namespace HotKeyCommandApp.Models
 {
-    public sealed record GitDiffFile(string Path, string OldPath, bool IsStaged, string Change, bool IsConflicted = false)
+    public sealed record GitDiffFile(string Path, string OldPath, bool IsStaged, string Change, bool IsConflicted = false, bool IsStashPrepared = false)
     {
-        public string Section => IsStaged ? "ステージ済み" : "未ステージ";
+        public string Section => IsStashPrepared ? "スタッシュ準備群" : IsStaged ? "ステージ済み" : "未ステージ";
         public string Key => $"{IsStaged}:{Path}";
         public string DisplayPath => string.IsNullOrEmpty(OldPath) || OldPath == Path ? Path : $"{OldPath} → {Path}";
         public string FileName => System.IO.Path.GetFileName(Path);

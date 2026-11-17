@@ -22,6 +22,9 @@ internal static class Program
             await TestInitialCommitAsync(Path.Combine(workspace, "unborn"));
             await TestUnstageAllBeforeInitialCommitAsync(Path.Combine(workspace, "unborn-all"));
             await TestDiscardAndStageAllAsync(Path.Combine(workspace, "discard"));
+            await TestSelectedStashAsync(Path.Combine(workspace, "stash"));
+            await TestOnlyUntrackedAndDeletedStashAsync(Path.Combine(workspace, "stash-special"));
+            await TestStashBeforeInitialCommitAsync(Path.Combine(workspace, "stash-unborn"));
             Console.WriteLine("すべての Git ステージ操作テストに成功しました。");
         }
         finally
@@ -299,6 +302,102 @@ internal static class Program
             File.ReadAllText(path) == "updated\nunstaged\n" && File.ReadAllText(Path.Combine(root, "new.txt")) == "new\n" &&
             File.ReadAllText(Path.Combine(root, "renamed 日本語.txt")) == "staged\n" && !File.Exists(Path.Combine(root, "other.txt")) &&
             !File.Exists(Path.Combine(root, "no-end.txt")), "一括解除で部分ステージ・新規・改名・削除の作業状態を維持");
+    }
+
+    private static async Task TestSelectedStashAsync(string root)
+    {
+        Initialize(root);
+        string selected = "selected 日本語 [1].txt", other = "other.txt", added = "new 日本語 [2].txt";
+        string deleted = "deleted.txt", oldName = "old name.txt", newName = "new name.txt";
+        WriteLines(Path.Combine(root, selected), "base");
+        WriteLines(Path.Combine(root, other), "other-base");
+        WriteLines(Path.Combine(root, deleted), "deleted-base");
+        WriteLines(Path.Combine(root, oldName), "renamed-base");
+        Git(root, "add", "--all");
+        Git(root, "commit", "-m", "stash fixture");
+        WriteLines(Path.Combine(root, selected), "selected-index");
+        Git(root, "add", "--", selected);
+        WriteLines(Path.Combine(root, selected), "selected-worktree");
+        WriteLines(Path.Combine(root, other), "other-index");
+        Git(root, "add", "--", other);
+        WriteLines(Path.Combine(root, other), "other-worktree");
+        WriteLines(Path.Combine(root, added), "new-content");
+        WriteLines(Path.Combine(root, "unselected.txt"), "leave-untracked");
+        WriteLines(Path.Combine(root, "selected 日本語 1.txt"), "literal-path-only");
+        File.Delete(Path.Combine(root, deleted));
+        Git(root, "mv", "--", oldName, newName);
+        var diff = new GitDiffService(root);
+        var stash = new GitStashService(root);
+        var selectedFiles = diff.ReadFiles(CancellationToken.None)
+            .Where(file => new[] { selected, added, deleted, newName }.Contains(file.Path)).ToArray();
+        await stash.StashFilesAsync(selectedFiles);
+        Check(File.ReadAllText(Path.Combine(root, selected)) == "base\n" && Git(root, "show", ":" + selected) == "base\n" &&
+            !File.Exists(Path.Combine(root, added)) && File.Exists(Path.Combine(root, deleted)) &&
+            File.Exists(Path.Combine(root, oldName)) && !File.Exists(Path.Combine(root, newName)),
+            "準備ファイルの部分ステージ・新規・削除・改名を一括スタッシュ");
+        Check(File.ReadAllText(Path.Combine(root, other)) == "other-worktree\n" && Git(root, "show", ":" + other) == "other-index\n" &&
+            File.ReadAllText(Path.Combine(root, "unselected.txt")) == "leave-untracked\n" &&
+            File.ReadAllText(Path.Combine(root, "selected 日本語 1.txt")) == "literal-path-only\n", "対象外のステージ・未ステージ・未追跡を維持してパスを厳密に扱う");
+        Check(Git(root, "show", "stash@{0}:" + selected) == "selected-worktree\n" &&
+            Git(root, "show", "stash@{0}^2:" + selected) == "selected-index\n" &&
+            Git(root, "show", "stash@{0}^3:" + added) == "new-content\n", "作業内容とステージ状態と新規ファイルを保存");
+        Check(!Git(root, "diff", "--name-only", "stash@{0}^1", "stash@{0}").Contains(other) &&
+            !Git(root, "diff", "--name-only", "stash@{0}^1", "stash@{0}^2").Contains(other), "対象外のステージ済み変更をスタッシュ本体・インデックスに含めない");
+        Git(root, "restore", "--staged", "--worktree", "--", other);
+        Git(root, "stash", "apply", "--index");
+        Check(File.ReadAllText(Path.Combine(root, selected)) == "selected-worktree\n" && Git(root, "show", ":" + selected) == "selected-index\n" &&
+            File.ReadAllText(Path.Combine(root, added)) == "new-content\n" && !File.Exists(Path.Combine(root, deleted)) &&
+            File.Exists(Path.Combine(root, newName)) && Git(root, "show", ":" + other) == "other-base\n", "作成したスタッシュを適用して選択ファイルの状態を復元");
+
+        string stashBefore = Git(root, "rev-parse", "refs/stash");
+        bool rejected = false;
+        try { await stash.StashFilesAsync(Array.Empty<GitDiffFile>()); }
+        catch (InvalidOperationException) { rejected = true; }
+        Check(rejected && Git(root, "rev-parse", "refs/stash") == stashBefore, "空の準備群ではスタッシュしない");
+    }
+
+    private static async Task TestOnlyUntrackedAndDeletedStashAsync(string workspace)
+    {
+        foreach (bool untracked in new[] { true, false })
+        {
+            string root = Path.Combine(workspace, untracked ? "untracked" : "deleted");
+            Initialize(root);
+            WriteLines(Path.Combine(root, "other.txt"), "base");
+            if (!untracked) WriteLines(Path.Combine(root, "selected.txt"), "selected-base");
+            Git(root, "add", "--all");
+            Git(root, "commit", "-m", "special stash fixture");
+            if (untracked) WriteLines(Path.Combine(root, "selected.txt"), "selected-new");
+            else { File.Delete(Path.Combine(root, "selected.txt")); Git(root, "add", "--", "selected.txt"); }
+            WriteLines(Path.Combine(root, "other.txt"), "other-index");
+            Git(root, "add", "--", "other.txt");
+            WriteLines(Path.Combine(root, "other.txt"), "other-worktree");
+            WriteLines(Path.Combine(root, "unselected-new.txt"), "unselected-new");
+            var diff = new GitDiffService(root);
+            var file = diff.ReadFiles(CancellationToken.None).Single(entry => entry.Path == "selected.txt");
+            var stash = new GitStashService(root);
+            await stash.StashFilesAsync(new[] { file });
+            Check(Git(root, "show", ":other.txt") == "other-index\n" && File.ReadAllText(Path.Combine(root, "other.txt")) == "other-worktree\n" &&
+                File.Exists(Path.Combine(root, "unselected-new.txt")) && (untracked ? !File.Exists(Path.Combine(root, "selected.txt")) :
+                    File.ReadAllText(Path.Combine(root, "selected.txt")) == "selected-base\n"), untracked ? "新規ファイルだけの準備群を退避" : "ステージ済み削除だけの準備群を退避");
+            Check(!Git(root, "stash", "show", "--include-untracked", "--name-only").Contains("other.txt") &&
+                !Git(root, "stash", "show", "--include-untracked", "--name-only").Contains("unselected-new.txt"), "単独退避でも対象外をスタッシュに含めない");
+            string previousStash = Git(root, "rev-parse", "refs/stash");
+            bool rejected = false;
+            try { await stash.StashFilesAsync(new[] { file }); }
+            catch (InvalidOperationException ex) { rejected = ex.Message.Contains("一覧が変更"); }
+            Check(rejected && Git(root, "rev-parse", "refs/stash") == previousStash &&
+                File.ReadAllText(Path.Combine(root, "other.txt")) == "other-worktree\n", "変更が消えた準備ファイルを再実行しても別ファイルを退避しない");
+        }
+    }
+
+    private static async Task TestStashBeforeInitialCommitAsync(string root)
+    {
+        Initialize(root);
+        WriteLines(Path.Combine(root, "first.txt"), "keep-content");
+        bool rejected = false;
+        try { await new GitStashService(root).StashFilesAsync(new[] { Entry(new GitDiffService(root), "first.txt") }); }
+        catch (InvalidOperationException ex) { rejected = ex.Message.Contains("初回コミット前"); }
+        Check(rejected && File.ReadAllText(Path.Combine(root, "first.txt")) == "keep-content\n", "初回コミット前は変更を維持してスタッシュを拒否");
     }
 
     private static void Initialize(string root)

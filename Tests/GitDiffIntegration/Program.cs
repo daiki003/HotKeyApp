@@ -48,6 +48,12 @@ internal static class Program
             int result = 0;
             try
             {
+                if (args.Contains("--stash"))
+                {
+                    await TestStashPreparationAsync(workspace);
+                    Console.WriteLine("スタッシュ準備群のテストに成功しました。");
+                    return;
+                }
                 TestShortcutSettings();
                 TestSyntaxHighlighting();
                 TestIntralineHighlighting();
@@ -61,6 +67,7 @@ internal static class Program
                 await TestFileNavigationAsync(workspace);
                 await TestSyntaxViewAsync(workspace);
                 await TestFileActionNavigationAsync(workspace);
+                await TestStashPreparationAsync(workspace);
                 await TestPlacementAndInitialFocusAsync(workspace);
                 Console.WriteLine("差分タブとショートカット設定のテストに成功しました。");
             }
@@ -617,9 +624,13 @@ internal static class Program
         PressArrow(window, rowButtons[0], Key.Right);
         Check(rowButtons[1].IsKeyboardFocused, "コピーから右キーでステージへ移動");
         var discardButton = FindVisuals<Button>(item).Single(button => button.Name == "FileDiscardButton");
+        var stashButton = FindVisuals<Button>(item).Single(button => button.Name == "FileStashButton");
         PressArrow(window, rowButtons[1], Key.Right);
-        Check(discardButton.IsKeyboardFocused, "ステージの右から破棄へ移動");
+        Check(stashButton.IsKeyboardFocused, "ステージの右からスタッシュ準備へ移動");
+        PressArrow(window, stashButton, Key.Right);
+        Check(discardButton.IsKeyboardFocused, "スタッシュ準備の右から破棄へ移動");
         PressArrow(window, discardButton, Key.Left);
+        PressArrow(window, stashButton, Key.Left);
         PressArrow(window, rowButtons[1], Key.Left);
         Check(rowButtons[0].IsKeyboardFocused, "ステージから左キーでコピーへ移動");
         PressArrow(window, rowButtons[0], Key.Left);
@@ -676,6 +687,102 @@ internal static class Program
         Check(view.ViewModel.Files.Count == 2 && File.ReadAllText(Path.Combine(path, "tracked.txt")) == "staged\n" &&
             File.ReadAllText(Path.Combine(path, "unstaged.txt")) == "new\n", "見出しのすべて解除で作業ファイルを維持して未ステージへ移動");
         window.Close();
+    }
+
+    private static async Task TestStashPreparationAsync(string workspace)
+    {
+        string path = CreateRepository(workspace, "stash-preparation", "selected.txt");
+        File.WriteAllText(Path.Combine(path, "other.txt"), "other-base\n");
+        using (var repository = new Repository(path))
+        {
+            Commands.Stage(repository, "*");
+            var signature = new Signature("Test", "test@example.invalid", DateTimeOffset.UtcNow);
+            repository.Commit("initial", signature, signature);
+            File.WriteAllText(Path.Combine(path, "selected.txt"), "selected-index\n");
+            Commands.Stage(repository, "selected.txt");
+        }
+        string original = File.ReadAllText(Path.Combine(path, "other.txt"));
+        File.WriteAllText(Path.Combine(path, "selected.txt"), "selected-worktree\n");
+        File.WriteAllText(Path.Combine(path, "other.txt"), "other-worktree\n");
+        File.WriteAllText(Path.Combine(path, "new.txt"), "new-content\n");
+        GitDiffWindow.ShowForRepository(path);
+        var window = Application.Current.Windows.OfType<GitDiffWindow>().Single();
+        var view = (GitDiffRepositoryView)((TabItem)((TabControl)window.FindName("RepositoryTabs")).SelectedItem).Content;
+        var list = (ListBox)view.FindName("FileList");
+        var stash = (Button)view.FindName("StashPreparedButton");
+        var commit = (Button)view.FindName("CommitStagedButton");
+        await WaitForAsync(() => !view.ViewModel.IsBusy && view.ViewModel.Files.Count == 4);
+        var vm = view.ViewModel;
+        void Toggle(string name)
+        {
+            var file = vm.Files.First(file => file.Path == name);
+            vm.SelectedFile = file;
+            list.ScrollIntoView(file);
+            window.UpdateLayout();
+            var item = (ListBoxItem)list.ItemContainerGenerator.ContainerFromItem(file);
+            FindVisuals<Button>(item).Single(button => button.Name == "FileStashButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        }
+        Check(!stash.IsEnabled && commit.IsEnabled, "準備群が空のときはスタッシュを無効化");
+        Toggle("selected.txt");
+        Toggle("new.txt");
+        Check(vm.StashPreparedFileCount == 2 && vm.Files.Count(file => file.Section == "スタッシュ準備群") == 3 &&
+            stash.IsEnabled && !commit.IsEnabled, "同じファイルの両方の差分を準備群へ移動しコミット混入を防ぐ");
+        using (var repository = new Repository(path))
+            Check(repository.Stashes.Count() == 0 && repository.Index["selected.txt"] != null &&
+                repository.Lookup<Blob>(repository.Index["selected.txt"].Id).GetContentText() == "selected-index\n" &&
+                File.ReadAllText(Path.Combine(path, "selected.txt")) == "selected-worktree\n", "準備操作では Git の内容を変更しない");
+        await vm.RefreshAsync();
+        Check(vm.StashPreparedFileCount == 2, "一覧更新後もスタッシュ準備を維持");
+        Toggle("new.txt");
+        Check(vm.StashPreparedFileCount == 1 && !vm.Files.Single(file => file.Path == "new.txt").IsStashPrepared, "ファイル行から準備解除");
+        Toggle("new.txt");
+        await vm.StageAllAsync();
+        using (var repository = new Repository(path))
+            Check(repository.Index["new.txt"] == null && repository.Lookup<Blob>(repository.Index["selected.txt"].Id).GetContentText() == "selected-index\n" &&
+                repository.Lookup<Blob>(repository.Index["other.txt"].Id).GetContentText() == "other-worktree\n", "すべてステージは準備群を対象に含めない");
+        await vm.UnstageAllAsync();
+        using (var repository = new Repository(path))
+            Check(repository.Lookup<Blob>(repository.Index["selected.txt"].Id).GetContentText() == "selected-index\n" &&
+                repository.Lookup<Blob>(repository.Index["other.txt"].Id).GetContentText() == original, "すべて解除でも準備群のステージ状態を維持");
+        await vm.CommitStagedAsync("must not commit prepared files");
+        using (var repository = new Repository(path)) Check(repository.Head.Tip.MessageShort == "initial", "準備中のステージ済み変更をコミットしない");
+        window.UpdateLayout();
+        var clear = FindVisuals<Button>(view).Single(button => button.Name == "SectionActionButton" &&
+            button.DataContext is CollectionViewGroup group && group.Name as string == "スタッシュ準備群");
+        clear.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(vm.StashPreparedFileCount == 0 && commit.IsEnabled && !stash.IsEnabled, "準備群の見出しから一括準備解除");
+        Toggle("selected.txt");
+        Toggle("new.txt");
+        await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        window.UpdateLayout();
+        Check(stash.TranslatePoint(new Point(), view).Y >= commit.TranslatePoint(new Point(0, commit.ActualHeight), view).Y,
+            "スタッシュ実行ボタンをコミットの下に配置");
+        var last = vm.Files.Last();
+        list.ScrollIntoView(last);
+        window.UpdateLayout();
+        var lastItem = (ListBoxItem)list.ItemContainerGenerator.ContainerFromItem(last);
+        lastItem.Focus();
+        PressArrow(window, lastItem, Key.Down);
+        Check(stash.IsKeyboardFocused, "準備群の末尾から下キーでスタッシュ実行へ移動");
+        PressArrow(window, stash, Key.Up);
+        Check(list.IsKeyboardFocusWithin, "スタッシュ実行から上キーでファイルへ戻る");
+        await WaitForAsync(() => vm.Message != "差分を読み込んでいます...");
+        SavePreview(window, "stash-preparation.png");
+        stash.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await WaitForAsync(() => !vm.IsBusy && vm.StashPreparedFileCount == 0);
+        using (var repository = new Repository(path))
+            Check(repository.Stashes.Count() == 1 && repository.RetrieveStatus("selected.txt") == FileStatus.Unaltered &&
+                !File.Exists(Path.Combine(path, "new.txt")) && File.ReadAllText(Path.Combine(path, "other.txt")) == "other-worktree\n",
+                "実行ボタンで準備群だけをまとめてスタッシュして対象外を維持");
+        window.Close();
+
+        string unborn = CreateRepository(workspace, "stash-unborn", "first.txt");
+        using var failed = new GitDiffViewModel(unborn);
+        await failed.RefreshAsync();
+        failed.ToggleStashPreparation(failed.Files.Single());
+        await failed.StashPreparedFilesAsync();
+        Check(failed.StashPreparedFileCount == 1 && failed.OperationStatus.Contains("初回コミット前") && File.Exists(Path.Combine(unborn, "first.txt")),
+            "スタッシュ失敗時は準備群と作業ファイルを維持");
     }
 
     private static async Task TestPlacementAndInitialFocusAsync(string workspace)

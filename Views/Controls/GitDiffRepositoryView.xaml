@@ -9,6 +9,8 @@
         <SolidColorBrush x:Key="StagedAccentBrush" Color="#8BD5A4"/>
         <SolidColorBrush x:Key="UnstagedHeaderBrush" Color="#332C20"/>
         <SolidColorBrush x:Key="StagedHeaderBrush" Color="#23382C"/>
+        <SolidColorBrush x:Key="StashAccentBrush" Color="#C7A5E8"/>
+        <SolidColorBrush x:Key="StashHeaderBrush" Color="#34283E"/>
         <Style TargetType="Button" BasedOn="{StaticResource ActionButtonStyle}">
             <Setter Property="Background" Value="#383838"/>
             <Setter Property="Foreground" Value="White"/>
@@ -20,6 +22,18 @@
             <Setter Property="Padding" Value="8,4"/>
             <Setter Property="MinHeight" Value="30"/>
             <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style x:Key="FileIconButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="4,0,0,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
+            <Setter Property="AutomationProperties.Name" Value="{Binding ToolTip, RelativeSource={RelativeSource Self}}"/>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
+            </Style.Triggers>
         </Style>
         <Style x:Key="SectionActionButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Template">
@@ -174,7 +188,7 @@
         </Border>
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="280" MinWidth="250"/>
+                <ColumnDefinition Width="400" MinWidth="350"/>
                 <ColumnDefinition Width="5"/>
                 <ColumnDefinition Width="*" MinWidth="350"/>
             </Grid.ColumnDefinitions>
@@ -182,15 +196,16 @@
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="変更ファイル" FontWeight="SemiBold" Margin="14,13,14,4"/>
                     <StackPanel DockPanel.Dock="Bottom" Margin="8,6,8,8">
-                        <Button x:Name="CommitStagedButton" Content="ステージ済みをコミット" Click="CommitStagedButton_Click" Padding="8,5">
-                            <Button.Style>
-                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding HasStagedChanges}" Value="False"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
-                                        <DataTrigger Binding="{Binding IsBusy}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Button.Style>
+                        <Button x:Name="CommitStagedButton" Click="CommitStagedButton_Click" Padding="8,5"
+                                IsEnabled="{Binding CanCommitStagedChanges}" ToolTip="{Binding CommitStagedToolTip}" ToolTipService.ShowOnDisabled="True"
+                                AutomationProperties.Name="ステージ済みをコミット">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="✓" FontSize="15" Margin="0,0,6,0"/><TextBlock Text="ステージ済みをコミット" VerticalAlignment="Center"/></StackPanel>
+                        </Button>
+                        <Button x:Name="StashPreparedButton" Click="StashPreparedButton_Click" Padding="8,5" Margin="0,6,0,0"
+                                IsEnabled="{Binding CanStashPreparedFiles}" Foreground="{StaticResource StashAccentBrush}"
+                                ToolTip="{Binding StashPreparedFileCount, StringFormat='準備群の {0} ファイルをスタッシュ（ステージ済みの変更・新規ファイルを含む）'}"
+                                AutomationProperties.Name="スタッシュ準備群をスタッシュ">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="▣↓" FontSize="14" Margin="0,0,6,0"/><TextBlock Text="スタッシュ" VerticalAlignment="Center"/></StackPanel>
                         </Button>
                         <TextBlock Text="{Binding OperationStatus}" Foreground="#D4D4D4" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" MaxHeight="90"/>
                     </StackPanel>
@@ -237,6 +252,15 @@
                                                 <Setter TargetName="SectionActionButton" Property="Foreground" Value="{StaticResource StagedAccentBrush}"/>
                                                 <Setter TargetName="SectionActionButton" Property="BorderBrush" Value="{StaticResource StagedAccentBrush}"/>
                                             </DataTrigger>
+                                            <DataTrigger Binding="{Binding Name}" Value="スタッシュ準備群">
+                                                <Setter TargetName="SectionHeader" Property="Background" Value="{StaticResource StashHeaderBrush}"/>
+                                                <Setter TargetName="SectionHeader" Property="BorderBrush" Value="{StaticResource StashAccentBrush}"/>
+                                                <Setter TargetName="SectionTitle" Property="Foreground" Value="{StaticResource StashAccentBrush}"/>
+                                                <Setter TargetName="SectionActionButton" Property="Content" Value="すべて準備解除"/>
+                                                <Setter TargetName="SectionActionButton" Property="ToolTip" Value="Git の状態を変えずにスタッシュ準備群をすべて解除"/>
+                                                <Setter TargetName="SectionActionButton" Property="Foreground" Value="{StaticResource StashAccentBrush}"/>
+                                                <Setter TargetName="SectionActionButton" Property="BorderBrush" Value="{StaticResource StashAccentBrush}"/>
+                                            </DataTrigger>
                                         </DataTemplate.Triggers>
                                     </DataTemplate>
                                 </GroupStyle.HeaderTemplate>
@@ -261,6 +285,10 @@
                                                     <Setter TargetName="StateIndicator" Property="BorderBrush" Value="{StaticResource StagedAccentBrush}"/>
                                                     <Setter TargetName="Row" Property="Background" Value="#232F29"/>
                                                 </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsStashPrepared}" Value="True">
+                                                    <Setter TargetName="StateIndicator" Property="BorderBrush" Value="{StaticResource StashAccentBrush}"/>
+                                                    <Setter TargetName="Row" Property="Background" Value="#302638"/>
+                                                </DataTrigger>
                                                 <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="Background" Value="#303033"/></Trigger>
                                                 <Trigger Property="IsSelected" Value="True">
                                                     <Setter TargetName="Row" Property="Background" Value="#303033"/>
@@ -282,26 +310,35 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <Grid ToolTip="{Binding DisplayPath}">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                     <Button x:Name="FileOpenButton" Style="{StaticResource FileLinkButtonStyle}" Click="FileNameButton_Click"
                                             MouseDoubleClick="FileNameButton_MouseDoubleClick" Tag="{Binding}" ToolTip="ダブルクリックで VS Code で開く" Focusable="False">
                                         <StackPanel>
                                             <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis"/>
                                             <TextBlock Text="{Binding DirectoryName}" Foreground="#999999" FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                                            <TextBlock Text="{Binding Comparison}" Foreground="{StaticResource StashAccentBrush}" FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,2,0,0">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers><DataTrigger Binding="{Binding IsStashPrepared}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
                                         </StackPanel>
                                     </Button>
                                     <TextBlock Grid.Column="1" Text="{Binding Change}" Foreground="#8CBFE5" FontSize="10" Margin="8,0,0,0" VerticalAlignment="Center"/>
                                     <Button x:Name="FileCopyButton" Grid.Column="2" Content="⧉" ToolTip="ファイル名をコピー" Click="CopyFileNameButton_Click"
-                                            Padding="5,2" Margin="4,0,0,0" VerticalAlignment="Center"/>
-                                    <Button x:Name="FileStageButton" Grid.Column="3" Click="StageFileButton_Click" Padding="5,2" Margin="4,0,0,0" VerticalAlignment="Center">
+                                            Style="{StaticResource FileIconButtonStyle}" FontSize="16"/>
+                                    <Button x:Name="FileStageButton" Grid.Column="3" Click="StageFileButton_Click" FontSize="19">
                                         <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                                <Setter Property="Content" Value="ステージ"/>
+                                            <Style TargetType="Button" BasedOn="{StaticResource FileIconButtonStyle}">
+                                                <Setter Property="Content" Value="＋"/>
                                                 <Setter Property="ToolTip" Value="このファイルをステージ"/>
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding IsStaged}" Value="True">
-                                                        <Setter Property="Content" Value="解除"/><Setter Property="ToolTip" Value="このファイルのステージを解除"/>
+                                                        <Setter Property="Content" Value="−"/><Setter Property="ToolTip" Value="このファイルのステージを解除"/>
                                                     </DataTrigger>
+                                                    <DataTrigger Binding="{Binding IsStashPrepared}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
                                                     <DataTrigger Binding="{Binding DataContext.IsBusy, RelativeSource={RelativeSource AncestorType=controls:GitDiffRepositoryView}}" Value="True">
                                                         <Setter Property="IsEnabled" Value="False"/>
                                                     </DataTrigger>
@@ -309,18 +346,46 @@
                                             </Style>
                                         </Button.Style>
                                     </Button>
-                                    <Button x:Name="FileDiscardButton" Grid.Column="4" Content="破棄" ToolTip="このファイルの未ステージ変更を破棄" Click="FileRowDiscardButton_Click"
-                                            Padding="5,2" Margin="4,0,0,0" VerticalAlignment="Center">
+                                    <Button x:Name="FileStashButton" Grid.Column="4" Click="FileStashButton_Click">
                                         <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                            <Style TargetType="Button" BasedOn="{StaticResource FileIconButtonStyle}">
+                                                <Setter Property="ToolTip" Value="このファイルをスタッシュ準備群に追加（ステージ済みの変更も対象）"/>
                                                 <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsStashPrepared}" Value="True">
+                                                        <Setter Property="ToolTip" Value="このファイルをスタッシュ準備群から解除"/>
+                                                        <Setter Property="Foreground" Value="{StaticResource StashAccentBrush}"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding IsConflicted}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
+                                                    <DataTrigger Binding="{Binding DataContext.IsBusy, RelativeSource={RelativeSource AncestorType=controls:GitDiffRepositoryView}}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                        <Grid Width="21" Height="20">
+                                            <Path Data="M 2,5 L 15,5 15,16 2,16 Z M 1,2 L 16,2 16,5 1,5 Z M 6,8 L 11,8" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.4" StrokeLineJoin="Round"/>
+                                            <TextBlock HorizontalAlignment="Right" VerticalAlignment="Bottom" FontSize="13" FontWeight="Bold" Background="#383838" LineHeight="11">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Text" Value="+"/>
+                                                        <Style.Triggers><DataTrigger Binding="{Binding IsStashPrepared}" Value="True"><Setter Property="Text" Value="−"/></DataTrigger></Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Grid>
+                                    </Button>
+                                    <Button x:Name="FileDiscardButton" Grid.Column="5" ToolTip="このファイルの未ステージ変更を破棄" Click="FileRowDiscardButton_Click">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource FileIconButtonStyle}">
+                                                <Style.Triggers>
+                                                    <MultiTrigger><MultiTrigger.Conditions><Condition Property="IsMouseOver" Value="True"/><Condition Property="IsEnabled" Value="True"/></MultiTrigger.Conditions><Setter Property="Foreground" Value="#F38BA8"/></MultiTrigger>
                                                     <DataTrigger Binding="{Binding IsStaged}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
+                                                    <DataTrigger Binding="{Binding IsStashPrepared}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
                                                     <DataTrigger Binding="{Binding IsConflicted}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
                                                     <DataTrigger Binding="{Binding Change}" Value="名前変更"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
                                                     <DataTrigger Binding="{Binding DataContext.IsBusy, RelativeSource={RelativeSource AncestorType=controls:GitDiffRepositoryView}}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
                                         </Button.Style>
+                                        <TextBlock Text="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="15"/>
                                     </Button>
                                 </Grid>
                             </DataTemplate>

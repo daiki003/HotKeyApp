@@ -12,6 +12,8 @@ namespace HotKeyCommandApp.ViewModels
     {
         private readonly GitDiffService _service;
         private readonly GitStageService _stageService;
+        private readonly GitStashService _stashService;
+        private readonly HashSet<string> _stashPreparedPaths = new(StringComparer.Ordinal);
         private readonly GitBranchService _branchService;
         private readonly GitSettingsManager _settingsManager;
         private readonly string _repositoryPath;
@@ -24,6 +26,7 @@ namespace HotKeyCommandApp.ViewModels
         {
             _service = new GitDiffService(repositoryPath);
             _stageService = new GitStageService(repositoryPath);
+            _stashService = new GitStashService(repositoryPath);
             _branchService = new GitBranchService(repositoryPath);
             _settingsManager = new GitSettingsManager();
             _repositoryPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(repositoryPath));
@@ -93,24 +96,67 @@ namespace HotKeyCommandApp.ViewModels
         private string _overview = "読み込み中...";
         public string Overview { get => _overview; private set { _overview = value; OnPropertyChanged(); } }
         private bool _isRefreshing;
-        public bool IsRefreshing { get => _isRefreshing; private set { _isRefreshing = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanStageLines)); OnPropertyChanged(nameof(CanDiscardFile)); OnPropertyChanged(nameof(CanOperateCurrentBranch)); } }
+        public bool IsRefreshing { get => _isRefreshing; private set { _isRefreshing = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanStageLines)); OnPropertyChanged(nameof(CanDiscardFile)); OnPropertyChanged(nameof(CanOperateCurrentBranch)); OnPropertyChanged(nameof(CanStashPreparedFiles)); OnPropertyChanged(nameof(CanCommitStagedChanges)); } }
 
         private bool _isOperating;
-        public bool IsOperating { get => _isOperating; private set { _isOperating = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanStageLines)); OnPropertyChanged(nameof(CanDiscardFile)); OnPropertyChanged(nameof(CanOperateCurrentBranch)); } }
+        public bool IsOperating { get => _isOperating; private set { _isOperating = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanStageLines)); OnPropertyChanged(nameof(CanDiscardFile)); OnPropertyChanged(nameof(CanOperateCurrentBranch)); OnPropertyChanged(nameof(CanStashPreparedFiles)); OnPropertyChanged(nameof(CanCommitStagedChanges)); } }
         public bool IsBusy => IsRefreshing || IsOperating;
-        public bool CanStageLines => !IsBusy && SelectedFile is { IsStaged: false, IsConflicted: false } && _displayedDiff != null &&
+        public bool CanStageLines => !IsBusy && SelectedFile is { IsStaged: false, IsConflicted: false, IsStashPrepared: false } && _displayedDiff != null &&
             _displayedDiff.Lines.Any(line => line.Kind is GitDiffLineKind.Added or GitDiffLineKind.Deleted);
-        public bool CanDiscardFile => !IsBusy && SelectedFile is { IsStaged: false, IsConflicted: false } &&
+        public bool CanDiscardFile => !IsBusy && SelectedFile is { IsStaged: false, IsConflicted: false, IsStashPrepared: false } &&
             (string.IsNullOrEmpty(SelectedFile.OldPath) || SelectedFile.OldPath == SelectedFile.Path) && !string.IsNullOrEmpty(_displayedDiff?.RawPatch);
-        public bool HasStagedChanges => Files.Any(file => file.IsStaged);
-        public bool HasUnstagedChanges => Files.Any(file => !file.IsStaged);
+        public bool HasStagedChanges => Files.Any(file => file.IsStaged && !file.IsStashPrepared);
+        public bool HasUnstagedChanges => Files.Any(file => !file.IsStaged && !file.IsStashPrepared);
+        public int StashPreparedFileCount => Files.Where(file => file.IsStashPrepared).Select(file => file.Path).Distinct(StringComparer.Ordinal).Count();
+        public bool CanStashPreparedFiles => !IsBusy && StashPreparedFileCount > 0;
+        public bool CanCommitStagedChanges => !IsBusy && HasStagedChanges && !Files.Any(file => file.IsStaged && file.IsStashPrepared);
+        public string CommitStagedToolTip => Files.Any(file => file.IsStaged && file.IsStashPrepared)
+            ? "スタッシュ準備群にステージ済みの変更があります。スタッシュするか準備解除してからコミットしてください。"
+            : "ステージ済みの変更をコミット";
         private string _operationStatus = "";
         public string OperationStatus { get => _operationStatus; private set { _operationStatus = value; OnPropertyChanged(); } }
         public void SetOperationStatus(string message) => OperationStatus = message;
 
         public Task StageFileAsync(GitDiffFile file) => RunOperationAsync(() => _stageService.StageFileAsync(file), $"{file.FileName} をステージしました。");
-        public Task StageAllAsync() => RunOperationAsync(() => _stageService.StageAllAsync(), "すべての変更をステージしました。");
-        public Task UnstageAllAsync() => RunOperationAsync(() => _stageService.UnstageAllAsync(), "すべてのステージを解除しました。");
+        public Task StageAllAsync() => RunOperationAsync(() => _stageService.StageFilesAsync(Files.Where(file => !file.IsStaged && !file.IsStashPrepared).ToArray()), "すべての変更をステージしました。");
+        public Task UnstageAllAsync() => RunOperationAsync(() => _stageService.UnstageFilesAsync(Files.Where(file => file.IsStaged && !file.IsStashPrepared).ToArray()), "すべてのステージを解除しました。");
+
+        public void ToggleStashPreparation(GitDiffFile file)
+        {
+            if (_disposed || IsBusy || file == null || file.IsConflicted || !Files.Contains(file)) return;
+            var paths = new HashSet<string>(new[] { file.Path }, StringComparer.Ordinal);
+            ExpandRelatedPaths(paths, Files);
+            if (file.IsStashPrepared) _stashPreparedPaths.ExceptWith(paths);
+            else _stashPreparedPaths.UnionWith(paths);
+            UpdateStashPreparation($"{file.FileName} をスタッシュ準備群{(file.IsStashPrepared ? "から解除" : "に追加")}しました。");
+        }
+
+        public void ClearStashPreparation()
+        {
+            if (_disposed || IsBusy) return;
+            _stashPreparedPaths.Clear();
+            UpdateStashPreparation("スタッシュ準備群を解除しました。");
+        }
+
+        private void UpdateStashPreparation(string message)
+        {
+            string selectedKey = SelectedFile?.Key;
+            ApplyFileSnapshot(Files.ToArray());
+            SelectedFile = Files.FirstOrDefault(file => file.Key == selectedKey) ?? Files.FirstOrDefault();
+            OperationStatus = message;
+        }
+
+        public Task StashPreparedFilesAsync()
+        {
+            if (!CanStashPreparedFiles) return Task.CompletedTask;
+            var files = Files.Where(file => file.IsStashPrepared).ToArray();
+            int count = StashPreparedFileCount;
+            return RunOperationAsync(async () =>
+            {
+                await _stashService.StashFilesAsync(files);
+                _stashPreparedPaths.Clear();
+            }, $"{count} ファイルをスタッシュしました。");
+        }
         public Task DiscardFileAsync()
         {
             var file = SelectedFile;
@@ -136,7 +182,11 @@ namespace HotKeyCommandApp.ViewModels
             var diff = _displayedDiff;
             return file == null ? Task.CompletedTask : RunOperationAsync(() => _stageService.StageLinesAsync(file, diff, indices), "選択した変更行をステージしました。");
         }
-        public Task CommitStagedAsync(string message) => RunOperationAsync(() => _stageService.CommitStagedAsync(message), "ステージ済みの変更をコミットしました。");
+        public Task CommitStagedAsync(string message)
+        {
+            if (!CanCommitStagedChanges) { OperationStatus = CommitStagedToolTip; return Task.CompletedTask; }
+            return RunOperationAsync(() => _stageService.CommitStagedAsync(message), "ステージ済みの変更をコミットしました。");
+        }
         public Task PushCurrentBranchAsync() => RunBranchOperationAsync(_branchService.PushCurrentBranchAsync, "現在のブランチをプッシュしました。");
         public Task PullCurrentBranchAsync() => RunBranchOperationAsync(_branchService.PullCurrentBranchAsync, "現在のブランチをプルしました。");
         public Task RenameCurrentBranchAsync(string expectedName, string newName) =>
@@ -197,18 +247,7 @@ namespace HotKeyCommandApp.ViewModels
                 CurrentBranch = snapshot.Branch.CurrentBranch;
                 CurrentBranchName = snapshot.Branch.BranchName;
                 SetTrackingInfo(snapshot.Branch);
-                var fileSet = files.ToHashSet();
-                for (int i = Files.Count - 1; i >= 0; i--)
-                    if (!fileSet.Contains(Files[i])) Files.RemoveAt(i);
-                for (int i = 0; i < files.Count; i++)
-                {
-                    int existingIndex = Files.IndexOf(files[i]);
-                    if (existingIndex < 0) Files.Insert(i, files[i]);
-                    else if (existingIndex != i) Files.Move(existingIndex, i);
-                }
-                OnPropertyChanged(nameof(HasStagedChanges));
-                OnPropertyChanged(nameof(HasUnstagedChanges));
-                Overview = $"未ステージ {files.Count(file => !file.IsStaged)} 件  /  ステージ済み {files.Count(file => file.IsStaged)} 件";
+                ApplyFileSnapshot(files);
                 var previousSelection = SelectedFile;
                 if (previousSelection != null && !ReferenceEquals(previousSelection, initialSelection))
                     selectedKey = previousSelection.Key;
@@ -224,12 +263,56 @@ namespace HotKeyCommandApp.ViewModels
                 Files.Clear();
                 OnPropertyChanged(nameof(HasStagedChanges));
                 OnPropertyChanged(nameof(HasUnstagedChanges));
+                OnPropertyChanged(nameof(StashPreparedFileCount));
+                OnPropertyChanged(nameof(CanStashPreparedFiles));
+                OnPropertyChanged(nameof(CanCommitStagedChanges));
+                OnPropertyChanged(nameof(CommitStagedToolTip));
                 Overview = "読み込み失敗";
                 CurrentBranch = "取得失敗";
                 TrackingStatusText = "取得失敗";
                 Message = $"ファイル一覧を取得できませんでした。\n{ex.Message}";
             }
             finally { if (!token.IsCancellationRequested && !_disposed) IsRefreshing = false; }
+        }
+
+        private void ApplyFileSnapshot(IReadOnlyList<GitDiffFile> snapshot)
+        {
+            _stashPreparedPaths.IntersectWith(snapshot.SelectMany(file => new[] { file.Path, file.OldPath }).Where(path => !string.IsNullOrEmpty(path)));
+            ExpandRelatedPaths(_stashPreparedPaths, snapshot);
+            var files = snapshot.Select(file => file with { IsStashPrepared = _stashPreparedPaths.Contains(file.Path) })
+                .OrderBy(file => file.IsStashPrepared ? 2 : file.IsStaged ? 1 : 0)
+                .ThenBy(file => file.Path, StringComparer.OrdinalIgnoreCase).ToArray();
+            var fileSet = files.ToHashSet();
+            for (int i = Files.Count - 1; i >= 0; i--)
+                if (!fileSet.Contains(Files[i])) Files.RemoveAt(i);
+            for (int i = 0; i < files.Length; i++)
+            {
+                int existingIndex = Files.IndexOf(files[i]);
+                if (existingIndex < 0) Files.Insert(i, files[i]);
+                else if (existingIndex != i) Files.Move(existingIndex, i);
+            }
+            OnPropertyChanged(nameof(HasStagedChanges));
+            OnPropertyChanged(nameof(HasUnstagedChanges));
+            OnPropertyChanged(nameof(StashPreparedFileCount));
+            OnPropertyChanged(nameof(CanStashPreparedFiles));
+            OnPropertyChanged(nameof(CanCommitStagedChanges));
+            OnPropertyChanged(nameof(CommitStagedToolTip));
+            Overview = $"未ステージ {files.Count(file => !file.IsStaged && !file.IsStashPrepared)} 件  /  ステージ済み {files.Count(file => file.IsStaged && !file.IsStashPrepared)} 件  /  スタッシュ準備 {StashPreparedFileCount} 件";
+        }
+
+        private static void ExpandRelatedPaths(HashSet<string> paths, IEnumerable<GitDiffFile> files)
+        {
+            int previousCount;
+            do
+            {
+                previousCount = paths.Count;
+                foreach (var file in files)
+                {
+                    if (!paths.Contains(file.Path) && (string.IsNullOrEmpty(file.OldPath) || !paths.Contains(file.OldPath))) continue;
+                    paths.Add(file.Path);
+                    if (!string.IsNullOrEmpty(file.OldPath)) paths.Add(file.OldPath);
+                }
+            } while (paths.Count != previousCount);
         }
 
         private void SetTrackingInfo(GitDiffBranchInfo info)
