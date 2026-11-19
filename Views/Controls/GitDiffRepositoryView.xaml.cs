@@ -413,8 +413,14 @@ namespace HotKeyCommandApp.Views.Controls
         private async void CommitStagedButton_Click(object sender, RoutedEventArgs e)
         {
             if (!_viewModel.CanCommitStagedChanges) return;
+            int inputVersion = _inputVersion;
             var dialog = new CommitMessageDialog(stagedOnly: true) { Owner = Window.GetWindow(this) };
-            if (ShowModal(dialog.ShowDialog) == true) await _viewModel.CommitStagedAsync(dialog.Message);
+            bool confirmed = ShowModal(dialog.ShowDialog) == true;
+            if (confirmed) await _viewModel.CommitStagedAsync(dialog.Message);
+            if (!CanRestoreFocus(inputVersion)) return;
+            if (!confirmed && CommitStagedButton.IsEnabled) CommitStagedButton.Focus();
+            else if (_viewModel.Files.Count > 0) FocusFileList();
+            else FocusHeaderButton(CopyCurrentBranchButton);
         }
 
         public void FocusFileList()

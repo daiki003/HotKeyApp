@@ -59,6 +59,11 @@ internal static partial class Program
                     Console.WriteLine("スタッシュ準備群のテストに成功しました。");
                     return;
                 }
+                if (args.Contains("--commit-focus"))
+                {
+                    await TestCommitFocusAsync(workspace);
+                    return;
+                }
                 TestShortcutSettings();
                 TestSyntaxHighlighting();
                 TestIntralineHighlighting();
@@ -77,6 +82,7 @@ internal static partial class Program
                 await TestSyntaxViewAsync(workspace);
                 await TestFileActionNavigationAsync(workspace);
                 await TestStashPreparationAsync(workspace);
+                await TestCommitFocusAsync(workspace);
                 await TestPlacementAndInitialFocusAsync(workspace);
                 Console.WriteLine("差分タブとショートカット設定のテストに成功しました。");
             }
@@ -814,6 +820,51 @@ internal static partial class Program
         await failed.StashPreparedFilesAsync();
         Check(failed.StashPreparedFileCount == 1 && failed.OperationStatus.Contains("初回コミット前") && File.Exists(Path.Combine(unborn, "first.txt")),
             "スタッシュ失敗時は準備群と作業ファイルを維持");
+    }
+
+    private static async Task TestCommitFocusAsync(string workspace)
+    {
+        string path = CreateRepository(workspace, "commit-focus", "staged.txt");
+        using (var repository = new Repository(path))
+        {
+            repository.Config.Set("user.name", "Focus Test");
+            repository.Config.Set("user.email", "focus@example.invalid");
+            Commands.Stage(repository, "staged.txt");
+        }
+        GitDiffWindow.ShowForRepository(path);
+        var window = Application.Current.Windows.OfType<GitDiffWindow>().Single();
+        var tabs = (TabControl)window.FindName("RepositoryTabs");
+        var view = (GitDiffRepositoryView)((TabItem)tabs.SelectedItem).Content;
+        await WaitForAsync(() => !view.ViewModel.IsBusy && view.ViewModel.CanCommitStagedChanges);
+        var commit = (Button)view.FindName("CommitStagedButton");
+        async Task CommitFromDialogAsync(string message)
+        {
+            window.Activate();
+            await WaitForAsync(() => window.IsActive);
+            commit.Focus();
+            _ = Application.Current.Dispatcher.BeginInvoke(() =>
+            {
+                var dialog = Application.Current.Windows.OfType<CommitMessageDialog>().Single();
+                ((TextBox)dialog.FindName("MessageBox")).Text = message;
+                FindVisuals<Button>(dialog).Single(button => Equals(button.Content, "コミット")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            }, System.Windows.Threading.DispatcherPriority.Background);
+            commit.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await WaitForAsync(() => !view.ViewModel.IsBusy && view.ViewModel.OperationStatus == "ステージ済みの変更をコミットしました。");
+        }
+
+        await CommitFromDialogAsync("first commit");
+        Check(view.ViewModel.Files.Count == 0 && ((Button)view.FindName("CopyCurrentBranchButton")).IsKeyboardFocused,
+            "コミット後に差分がなければブランチ名コピーへフォーカス");
+        File.WriteAllText(Path.Combine(path, "staged.txt"), "new staged change\n");
+        File.WriteAllText(Path.Combine(path, "remaining.txt"), "remaining change\n");
+        using (var repository = new Repository(path)) Commands.Stage(repository, "staged.txt");
+        await view.RefreshAsync();
+        await WaitForAsync(() => !view.ViewModel.IsBusy && view.ViewModel.CanCommitStagedChanges);
+        await CommitFromDialogAsync("second commit");
+        var list = (ListBox)view.FindName("FileList");
+        Check(view.ViewModel.Files.Count == 1 && list.IsKeyboardFocusWithin && view.ViewModel.SelectedFile.Path == "remaining.txt",
+            "コミット後に差分が残ればファイル一覧へフォーカス");
+        window.Close();
     }
 
     private static async Task TestPlacementAndInitialFocusAsync(string workspace)
