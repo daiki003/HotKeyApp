@@ -86,10 +86,14 @@ namespace HotKeyCommandApp.Services
 
             if (vk != 0)
             {
-                if (NativeMethods.RegisterHotKey(_hWnd, id, modifiers, vk))
+                bool registered = NativeMethods.RegisterHotKey(_hWnd, id, modifiers, vk);
+                int error = registered ? 0 : Marshal.GetLastWin32Error();
+                if (registered)
                 {
                     _registeredHotKeys[id] = hotkeyString;
                 }
+                if (id == DEFAULT_HOTKEY_ID || !registered)
+                    Logger.Log($"[Hotkey] Registration: pid={Environment.ProcessId}, id={id}, success={registered}, error={error}");
             }
         }
 
@@ -135,6 +139,8 @@ namespace HotKeyCommandApp.Services
         private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
             const int WM_HOTKEY = 0x0312;
+            if (msg == WM_HOTKEY && wParam.ToInt32() == DEFAULT_HOTKEY_ID)
+                Logger.Log($"[Hotkey] Notification: pid={Environment.ProcessId}, enabled={IsEnabled}");
             if (IsEnabled && msg == WM_HOTKEY)
             {
                 int id = wParam.ToInt32();

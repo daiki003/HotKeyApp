@@ -103,11 +103,14 @@ namespace HotKeyCommandApp.Services
             {
                 using var repository = new LibGit2Sharp.Repository(repositoryPath);
                 string oldPath = string.IsNullOrEmpty(file.OldPath) ? file.Path : file.OldPath;
-                string[] oldSource = file.IsStaged
+                string[] oldSource = file.IsReadOnly
+                    ? ReadBlob(string.IsNullOrEmpty(file.SourceRevision) ? null : repository.Lookup<Commit>(file.SourceRevision)?.Tree[oldPath]?.Target as Blob, token)
+                    : file.IsStaged
                     ? ReadBlob(repository.Head.Tip?.Tree[oldPath]?.Target as Blob, token)
                     : ReadIndexBlob(repository, oldPath, token);
                 string[] newSource;
-                if (file.IsStaged) newSource = ReadIndexBlob(repository, file.Path, token);
+                if (file.TargetRevision != null) newSource = ReadBlob(repository.Lookup<Commit>(file.TargetRevision)?.Tree[file.Path]?.Target as Blob, token);
+                else if (file.IsStaged) newSource = ReadIndexBlob(repository, file.Path, token);
                 else
                 {
                     string fullPath = Path.Combine(repositoryPath, file.Path.Replace('/', Path.DirectorySeparatorChar));

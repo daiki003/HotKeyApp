@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using HotKeyCommandApp.Models;
+using HotKeyCommandApp.Services;
 
 namespace HotKeyCommandApp.Views.Controls
 {
@@ -17,8 +18,7 @@ namespace HotKeyCommandApp.Views.Controls
         private Point _dragStartPoint;
         private bool _keepFocusOnTabs;
         private bool _focusTabWhenTargetTabIsEmpty;
-        private IPairEditorTab? _editingTab;
-        private string _editingTabOriginalName = string.Empty;
+        private readonly PairEditorTabEditSession _tabEditSession = new();
         private IPairEntryEditable? _itemToFocusAfterTabSwitch;
 
         public AliasPairEditorControl()
@@ -857,7 +857,7 @@ namespace HotKeyCommandApp.Views.Controls
 
         private void TabNameTextBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
         {
-            if (sender is TextBox { DataContext: IPairEditorTab tab } && ReferenceEquals(_editingTab, tab))
+            if (sender is TextBox { DataContext: IPairEditorTab tab } && ReferenceEquals(_tabEditSession.EditingTab, tab))
             {
                 EndTabRename(commit: true);
             }
@@ -868,14 +868,7 @@ namespace HotKeyCommandApp.Views.Controls
             List<IPairEntryEditable> orderedItems = VisibleItems.ToList();
             int currentIndex = orderedItems.IndexOf(item);
             int targetIndex = moveUp ? currentIndex - 1 : currentIndex + 1;
-            if (currentIndex < 0 || targetIndex < 0 || targetIndex >= orderedItems.Count)
-            {
-                return;
-            }
-
-            orderedItems.RemoveAt(currentIndex);
-            orderedItems.Insert(targetIndex, item);
-            NormalizeSortOrder(orderedItems);
+            if (!PairEntryListEditor.TryMove(orderedItems, item, targetIndex)) return;
             RefreshVisibleItems();
 
             if (enterEditMode)
@@ -1159,9 +1152,7 @@ namespace HotKeyCommandApp.Views.Controls
             }
 
             bool draggedWasEditing = ReferenceEquals(CurrentEditingItem, dragged);
-            orderedItems.RemoveAt(sourceIndex);
-            orderedItems.Insert(targetIndex, dragged);
-            NormalizeSortOrder(orderedItems);
+            if (!PairEntryListEditor.TryMove(orderedItems, dragged, targetIndex)) return;
             RefreshVisibleItems();
 
             if (draggedWasEditing)
@@ -1178,11 +1169,7 @@ namespace HotKeyCommandApp.Views.Controls
 
         private void RefreshVisibleItems()
         {
-            FlattenFolderStructureIfNeeded();
-
-            List<IPairEntryEditable> currentItems = GetRecordItems()
-                .OrderBy(i => i.SortOrder)
-                .ToList();
+            List<IPairEntryEditable> currentItems = PairEntryListEditor.ReadVisibleItems(ActiveItemsSource, ActiveFolderItemsSource);
 
             VisibleItems.Clear();
             foreach (IPairEntryEditable item in currentItems)
@@ -1195,95 +1182,9 @@ namespace HotKeyCommandApp.Views.Controls
             PairItemsControl.UpdateLayout();
         }
 
-        private void FlattenFolderStructureIfNeeded()
-        {
-            List<IPairEntryEditable> records = GetRecordItems().ToList();
-            List<PairEntryFolder> folders = GetFolders().ToList();
-            if (records.Count == 0)
-            {
-                ClearFolders();
-                return;
-            }
-
-            if (folders.Count == 0 && records.All(item => string.IsNullOrEmpty(item.ParentFolderId)))
-            {
-                return;
-            }
-
-            List<IPairEntryEditable> flattened = FlattenItems(records, folders);
-            NormalizeSortOrder(flattened);
-            ClearFolders();
-        }
-
-        private List<IPairEntryEditable> FlattenItems(IReadOnlyCollection<IPairEntryEditable> records, IReadOnlyCollection<PairEntryFolder> folders)
-        {
-            var flattened = new List<IPairEntryEditable>();
-            AppendFlattenedItems(string.Empty, records, folders, flattened);
-
-            foreach (IPairEntryEditable record in records)
-            {
-                if (!flattened.Contains(record))
-                {
-                    flattened.Add(record);
-                }
-            }
-
-            return flattened;
-        }
-
-        private void AppendFlattenedItems(
-            string parentFolderId,
-            IReadOnlyCollection<IPairEntryEditable> records,
-            IReadOnlyCollection<PairEntryFolder> folders,
-            ICollection<IPairEntryEditable> flattened)
-        {
-            var childFolders = folders
-                .Where(folder => folder.ParentFolderId == parentFolderId)
-                .Cast<IPairEntryEditable>();
-            var childRecords = records
-                .Where(record => record.ParentFolderId == parentFolderId);
-
-            foreach (IPairEntryEditable item in childFolders.Concat(childRecords)
-                         .OrderBy(item => item.SortOrder)
-                         .ThenBy(item => item.IsFolder ? 0 : 1))
-            {
-                if (item is PairEntryFolder folder)
-                {
-                    AppendFlattenedItems(folder.Id, records, folders, flattened);
-                    continue;
-                }
-
-                flattened.Add(item);
-            }
-        }
-
         private void NormalizeSortOrder()
         {
-            NormalizeSortOrder(VisibleItems.ToList());
-        }
-
-        private void NormalizeSortOrder(IList<IPairEntryEditable> orderedItems)
-        {
-            for (int i = 0; i < orderedItems.Count; i++)
-            {
-                orderedItems[i].SortOrder = i;
-                orderedItems[i].ParentFolderId = string.Empty;
-            }
-        }
-
-        private IEnumerable<PairEntryFolder> GetFolders()
-        {
-            return ActiveFolderItemsSource?.Cast<PairEntryFolder>() ?? Enumerable.Empty<PairEntryFolder>();
-        }
-
-        private IEnumerable<IPairEntryEditable> GetRecordItems()
-        {
-            return ActiveItemsSource?.Cast<object>().OfType<IPairEntryEditable>() ?? Enumerable.Empty<IPairEntryEditable>();
-        }
-
-        private void ClearFolders()
-        {
-            ActiveFolderItemsSource?.Clear();
+            PairEntryListEditor.NormalizeSortOrder(VisibleItems.ToList());
         }
 
         private void ScrollToBottom()
@@ -1361,34 +1262,7 @@ namespace HotKeyCommandApp.Views.Controls
                 return false;
             }
 
-            List<IPairEditorTab> tabs = TabHost.Tabs.Cast<object>().OfType<IPairEditorTab>().ToList();
-            int currentTabIndex = tabs.IndexOf(SelectedTab);
-            if (currentTabIndex < 0)
-            {
-                return false;
-            }
-
-            int targetTabIndex = moveRight ? currentTabIndex + 1 : currentTabIndex - 1;
-            if (targetTabIndex < 0 || targetTabIndex >= tabs.Count)
-            {
-                return false;
-            }
-
-            IPairEditorTab sourceTab = tabs[currentTabIndex];
-            IPairEditorTab targetTab = tabs[targetTabIndex];
-            int entryIndex = sourceTab.Items.IndexOf(entry);
-            if (entryIndex < 0)
-            {
-                return false;
-            }
-
-            sourceTab.Items.RemoveAt(entryIndex);
-            NormalizeSortOrder(sourceTab.Items.Cast<object>().OfType<IPairEntryEditable>().ToList());
-
-            entry.SortOrder = targetTab.Items.Count;
-            entry.ParentFolderId = string.Empty;
-            targetTab.Items.Add(entry);
-            NormalizeSortOrder(targetTab.Items.Cast<object>().OfType<IPairEntryEditable>().ToList());
+            if (!PairEntryListEditor.TryMoveToAdjacentTab(TabHost, entry, moveRight, out var targetTab)) return false;
 
             _itemToFocusAfterTabSwitch = entry;
             SelectedTab = targetTab;
@@ -1425,9 +1299,7 @@ namespace HotKeyCommandApp.Views.Controls
         private void StartTabRename(IPairEditorTab tab)
         {
             EndTabRename(commit: true);
-            _editingTab = tab;
-            _editingTabOriginalName = tab.Name;
-            tab.IsEditing = true;
+            _tabEditSession.Start(tab);
 
             Dispatcher.BeginInvoke(new Action(() =>
             {
@@ -1441,25 +1313,8 @@ namespace HotKeyCommandApp.Views.Controls
 
         private void EndTabRename(bool commit)
         {
-            if (_editingTab == null)
-            {
-                return;
-            }
-
-            if (!commit)
-            {
-                _editingTab.Name = _editingTabOriginalName;
-            }
-            else
-            {
-                _editingTab.Name = string.IsNullOrWhiteSpace(_editingTab.Name)
-                    ? _editingTabOriginalName
-                    : _editingTab.Name.Trim();
-            }
-
-            _editingTab.IsEditing = false;
-            _editingTab = null;
-            _editingTabOriginalName = string.Empty;
+            if (_tabEditSession.EditingTab == null) return;
+            _tabEditSession.End(commit);
             TabsListBox?.Items.Refresh();
         }
 

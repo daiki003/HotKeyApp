@@ -73,7 +73,7 @@ namespace HotKeyCommandApp.Services
         [DllImport("user32.dll")]
         internal static extern bool IsIconic(IntPtr hWnd);
 
-        [DllImport("user32.dll")]
+        [DllImport("user32.dll", SetLastError = true)]
         internal static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
 
         [DllImport("user32.dll")]

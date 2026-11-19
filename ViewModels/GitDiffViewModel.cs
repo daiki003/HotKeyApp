@@ -20,6 +20,9 @@ namespace HotKeyCommandApp.ViewModels
         private GitDiffContent _displayedDiff;
         private CancellationTokenSource _refreshCts;
         private CancellationTokenSource _diffCts;
+        private CancellationTokenSource _searchCts;
+        private readonly Dictionary<string, int> _manualOrder = new(StringComparer.Ordinal);
+        private bool _selectingSearchMatch;
         private bool _disposed;
 
         public GitDiffViewModel(string repositoryPath, double movementSpeed = 1200.0)
@@ -37,6 +40,84 @@ namespace HotKeyCommandApp.ViewModels
         }
 
         public string RepositoryName { get; }
+        private GitDiffMode _mode;
+        public GitDiffMode Mode => _mode;
+        public bool IsWorkingMode => Mode == GitDiffMode.Uncommitted;
+        public int SelectedModeIndex
+        {
+            get => (int)Mode;
+            set
+            {
+                if (_disposed || IsBusy || value == (int)Mode) return;
+                _mode = (GitDiffMode)value;
+                NotifyModeChanged();
+                _ = RefreshAsync();
+            }
+        }
+        private void NotifyModeChanged()
+        {
+            CancelSearch();
+            SelectedFile = null;
+            OnPropertyChanged(nameof(Mode));
+            OnPropertyChanged(nameof(SelectedModeIndex));
+            OnPropertyChanged(nameof(IsWorkingMode));
+        }
+        public ObservableCollection<GitDiffCommit> RecentCommits { get; } = new();
+        public void ShowCommit(string revision)
+        {
+            if (IsBusy || string.IsNullOrWhiteSpace(revision)) return;
+            try { SelectedCommit = _service.ReadCommit(revision); }
+            catch (Exception ex) { OperationStatus = ex.Message; }
+        }
+        private GitDiffCommit _selectedCommit;
+        public GitDiffCommit SelectedCommit
+        {
+            get => _selectedCommit;
+            set
+            {
+                if (_disposed || IsBusy || value == null || value == _selectedCommit && Mode == GitDiffMode.Commit) return;
+                _selectedCommit = value;
+                OnPropertyChanged();
+                _mode = GitDiffMode.Commit;
+                NotifyModeChanged();
+                _ = RefreshAsync();
+            }
+        }
+        private GitDiffSortOrder _sortOrder;
+        public int SelectedSortIndex
+        {
+            get => (int)_sortOrder;
+            set
+            {
+                if (_sortOrder == (GitDiffSortOrder)value) return;
+                if ((GitDiffSortOrder)value == GitDiffSortOrder.Manual) RememberOrder();
+                _sortOrder = (GitDiffSortOrder)value;
+                OnPropertyChanged();
+                string selectedKey = SelectedFile?.Key;
+                ApplyFileSnapshot(Files.ToArray());
+                if (selectedKey != null) SelectedFile = Files.FirstOrDefault(file => file.Key == selectedKey);
+            }
+        }
+        private void RememberOrder()
+        {
+            for (int i = 0; i < Files.Count; i++) _manualOrder[Files[i].Key] = i;
+        }
+        public void MoveFile(GitDiffFile source, GitDiffFile target)
+        {
+            if (IsBusy || source == null || target == null || source.Section != target.Section || !Files.Contains(source) || !Files.Contains(target)) return;
+            var selected = SelectedFile;
+            int destination = Files.IndexOf(target);
+            Files.Move(Files.IndexOf(source), destination);
+            if (selected != null) SelectedFile = selected;
+            RememberOrder();
+            _sortOrder = GitDiffSortOrder.Manual;
+            OnPropertyChanged(nameof(SelectedSortIndex));
+        }
+        public void MoveSelectedFile(int direction)
+        {
+            int index = Files.IndexOf(SelectedFile), target = index + direction;
+            if (index >= 0 && target >= 0 && target < Files.Count) MoveFile(SelectedFile, Files[target]);
+        }
         public double MovementSpeed { get; }
         private string _currentBranch = "読み込み中...";
         public string CurrentBranch { get => _currentBranch; private set { _currentBranch = value; OnPropertyChanged(); } }
@@ -60,7 +141,7 @@ namespace HotKeyCommandApp.ViewModels
         public string BaseBranch
         {
             get => _baseBranch;
-            private set { _baseBranch = value; OnPropertyChanged(); OnPropertyChanged(nameof(BaseBranchDisplay)); }
+            private set { _baseBranch = value; OnPropertyChanged(); OnPropertyChanged(nameof(BaseBranchDisplay)); OnPropertyChanged(nameof(CanUpdateFromBase)); }
         }
         public string BaseBranchDisplay => string.IsNullOrWhiteSpace(BaseBranch) ? "未設定" : BaseBranch;
         public ObservableCollection<GitDiffFile> Files { get; } = new();
@@ -75,12 +156,13 @@ namespace HotKeyCommandApp.ViewModels
             {
                 if (ReferenceEquals(_selectedFile, value)) return;
                 _selectedFile = value;
+                if (!_selectingSearchMatch && !SearchAllFiles) CancelSearch();
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(SelectedFilePath));
                 OnPropertyChanged(nameof(Comparison));
                 OnPropertyChanged(nameof(CanStageLines));
                 OnPropertyChanged(nameof(CanDiscardFile));
-                _ = LoadDiffAsync(value);
+                if (!_selectingSearchMatch) _ = LoadDiffAsync(value);
             }
         }
 
@@ -101,12 +183,12 @@ namespace HotKeyCommandApp.ViewModels
         private bool _isOperating;
         public bool IsOperating { get => _isOperating; private set { _isOperating = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsBusy)); OnPropertyChanged(nameof(CanStageLines)); OnPropertyChanged(nameof(CanDiscardFile)); OnPropertyChanged(nameof(CanOperateCurrentBranch)); OnPropertyChanged(nameof(CanStashPreparedFiles)); OnPropertyChanged(nameof(CanCommitStagedChanges)); } }
         public bool IsBusy => IsRefreshing || IsOperating;
-        public bool CanStageLines => !IsBusy && SelectedFile is { IsStaged: false, IsConflicted: false, IsStashPrepared: false } && _displayedDiff != null &&
+        public bool CanStageLines => IsWorkingMode && !IsBusy && SelectedFile is { IsReadOnly: false, IsStaged: false, IsConflicted: false, IsStashPrepared: false } && _displayedDiff != null &&
             _displayedDiff.Lines.Any(line => line.Kind is GitDiffLineKind.Added or GitDiffLineKind.Deleted);
-        public bool CanDiscardFile => !IsBusy && SelectedFile is { IsStaged: false, IsConflicted: false, IsStashPrepared: false } &&
+        public bool CanDiscardFile => IsWorkingMode && !IsBusy && SelectedFile is { IsReadOnly: false, IsStaged: false, IsConflicted: false, IsStashPrepared: false } &&
             (string.IsNullOrEmpty(SelectedFile.OldPath) || SelectedFile.OldPath == SelectedFile.Path) && !string.IsNullOrEmpty(_displayedDiff?.RawPatch);
-        public bool HasStagedChanges => Files.Any(file => file.IsStaged && !file.IsStashPrepared);
-        public bool HasUnstagedChanges => Files.Any(file => !file.IsStaged && !file.IsStashPrepared);
+        public bool HasStagedChanges => IsWorkingMode && Files.Any(file => file.IsStaged && !file.IsStashPrepared);
+        public bool HasUnstagedChanges => IsWorkingMode && Files.Any(file => !file.IsStaged && !file.IsStashPrepared);
         public int StashPreparedFileCount => Files.Where(file => file.IsStashPrepared).Select(file => file.Path).Distinct(StringComparer.Ordinal).Count();
         public bool CanStashPreparedFiles => !IsBusy && StashPreparedFileCount > 0;
         public bool CanCommitStagedChanges => !IsBusy && HasStagedChanges && !Files.Any(file => file.IsStaged && file.IsStashPrepared);
@@ -117,13 +199,109 @@ namespace HotKeyCommandApp.ViewModels
         public string OperationStatus { get => _operationStatus; private set { _operationStatus = value; OnPropertyChanged(); } }
         public void SetOperationStatus(string message) => OperationStatus = message;
 
-        public Task StageFileAsync(GitDiffFile file) => RunOperationAsync(() => _stageService.StageFileAsync(file), $"{file.FileName} をステージしました。");
-        public Task StageAllAsync() => RunOperationAsync(() => _stageService.StageFilesAsync(Files.Where(file => !file.IsStaged && !file.IsStashPrepared).ToArray()), "すべての変更をステージしました。");
-        public Task UnstageAllAsync() => RunOperationAsync(() => _stageService.UnstageFilesAsync(Files.Where(file => file.IsStaged && !file.IsStashPrepared).ToArray()), "すべてのステージを解除しました。");
+        public bool CanUpdateFromBase => CanOperateCurrentBranch && !string.IsNullOrWhiteSpace(BaseBranch);
+        public Task UpdateFromBaseAsync() => RunBranchOperationAsync(() => new GitBaseUpdateService(_repositoryPath).UpdateAsync(BaseBranch),
+            "ベースブランチを取り込み、退避した変更を復元しました。復元したスタッシュは削除しました。");
+
+        private string _searchText = string.Empty;
+        public string SearchText { get => _searchText; set { if (_searchText == value) return; _searchText = value; OnPropertyChanged(); CancelSearch(); } }
+        private bool _searchAllFiles;
+        public bool SearchAllFiles { get => _searchAllFiles; set { if (_searchAllFiles == value) return; _searchAllFiles = value; OnPropertyChanged(); CancelSearch(); } }
+        public ObservableCollection<GitDiffSearchResult> SearchResults { get; } = new();
+        private string _searchStatus = string.Empty;
+        public string SearchStatus { get => _searchStatus; private set { _searchStatus = value; OnPropertyChanged(); } }
+        private bool _isSearching;
+        public bool IsSearching { get => _isSearching; private set { _isSearching = value; OnPropertyChanged(); } }
+        public event Action<GitDiffSearchResult> SearchMatchRequested;
+        private GitDiffSearchResult _selectedSearchResult;
+        public GitDiffSearchResult SelectedSearchResult
+        {
+            get => _selectedSearchResult;
+            set { _selectedSearchResult = value; OnPropertyChanged(); if (value != null) _ = NavigateSearchResultAsync(value); }
+        }
+
+        private void CancelSearch()
+        {
+            _searchCts?.Cancel();
+            SearchResults.Clear();
+            SelectedSearchResult = null;
+            SearchStatus = string.Empty;
+            IsSearching = false;
+        }
+
+        public async Task SearchAsync()
+        {
+            CancelSearch();
+            if (_disposed || IsBusy || string.IsNullOrWhiteSpace(SearchText)) return;
+            _searchCts?.Dispose();
+            _searchCts = new CancellationTokenSource();
+            var token = _searchCts.Token;
+            string query = SearchText;
+            var files = SearchAllFiles ? Files.ToArray() : SelectedFile == null ? Array.Empty<GitDiffFile>() : new[] { SelectedFile };
+            IsSearching = true;
+            SearchStatus = "検索中...";
+            try
+            {
+                var results = await Task.Run(() =>
+                {
+                    var matches = new List<GitDiffSearchResult>();
+                    foreach (var file in files)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        var diff = _service.ReadDiff(file, token, fullContent: true);
+                        for (int i = 0; i < diff.Lines.Count; i++)
+                        {
+                            token.ThrowIfCancellationRequested();
+                            var line = diff.Lines[i];
+                            if (line.Kind is GitDiffLineKind.Hunk or GitDiffLineKind.Notice) continue;
+                            for (int start = 0; start <= line.Text.Length - query.Length;)
+                            {
+                                int found = line.Text.IndexOf(query, start, StringComparison.OrdinalIgnoreCase);
+                                if (found < 0) break;
+                                matches.Add(new GitDiffSearchResult(file, i, found, query.Length, line));
+                                start = found + query.Length;
+                                if (matches.Count >= 5000) return matches;
+                            }
+                        }
+                    }
+                    return matches;
+                }, token);
+                if (token.IsCancellationRequested || _disposed) return;
+                foreach (var result in results) SearchResults.Add(result);
+                SearchStatus = results.Count >= 5000 ? "5,000 件まで表示しています。検索語を絞り込んでください。" : $"{results.Count} 件（大文字・小文字を区別しない／差分と前後の行）";
+                if (results.Count > 0) SelectedSearchResult = results[0];
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { if (!token.IsCancellationRequested && !_disposed) SearchStatus = $"検索に失敗しました。{ex.Message}"; }
+            finally { if (!token.IsCancellationRequested && !_disposed) IsSearching = false; }
+        }
+
+        private async Task NavigateSearchResultAsync(GitDiffSearchResult result)
+        {
+            if (_disposed || IsBusy || !Files.Contains(result.File)) return;
+            _selectingSearchMatch = true;
+            try { SelectedFile = Files.First(file => file == result.File); }
+            finally { _selectingSearchMatch = false; }
+            await LoadDiffAsync(SelectedFile, fullContent: true);
+            if (_disposed || SelectedSearchResult != result || SelectedFile != result.File) return;
+            if (result.LineIndex < Lines.Count && Lines[result.LineIndex] == result.Line) SearchMatchRequested?.Invoke(result);
+            else SearchStatus = "差分が変更されました。もう一度検索してください。";
+        }
+
+        public void NextSearchResult(int direction)
+        {
+            if (SearchResults.Count == 0) return;
+            int index = SearchResults.IndexOf(SelectedSearchResult);
+            SelectedSearchResult = SearchResults[(index + direction + SearchResults.Count) % SearchResults.Count];
+        }
+
+        public Task StageFileAsync(GitDiffFile file) => file == null || file.IsReadOnly ? Task.CompletedTask : RunOperationAsync(() => _stageService.StageFileAsync(file), $"{file.FileName} をステージしました。");
+        public Task StageAllAsync() => !IsWorkingMode ? Task.CompletedTask : RunOperationAsync(() => _stageService.StageFilesAsync(Files.Where(file => !file.IsStaged && !file.IsStashPrepared).ToArray()), "すべての変更をステージしました。");
+        public Task UnstageAllAsync() => !IsWorkingMode ? Task.CompletedTask : RunOperationAsync(() => _stageService.UnstageFilesAsync(Files.Where(file => file.IsStaged && !file.IsStashPrepared).ToArray()), "すべてのステージを解除しました。");
 
         public void ToggleStashPreparation(GitDiffFile file)
         {
-            if (_disposed || IsBusy || file == null || file.IsConflicted || !Files.Contains(file)) return;
+            if (_disposed || IsBusy || !IsWorkingMode || file == null || file.IsReadOnly || file.IsConflicted || !Files.Contains(file)) return;
             var paths = new HashSet<string>(new[] { file.Path }, StringComparer.Ordinal);
             ExpandRelatedPaths(paths, Files);
             if (file.IsStashPrepared) _stashPreparedPaths.ExceptWith(paths);
@@ -133,7 +311,7 @@ namespace HotKeyCommandApp.ViewModels
 
         public void ClearStashPreparation()
         {
-            if (_disposed || IsBusy) return;
+            if (_disposed || IsBusy || !IsWorkingMode) return;
             _stashPreparedPaths.Clear();
             UpdateStashPreparation("スタッシュ準備群を解除しました。");
         }
@@ -161,9 +339,9 @@ namespace HotKeyCommandApp.ViewModels
         {
             var file = SelectedFile;
             var diff = _displayedDiff;
-            return file == null ? Task.CompletedTask : RunOperationAsync(() => _stageService.DiscardFileAsync(file, diff), $"{file.FileName} の未ステージ変更を破棄しました。");
+            return !CanDiscardFile ? Task.CompletedTask : RunOperationAsync(() => _stageService.DiscardFileAsync(file, diff), $"{file.FileName} の未ステージ変更を破棄しました。");
         }
-        public Task DiscardFileAsync(GitDiffFile file) => file == null ? Task.CompletedTask : RunOperationAsync(async () =>
+        public Task DiscardFileAsync(GitDiffFile file) => !IsWorkingMode || file == null || file.IsReadOnly ? Task.CompletedTask : RunOperationAsync(async () =>
         {
             var diff = ReferenceEquals(file, SelectedFile) && _displayedDiff != null
                 ? _displayedDiff : await Task.Run(() => _service.ReadDiff(file, CancellationToken.None));
@@ -173,14 +351,14 @@ namespace HotKeyCommandApp.ViewModels
         {
             var file = SelectedFile;
             var diff = _displayedDiff;
-            return file == null ? Task.CompletedTask : RunOperationAsync(() => _stageService.DiscardLinesAsync(file, diff, indices), "選択した変更行を破棄しました。");
+            return !CanStageLines ? Task.CompletedTask : RunOperationAsync(() => _stageService.DiscardLinesAsync(file, diff, indices), "選択した変更行を破棄しました。");
         }
-        public Task UnstageFileAsync(GitDiffFile file) => RunOperationAsync(() => _stageService.UnstageFileAsync(file), $"{file.FileName} のステージを解除しました。");
+        public Task UnstageFileAsync(GitDiffFile file) => file == null || file.IsReadOnly ? Task.CompletedTask : RunOperationAsync(() => _stageService.UnstageFileAsync(file), $"{file.FileName} のステージを解除しました。");
         public Task StageLinesAsync(IReadOnlyCollection<int> indices)
         {
             var file = SelectedFile;
             var diff = _displayedDiff;
-            return file == null ? Task.CompletedTask : RunOperationAsync(() => _stageService.StageLinesAsync(file, diff, indices), "選択した変更行をステージしました。");
+            return !CanStageLines ? Task.CompletedTask : RunOperationAsync(() => _stageService.StageLinesAsync(file, diff, indices), "選択した変更行をステージしました。");
         }
         public Task CommitStagedAsync(string message)
         {
@@ -225,6 +403,7 @@ namespace HotKeyCommandApp.ViewModels
         public async Task RefreshAsync()
         {
             if (_disposed) return;
+            CancelSearch();
             _refreshCts?.Cancel();
             _refreshCts?.Dispose();
             _refreshCts = new CancellationTokenSource();
@@ -238,15 +417,40 @@ namespace HotKeyCommandApp.ViewModels
                 ?.BaseBranch?.Trim() ?? string.Empty;
             try
             {
-                var filesTask = Task.Run(() => _service.ReadFiles(token), token);
+                var mode = Mode;
+                string revision = mode == GitDiffMode.Commit ? SelectedCommit?.Sha : BaseBranch;
+                var filesTask = Task.Run(() =>
+                {
+                    try
+                    {
+                        var files = mode == GitDiffMode.Commit && revision == null ? Array.Empty<GitDiffFile>() : _service.ReadComparisonFiles(mode, revision, token);
+                        return (Files: files, Error: (Exception)null);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        return (Files: (IReadOnlyList<GitDiffFile>)Array.Empty<GitDiffFile>(), Error: ex);
+                    }
+                }, token);
                 var branchTask = Task.Run(() => _service.ReadBranchInfo(token), token);
-                await Task.WhenAll(filesTask, branchTask);
-                var snapshot = (Files: await filesTask, Branch: await branchTask);
+                var commitsTask = Task.Run(() => _service.ReadRecentCommits(token), token);
+                await Task.WhenAll(filesTask, branchTask, commitsTask);
+                var snapshot = (Result: await filesTask, Branch: await branchTask);
                 if (token.IsCancellationRequested || _disposed) return;
-                var files = snapshot.Files;
+                var files = snapshot.Result.Files;
                 CurrentBranch = snapshot.Branch.CurrentBranch;
                 CurrentBranchName = snapshot.Branch.BranchName;
                 SetTrackingInfo(snapshot.Branch);
+                RecentCommits.Clear();
+                foreach (var commit in await commitsTask) RecentCommits.Add(commit);
+                OnPropertyChanged(nameof(SelectedCommit));
+                if (snapshot.Result.Error != null)
+                {
+                    SelectedFile = null;
+                    ApplyFileSnapshot(Array.Empty<GitDiffFile>());
+                    Overview = "読み込み失敗";
+                    Message = $"ファイル一覧を取得できませんでした。\n{snapshot.Result.Error.Message}";
+                    return;
+                }
                 ApplyFileSnapshot(files);
                 var previousSelection = SelectedFile;
                 if (previousSelection != null && !ReferenceEquals(previousSelection, initialSelection))
@@ -254,12 +458,14 @@ namespace HotKeyCommandApp.ViewModels
                 SelectedFile = Files.FirstOrDefault(file => file.Key == selectedKey) ?? Files.FirstOrDefault();
                 if (ReferenceEquals(previousSelection, SelectedFile) && SelectedFile != null)
                     await LoadDiffAsync(SelectedFile, preserveDisplay: true);
-                if (SelectedFile == null) Message = "未コミットの変更はありません。";
+                if (SelectedFile == null) Message = mode == GitDiffMode.Uncommitted ? "未コミットの変更はありません。"
+                    : mode == GitDiffMode.Commit && SelectedCommit == null ? "直近コミットから表示するコミットを選択してください。" : "表示する差分はありません。";
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
                 if (token.IsCancellationRequested || _disposed) return;
+                SelectedFile = null;
                 Files.Clear();
                 OnPropertyChanged(nameof(HasStagedChanges));
                 OnPropertyChanged(nameof(HasUnstagedChanges));
@@ -277,10 +483,15 @@ namespace HotKeyCommandApp.ViewModels
 
         private void ApplyFileSnapshot(IReadOnlyList<GitDiffFile> snapshot)
         {
-            _stashPreparedPaths.IntersectWith(snapshot.SelectMany(file => new[] { file.Path, file.OldPath }).Where(path => !string.IsNullOrEmpty(path)));
-            ExpandRelatedPaths(_stashPreparedPaths, snapshot);
-            var files = snapshot.Select(file => file with { IsStashPrepared = _stashPreparedPaths.Contains(file.Path) })
+            if (IsWorkingMode)
+            {
+                _stashPreparedPaths.IntersectWith(snapshot.SelectMany(file => new[] { file.Path, file.OldPath }).Where(path => !string.IsNullOrEmpty(path)));
+                ExpandRelatedPaths(_stashPreparedPaths, snapshot);
+            }
+            var files = snapshot.Select(file => file with { IsStashPrepared = !file.IsReadOnly && _stashPreparedPaths.Contains(file.Path) })
                 .OrderBy(file => file.IsStashPrepared ? 2 : file.IsStaged ? 1 : 0)
+                .ThenBy(file => _sortOrder == GitDiffSortOrder.Manual ? _manualOrder.GetValueOrDefault(file.Key, int.MaxValue) : 0)
+                .ThenBy(file => _sortOrder == GitDiffSortOrder.FileName ? file.FileName : _sortOrder == GitDiffSortOrder.Change ? file.Change : string.Empty, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(file => file.Path, StringComparer.OrdinalIgnoreCase).ToArray();
             var fileSet = files.ToHashSet();
             for (int i = Files.Count - 1; i >= 0; i--)
@@ -297,7 +508,8 @@ namespace HotKeyCommandApp.ViewModels
             OnPropertyChanged(nameof(CanStashPreparedFiles));
             OnPropertyChanged(nameof(CanCommitStagedChanges));
             OnPropertyChanged(nameof(CommitStagedToolTip));
-            Overview = $"未ステージ {files.Count(file => !file.IsStaged && !file.IsStashPrepared)} 件  /  ステージ済み {files.Count(file => file.IsStaged && !file.IsStashPrepared)} 件  /  スタッシュ準備 {StashPreparedFileCount} 件";
+            Overview = IsWorkingMode ? $"未ステージ {files.Count(file => !file.IsStaged && !file.IsStashPrepared)} 件  /  ステージ済み {files.Count(file => file.IsStaged && !file.IsStashPrepared)} 件  /  スタッシュ準備 {StashPreparedFileCount} 件"
+                : Mode == GitDiffMode.Commit ? $"{SelectedCommit?.Display}  /  {files.Length} ファイル" : $"{BaseBranchDisplay} → 作業ツリー（未コミット含む）  /  {files.Length} ファイル";
         }
 
         private static void ExpandRelatedPaths(HashSet<string> paths, IEnumerable<GitDiffFile> files)
@@ -331,7 +543,7 @@ namespace HotKeyCommandApp.ViewModels
                 : $"追跡先: {TrackedBranch}\nbehind: リモート側だけにあるコミット数\nahead: ローカル側だけにあるコミット数\n最終 fetch / pull で取得したリモート情報に基づきます。";
         }
 
-        private async Task LoadDiffAsync(GitDiffFile file, bool preserveDisplay = false)
+        private async Task LoadDiffAsync(GitDiffFile file, bool preserveDisplay = false, bool fullContent = false)
         {
             _diffCts?.Cancel();
             _diffCts?.Dispose();
@@ -350,7 +562,7 @@ namespace HotKeyCommandApp.ViewModels
             try
             {
                 var previousDiff = preserveDisplay ? _displayedDiff : null;
-                var diff = await Task.Run(() => _service.ReadDiff(file, token, previousDiff), token);
+                var diff = await Task.Run(() => _service.ReadDiff(file, token, previousDiff, fullContent), token);
                 if (token.IsCancellationRequested || _disposed) return;
                 bool unchanged = preserveDisplay && _displayedDiff != null &&
                     _displayedDiff.RawPatch == diff.RawPatch && _displayedDiff.Message == diff.Message &&
@@ -376,8 +588,15 @@ namespace HotKeyCommandApp.ViewModels
             _refreshCts?.Dispose();
             _diffCts?.Cancel();
             _diffCts?.Dispose();
+            _searchCts?.Cancel();
+            _searchCts?.Dispose();
         }
 
-        private void OnPropertyChanged([CallerMemberName] string name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        private void OnPropertyChanged([CallerMemberName] string name = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+            if (name is nameof(IsOperating) or nameof(IsRefreshing) or nameof(CurrentBranchName))
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanUpdateFromBase)));
+        }
     }
 }

@@ -19,103 +19,8 @@ using HotKeyCommandApp.Services;
 
 namespace HotKeyCommandApp.ViewModels
 {
-    public sealed class BranchListItem : INotifyPropertyChanged
-    {
-        private bool _isCurrent;
-        private string _trackingStatusText = "集計中...";
-        private string _trackingStatusToolTip = "取得済みのリモート情報からコミット数を集計しています。";
-
-        public BranchListItem(string name, bool isCurrent)
-        {
-            Name = name;
-            _isCurrent = isCurrent;
-        }
-
-        public string Name { get; }
-        public bool IsCurrent => _isCurrent;
-        public string DisplayName => _isCurrent ? $"* {Name}" : $"  {Name}";
-        public string PrimaryActionText => _isCurrent ? "プル" : "移動";
-        public string TrackingStatusText => _trackingStatusText;
-        public string TrackingStatusToolTip => _trackingStatusToolTip;
-        public event PropertyChangedEventHandler? PropertyChanged;
-
-        public void SetTrackingStatus(string text, string toolTip)
-        {
-            if (_trackingStatusText != text)
-            {
-                _trackingStatusText = text;
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TrackingStatusText)));
-            }
-            if (_trackingStatusToolTip != toolTip)
-            {
-                _trackingStatusToolTip = toolTip;
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TrackingStatusToolTip)));
-            }
-        }
-
-        public void SetCurrent(bool isCurrent)
-        {
-            if (_isCurrent == isCurrent) return;
-            _isCurrent = isCurrent;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsCurrent)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayName)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PrimaryActionText)));
-        }
-    }
-
-    public sealed class StashListItem
-    {
-        public StashListItem(string name, string message, string commitId)
-        {
-            Name = name;
-            Message = message;
-            CommitId = commitId;
-        }
-
-        public string Name { get; }
-        public string Message { get; }
-        public string CommitId { get; }
-        public string DisplayName => $"{Name}: {Message}";
-        public string PrimaryActionText => "適用";
-        public string TrackingStatusText => string.Empty;
-        public string TrackingStatusToolTip => string.Empty;
-    }
-
-    internal sealed class BranchSearchComparer : IComparer
-    {
-        private readonly Func<string> _getSearchText;
-
-        public BranchSearchComparer(Func<string> getSearchText) => _getSearchText = getSearchText;
-
-        public int Compare(object? x, object? y)
-        {
-            if (x is not BranchListItem left || y is not BranchListItem right) return 0;
-            string query = _getSearchText();
-            if (query.Length > 0)
-            {
-                int leftPosition = left.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase);
-                int rightPosition = right.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase);
-                int leftRank = string.Equals(left.Name, query, StringComparison.OrdinalIgnoreCase) ? 0 : leftPosition == 0 ? 1 : 2;
-                int rightRank = string.Equals(right.Name, query, StringComparison.OrdinalIgnoreCase) ? 0 : rightPosition == 0 ? 1 : 2;
-                int rank = leftRank.CompareTo(rightRank);
-                if (rank != 0) return rank;
-                int position = leftPosition.CompareTo(rightPosition);
-                if (position != 0) return position;
-                int length = left.Name.Length.CompareTo(right.Name.Length);
-                if (length != 0) return length;
-            }
-            int name = StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name);
-            return name != 0 ? name : StringComparer.Ordinal.Compare(left.Name, right.Name);
-        }
-    }
-
     public class GitCommandViewModel : INotifyPropertyChanged
     {
-        static GitCommandViewModel()
-        {
-            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-        }
-
         private string _repositoryPath;
         public string RepositoryPath => _repositoryPath;
         private readonly MainViewModel? _mainVm;
@@ -123,7 +28,7 @@ namespace HotKeyCommandApp.ViewModels
         private readonly List<string> _commandHistory = new();
         private int _historyIndex = 0;
         private CancellationTokenSource? _currentExecutionCts;
-        private Process? _currentProcess;
+        private readonly GitProcessRunner _processRunner = new();
 
         public GitCommandViewModel(string repositoryPath, MainViewModel? mainVm = null)
         {
@@ -153,16 +58,10 @@ namespace HotKeyCommandApp.ViewModels
 
         public double MovementSpeed => _mainVm?.MovementSpeed ?? 1200.0;
 
-        private const int MaxVisibleConsoleLines = 400;
+        private readonly GitConsoleHistory _consoleHistory = new();
         private static readonly TimeSpan ConsoleFlushInterval = TimeSpan.FromMilliseconds(50);
-        private readonly List<string> _consoleHistoryList = new();
-        private readonly List<string> _latestConsoleLines = new();
         private readonly object _consoleBufferLock = new();
         private readonly List<string> _pendingConsoleLines = new();
-        private string _latestConsoleHeader = string.Empty;
-        private string _latestConsoleBody = string.Empty;
-        private int _activeConsoleHistoryIndex = -1;
-        private int _trimmedConsoleLineCount = 0;
         private bool _isConsoleFlushScheduled = false;
         private readonly object _commandQueueLock = new();
         private readonly Queue<string> _pendingCommands = new();
@@ -194,87 +93,6 @@ namespace HotKeyCommandApp.ViewModels
         }
 
         private static Encoding ProcessOutputEncoding => Encoding.Default;
-
-        private static string BuildConsoleEntry(string header, string content)
-        {
-            string body = content.TrimEnd();
-            if (string.IsNullOrEmpty(header))
-            {
-                return body;
-            }
-
-            if (string.IsNullOrEmpty(body))
-            {
-                return $"[{header}]";
-            }
-
-            return $"[{header}]\n{body}";
-        }
-
-        private string BuildLatestConsoleEntry()
-        {
-            return BuildConsoleEntry(_latestConsoleHeader, BuildLatestConsoleBody());
-        }
-
-        private static List<string> SplitConsoleLines(string content)
-        {
-            var lines = new List<string>();
-            if (string.IsNullOrEmpty(content))
-            {
-                return lines;
-            }
-
-            using var reader = new StringReader(content);
-            while (reader.ReadLine() is string line)
-            {
-                lines.Add(line);
-            }
-
-            return lines;
-        }
-
-        private void ReplaceConsoleLines(IEnumerable<string> lines)
-        {
-            _latestConsoleLines.Clear();
-            _trimmedConsoleLineCount = 0;
-
-            foreach (string line in lines)
-            {
-                AppendConsoleLineCore(line);
-            }
-        }
-
-        private void AppendConsoleLineCore(string line)
-        {
-            _latestConsoleLines.Add(line);
-            if (_latestConsoleLines.Count <= MaxVisibleConsoleLines)
-            {
-                return;
-            }
-
-            int overflow = _latestConsoleLines.Count - MaxVisibleConsoleLines;
-            _latestConsoleLines.RemoveRange(0, overflow);
-            _trimmedConsoleLineCount += overflow;
-        }
-
-        private string BuildLatestConsoleBody()
-        {
-            if (_latestConsoleLines.Count == 0)
-            {
-                _latestConsoleBody = string.Empty;
-                return _latestConsoleBody;
-            }
-
-            string visibleBody = string.Join("\n", _latestConsoleLines);
-            if (_trimmedConsoleLineCount <= 0)
-            {
-                _latestConsoleBody = visibleBody;
-                return _latestConsoleBody;
-            }
-
-            _latestConsoleBody = $"... {_trimmedConsoleLineCount} lines omitted ...\n{visibleBody}";
-            return _latestConsoleBody;
-        }
 
         private void ScheduleConsoleFlush()
         {
@@ -312,10 +130,7 @@ namespace HotKeyCommandApp.ViewModels
 
             RunOnUiThread(() =>
             {
-                foreach (string line in linesToAppend)
-                {
-                    AppendConsoleLineCore(line);
-                }
+                _consoleHistory.AppendLines(linesToAppend);
 
                 UpdateConsoleOutputDisplay();
             });
@@ -332,20 +147,7 @@ namespace HotKeyCommandApp.ViewModels
 
         private void UpdateConsoleOutputDisplay()
         {
-            string renderedOutput = BuildLatestConsoleEntry();
-
-            if (_activeConsoleHistoryIndex >= 0 && _activeConsoleHistoryIndex < _consoleHistoryList.Count)
-            {
-                _consoleHistoryList[_activeConsoleHistoryIndex] = renderedOutput;
-            }
-
-            if (!IsHistoryMode)
-            {
-                ConsoleOutput = BuildLatestConsoleBody();
-                return;
-            }
-
-            ConsoleOutput = "[コンソール履歴 (Console History)]\n=================================\n" + string.Join("\n\n---------------------------------\n", _consoleHistoryList);
+            ConsoleOutput = _consoleHistory.Render(IsHistoryMode);
         }
 
         private void UpdateWaitingCommandsText()
@@ -374,12 +176,8 @@ namespace HotKeyCommandApp.ViewModels
             RunOnUiThread(() =>
             {
                 ResetPendingConsoleLines();
-                _latestConsoleHeader = header;
-                ReplaceConsoleLines(SplitConsoleLines(content.TrimEnd()));
+                _consoleHistory.SetEntry(header, content);
                 UpdateCurrentCommandContext(header, status);
-                string entry = BuildLatestConsoleEntry();
-                _consoleHistoryList.Add(entry);
-                _activeConsoleHistoryIndex = _consoleHistoryList.Count - 1;
                 UpdateConsoleOutputDisplay();
             });
         }
@@ -389,21 +187,8 @@ namespace HotKeyCommandApp.ViewModels
             RunOnUiThread(() =>
             {
                 ResetPendingConsoleLines();
-                _latestConsoleHeader = header;
-                ReplaceConsoleLines(SplitConsoleLines(content.TrimEnd()));
+                _consoleHistory.SetEntry(header, content, replaceCurrent: true);
                 UpdateCurrentCommandContext(header, status);
-                string entry = BuildLatestConsoleEntry();
-
-                if (_activeConsoleHistoryIndex < 0 || _activeConsoleHistoryIndex >= _consoleHistoryList.Count)
-                {
-                    _consoleHistoryList.Add(entry);
-                    _activeConsoleHistoryIndex = _consoleHistoryList.Count - 1;
-                }
-                else
-                {
-                    _consoleHistoryList[_activeConsoleHistoryIndex] = entry;
-                }
-
                 UpdateConsoleOutputDisplay();
             });
         }
@@ -485,7 +270,7 @@ namespace HotKeyCommandApp.ViewModels
                 OnPropertyChanged();
                 if (!_isHistoryMode)
                 {
-                    ConsoleOutput = _latestConsoleBody;
+                    ConsoleOutput = _consoleHistory.LatestBody;
                 }
             }
         }
@@ -676,7 +461,7 @@ namespace HotKeyCommandApp.ViewModels
                 }
 
                 int previousCount = Stashes.Count;
-                int exitCode = await RunProcessAsync(psi, CancellationToken.None,
+                int exitCode = await _processRunner.RunAsync(psi, CancellationToken.None,
                     line => { lock (output) output.Add(line); }, line => { lock (output) output.Add(line); });
                 string details = string.Join("\n", output);
                 RefreshStashes();
@@ -738,7 +523,7 @@ namespace HotKeyCommandApp.ViewModels
                     CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
                 };
                 foreach (string argument in arguments) psi.ArgumentList.Add(argument);
-                return await RunProcessAsync(psi, executionCts.Token,
+                return await _processRunner.RunAsync(psi, executionCts.Token,
                     line => { lock (output) output.Add(line); }, line => { lock (output) output.Add(line); });
             }
 
@@ -839,7 +624,7 @@ namespace HotKeyCommandApp.ViewModels
                     foreach (string branchName in branchNames ?? new[] { name }) psi.ArgumentList.Add(branchName);
                     if (operation == "rename") psi.ArgumentList.Add(newName);
                 }
-                int exitCode = await RunProcessAsync(psi, CancellationToken.None,
+                int exitCode = await _processRunner.RunAsync(psi, CancellationToken.None,
                     line => { lock (output) output.Add(line); },
                     line => { lock (output) output.Add(line); });
                 string details = string.Join("\n", output);
@@ -950,7 +735,7 @@ namespace HotKeyCommandApp.ViewModels
 
             if (IsImmediateCancelCommand(rawInput))
             {
-                if (_currentProcess == null && _currentExecutionCts == null)
+                if (!_processRunner.IsRunning && _currentExecutionCts == null)
                 {
                     SetConsoleOutput("キャンセル", "実行中のGit操作はありません");
                 }
@@ -997,196 +782,7 @@ namespace HotKeyCommandApp.ViewModels
         public void CancelCurrentExecution()
         {
             _currentExecutionCts?.Cancel();
-
-            try
-            {
-                if (_currentProcess != null && !_currentProcess.HasExited)
-                {
-                    _currentProcess.Kill(entireProcessTree: true);
-                }
-            }
-            catch
-            {
-                // プロセス終了直後の競合は無視する
-            }
-        }
-
-        private async Task<int> RunProcessAsync(ProcessStartInfo psi, CancellationToken cancellationToken, Action<string>? onStdOutLine = null, Action<string>? onStdErrLine = null)
-        {
-            NativeMethods.AllowSetForegroundWindow(NativeMethods.ASFW_ANY);
-            using var process = Process.Start(psi);
-            if (process == null)
-            {
-                return -1;
-            }
-
-            _currentProcess = process;
-
-            try
-            {
-                var stdoutTask = ReadProcessStreamAsync(process.StandardOutput.BaseStream, onStdOutLine, cancellationToken);
-                var stderrTask = ReadProcessStreamAsync(process.StandardError.BaseStream, onStdErrLine, cancellationToken);
-                var exitTask = process.WaitForExitAsync();
-                var cancelTask = Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-
-                var completedTask = await Task.WhenAny(exitTask, cancelTask);
-                if (completedTask == cancelTask)
-                {
-                    CancelCurrentExecution();
-
-                    try
-                    {
-                        await exitTask;
-                    }
-                    catch
-                    {
-                        // キャンセルに伴う終了待ちの失敗は無視する
-                    }
-
-                    cancellationToken.ThrowIfCancellationRequested();
-                }
-
-                await Task.WhenAll(stdoutTask, stderrTask);
-                await exitTask;
-                return process.ExitCode;
-            }
-            finally
-            {
-                if (ReferenceEquals(_currentProcess, process))
-                {
-                    _currentProcess = null;
-                }
-            }
-        }
-
-        private static async Task ReadProcessStreamAsync(Stream stream, Action<string>? onLine, CancellationToken cancellationToken)
-        {
-            var buffer = new byte[4096];
-            var pending = new List<byte>();
-            Encoding? encoding = null;
-
-            while (true)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                int bytesRead = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
-                if (bytesRead == 0)
-                {
-                    break;
-                }
-
-                pending.AddRange(buffer.AsSpan(0, bytesRead).ToArray());
-                encoding ??= DetectProcessOutputEncoding(pending);
-
-                EmitDecodedLines(pending, encoding, onLine);
-            }
-
-            if (pending.Count > 0)
-            {
-                encoding ??= DetectProcessOutputEncoding(pending);
-                string line = DecodeProcessOutputBytes(pending, encoding);
-                if (!string.IsNullOrEmpty(line))
-                {
-                    onLine?.Invoke(line);
-                }
-            }
-        }
-
-        private static void EmitDecodedLines(List<byte> pending, Encoding encoding, Action<string>? onLine)
-        {
-            int lineStart = 0;
-
-            for (int i = 0; i < pending.Count; i++)
-            {
-                if (pending[i] != (byte)'\n')
-                {
-                    continue;
-                }
-
-                int length = i - lineStart;
-                if (length > 0 && pending[i - 1] == (byte)'\r')
-                {
-                    length--;
-                }
-
-                byte[] lineBytes = pending.GetRange(lineStart, Math.Max(length, 0)).ToArray();
-                string line = DecodeProcessOutputBytes(lineBytes, encoding);
-                onLine?.Invoke(line);
-                lineStart = i + 1;
-            }
-
-            if (lineStart > 0)
-            {
-                pending.RemoveRange(0, lineStart);
-            }
-        }
-
-        private static string DecodeProcessOutputBytes(IReadOnlyList<byte> bytes, Encoding encoding)
-        {
-            if (bytes.Count == 0)
-            {
-                return string.Empty;
-            }
-
-            byte[] buffer = bytes as byte[] ?? bytes.ToArray();
-            return encoding.GetString(buffer);
-        }
-
-        private static Encoding DetectProcessOutputEncoding(IReadOnlyList<byte> bytes)
-        {
-            if (bytes.Count >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
-            {
-                return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
-            }
-
-            return IsValidUtf8(bytes)
-                ? new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)
-                : Encoding.GetEncoding(932);
-        }
-
-        private static bool IsValidUtf8(IReadOnlyList<byte> bytes)
-        {
-            int remaining = 0;
-
-            foreach (byte value in bytes)
-            {
-                if (remaining == 0)
-                {
-                    if ((value & 0b1000_0000) == 0)
-                    {
-                        continue;
-                    }
-
-                    if ((value & 0b1110_0000) == 0b1100_0000)
-                    {
-                        remaining = 1;
-                        continue;
-                    }
-
-                    if ((value & 0b1111_0000) == 0b1110_0000)
-                    {
-                        remaining = 2;
-                        continue;
-                    }
-
-                    if ((value & 0b1111_1000) == 0b1111_0000)
-                    {
-                        remaining = 3;
-                        continue;
-                    }
-
-                    return false;
-                }
-
-                if ((value & 0b1100_0000) != 0b1000_0000)
-                {
-                    return false;
-                }
-
-                remaining--;
-            }
-
-            return remaining == 0;
+            _processRunner.Cancel();
         }
 
         private void LoadGitInfo(bool includeStatus = true)
@@ -1303,7 +899,7 @@ namespace HotKeyCommandApp.ViewModels
 
             if (string.Equals(rawInput, "cancel", StringComparison.OrdinalIgnoreCase))
             {
-                if (_currentProcess == null && _currentExecutionCts == null)
+                if (!_processRunner.IsRunning && _currentExecutionCts == null)
                 {
                     SetConsoleOutput("キャンセル", "実行中のGit操作はありません");
                 }
@@ -1353,25 +949,13 @@ namespace HotKeyCommandApp.ViewModels
                 if (matchedAlias != null && !string.IsNullOrWhiteSpace(matchedAlias.TargetCommand))
                 {
                     string targetCmd = matchedAlias.TargetCommand;
-                    bool hasPlaceholder = false;
-                    int maxPlaceholderIndex = -1;
-                    for (int i = 0; i < 10; i++)
-                    {
-                        if (targetCmd.Contains($"{{{i}}}"))
-                        {
-                            hasPlaceholder = true;
-                            if (i > maxPlaceholderIndex)
-                            {
-                                maxPlaceholderIndex = i;
-                            }
-                        }
-                    }
+                    int requiredArguments = GitCommandText.GetRequiredArgumentCount(new[] { targetCmd });
 
-                    List<string> parsedArgs = string.IsNullOrWhiteSpace(cmdArgs) ? new List<string>() : ParseArguments(cmdArgs);
+                    List<string> parsedArgs = string.IsNullOrWhiteSpace(cmdArgs) ? new List<string>() : GitCommandText.ParseArguments(cmdArgs);
 
-                    if (hasPlaceholder)
+                    if (requiredArguments > 0)
                     {
-                        if (parsedArgs.Count < maxPlaceholderIndex + 1)
+                        if (parsedArgs.Count < requiredArguments)
                         {
                             var tempCommand = new CommandEntry
                             {
@@ -1382,18 +966,10 @@ namespace HotKeyCommandApp.ViewModels
                             string? argString = RequestArgumentInput?.Invoke(tempCommand, $"[{matchedAlias.Alias}] の引数を入力してください:");
                             if (argString == null) return; // ユーザーがキャンセルした場合は実行中断
 
-                            parsedArgs = ParseArguments(argString);
+                            parsedArgs = GitCommandText.ParseArguments(argString);
                         }
 
-                        for (int i = 0; i < 10; i++)
-                        {
-                            string placeholder = $"{{{i}}}";
-                            if (targetCmd.Contains(placeholder))
-                            {
-                                string replacement = i < parsedArgs.Count ? parsedArgs[i] : "";
-                                targetCmd = targetCmd.Replace(placeholder, replacement);
-                            }
-                        }
+                        targetCmd = GitCommandText.ReplaceArguments(targetCmd, parsedArgs);
                         input = targetCmd;
                     }
                     else
@@ -1408,7 +984,7 @@ namespace HotKeyCommandApp.ViewModels
 
                 if (string.Equals(input.Trim(), "cancel", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (_currentProcess == null && _currentExecutionCts == null)
+                    if (!_processRunner.IsRunning && _currentExecutionCts == null)
                     {
                         SetConsoleOutput("キャンセル", "実行中のGit操作はありません");
                     }
@@ -1480,7 +1056,7 @@ namespace HotKeyCommandApp.ViewModels
             if (string.Equals(input, "history", StringComparison.OrdinalIgnoreCase))
             {
                 IsHistoryMode = true;
-                ConsoleOutput = "[コンソール履歴 (Console History)]\n=================================\n" + string.Join("\n\n---------------------------------\n", _consoleHistoryList);
+                ConsoleOutput = _consoleHistory.Render(historyMode: true);
                 return;
             }
 
@@ -1562,7 +1138,7 @@ namespace HotKeyCommandApp.ViewModels
                     }
 
                     NativeMethods.AllowSetForegroundWindow(NativeMethods.ASFW_ANY);
-                    int exitCode = await RunProcessAsync(
+                    int exitCode = await _processRunner.RunAsync(
                         psi,
                         _currentExecutionCts?.Token ?? CancellationToken.None,
                         line =>
@@ -1603,26 +1179,11 @@ namespace HotKeyCommandApp.ViewModels
 
         private async Task ExecuteGitFunctionAsync(GitFunctionEntry function, string cmdArgs)
         {
-            bool hasPlaceholder = false;
-            int maxPlaceholderIndex = -1;
-            foreach (var cmdTemplate in function.Commands)
-            {
-                for (int i = 0; i < 10; i++)
-                {
-                    if (cmdTemplate.Contains($"{{{i}}}"))
-                    {
-                        hasPlaceholder = true;
-                        if (i > maxPlaceholderIndex)
-                        {
-                            maxPlaceholderIndex = i;
-                        }
-                    }
-                }
-            }
+            int requiredArguments = GitCommandText.GetRequiredArgumentCount(function.Commands);
 
-            List<string> parsedArgs = string.IsNullOrWhiteSpace(cmdArgs) ? new List<string>() : ParseArguments(cmdArgs);
+            List<string> parsedArgs = string.IsNullOrWhiteSpace(cmdArgs) ? new List<string>() : GitCommandText.ParseArguments(cmdArgs);
 
-            if (hasPlaceholder && parsedArgs.Count < maxPlaceholderIndex + 1)
+            if (parsedArgs.Count < requiredArguments)
             {
                 var tempCommand = new CommandEntry
                 {
@@ -1633,7 +1194,7 @@ namespace HotKeyCommandApp.ViewModels
                 string? argString = RequestArgumentInput?.Invoke(tempCommand, $"[{function.Name}] の引数を入力してください:");
                 if (argString == null) return; // キャンセルされた場合は実行中断
 
-                parsedArgs = ParseArguments(argString);
+                parsedArgs = GitCommandText.ParseArguments(argString);
             }
 
             SetConsoleOutput($"関数: {function.Name}", string.Empty, "実行中");
@@ -1660,12 +1221,7 @@ namespace HotKeyCommandApp.ViewModels
                             }
                         }
 
-                        // 置換 {0}, {1}... 
-                        for (int i = 0; i < 10; i++)
-                        {
-                            string replacement = i < parsedArgs.Count ? parsedArgs[i] : "";
-                            commandToRun = commandToRun.Replace($"{{{i}}}", replacement);
-                        }
+                        commandToRun = GitCommandText.ReplaceArguments(commandToRun, parsedArgs);
 
                         var configService = new ConfigService();
                         var appSettings = configService.LoadSettings();
@@ -1784,7 +1340,7 @@ namespace HotKeyCommandApp.ViewModels
                         }
 
                         NativeMethods.AllowSetForegroundWindow(NativeMethods.ASFW_ANY);
-                        int exitCode = await RunProcessAsync(
+                        int exitCode = await _processRunner.RunAsync(
                             psi,
                             _currentExecutionCts?.Token ?? CancellationToken.None,
                             line =>
@@ -1988,38 +1544,6 @@ namespace HotKeyCommandApp.ViewModels
             }
 
             return wasReplaced;
-        }
-
-        private List<string> ParseArguments(string commandLine)
-        {
-            var args = new List<string>();
-            bool inQuotes = false;
-            string currentArg = "";
-            for (int i = 0; i < commandLine.Length; i++)
-            {
-                char c = commandLine[i];
-                if (c == '"')
-                {
-                    inQuotes = !inQuotes;
-                }
-                else if (c == ' ' && !inQuotes)
-                {
-                    if (!string.IsNullOrEmpty(currentArg))
-                    {
-                        args.Add(currentArg);
-                        currentArg = "";
-                    }
-                }
-                else
-                {
-                    currentArg += c;
-                }
-            }
-            if (!string.IsNullOrEmpty(currentArg))
-            {
-                args.Add(currentArg);
-            }
-            return args;
         }
 
         private string GetCurrentBranchName()

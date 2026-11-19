@@ -16,7 +16,7 @@ using HotKeyCommandApp.Views;
 using HotKeyCommandApp.Views.Controls;
 using LibGit2Sharp;
 
-internal static class Program
+internal static partial class Program
 {
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string windowName);
@@ -48,6 +48,11 @@ internal static class Program
             int result = 0;
             try
             {
+                if (args.Contains("--features"))
+                {
+                    await TestDiffFeaturesAsync(workspace);
+                    return;
+                }
                 if (args.Contains("--stash"))
                 {
                     await TestStashPreparationAsync(workspace);
@@ -61,8 +66,12 @@ internal static class Program
                 TestSyntaxContext(workspace);
                 TestBranchInfo(workspace);
                 await TestBranchOperationsAsync(workspace);
+                await TestDiffFeaturesAsync(workspace);
                 await TestRepositoryTabsAsync(workspace);
-                await TestRefreshOnActivationAsync(workspace);
+                if (args.Contains("--skip-activation"))
+                    Console.WriteLine("SKIP: ウィンドウ再アクティブ化のテスト");
+                else
+                    await TestRefreshOnActivationAsync(workspace);
                 await TestIntralineViewAsync(workspace);
                 await TestFileNavigationAsync(workspace);
                 await TestSyntaxViewAsync(workspace);
@@ -653,6 +662,8 @@ internal static class Program
         PressArrow(window, lastItem, Key.Up);
         Check(unstageAll.IsKeyboardFocused, "ステージ済みの先頭から一括解除へ移動");
         PressArrow(window, unstageAll, Key.Up);
+        // 一覧の仮想化でコンテナーが再生成されるため、移動後の対象を取り直す。
+        item = (ListBoxItem)list.ItemContainerGenerator.ContainerFromItem(list.SelectedItem);
         Check(item.IsKeyboardFocused, "一括解除から前の未ステージファイルへ戻る");
         PressArrow(window, item, Key.Up);
         Check(stageAll.IsKeyboardFocused, "未ステージの先頭からすべてステージへ移動");

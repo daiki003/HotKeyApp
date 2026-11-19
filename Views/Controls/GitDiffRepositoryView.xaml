@@ -23,6 +23,11 @@
             <Setter Property="MinHeight" Value="30"/>
             <Setter Property="FontSize" Value="12"/>
         </Style>
+        <Style x:Key="WorkingActionStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsWorkingMode}" Value="False"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+            </Style.Triggers>
+        </Style>
         <Style x:Key="FileIconButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Width" Value="30"/>
             <Setter Property="Height" Value="30"/>
@@ -193,27 +198,68 @@
                 <ColumnDefinition Width="*" MinWidth="350"/>
             </Grid.ColumnDefinitions>
             <Border Background="#252526">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="変更ファイル" FontWeight="SemiBold" Margin="14,13,14,4"/>
-                    <StackPanel DockPanel.Dock="Bottom" Margin="8,6,8,8">
-                        <Button x:Name="CommitStagedButton" Click="CommitStagedButton_Click" Padding="8,5"
+                <DockPanel x:Name="SidebarPanel" SizeChanged="SidebarPanel_SizeChanged">
+                    <StackPanel x:Name="SidebarHeader" DockPanel.Dock="Top" Margin="12,10,12,2">
+                        <ComboBox x:Name="DiffModeSelector" SelectedIndex="{Binding SelectedModeIndex, Mode=TwoWay}" MinHeight="28"
+                                  ToolTip="ベース比較は取得済みのベース先端と作業ツリーを比較（未コミット・未追跡ファイル含む）">
+                            <ComboBox.Style><Style TargetType="ComboBox"><Style.Triggers><DataTrigger Binding="{Binding IsBusy}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger></Style.Triggers></Style></ComboBox.Style>
+                            <ComboBoxItem Content="未コミットの差分"/>
+                            <ComboBoxItem Content="ベースとの差分（未コミット含む）"/>
+                            <ComboBoxItem Content="コミットの差分"/>
+                        </ComboBox>
+                        <DockPanel Margin="0,8,0,0">
+                            <TextBlock Text="変更ファイル" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <ComboBox x:Name="FileSortSelector" SelectedIndex="{Binding SelectedSortIndex, Mode=TwoWay}" MinHeight="26" Margin="12,0,0,0"
+                                      ToolTip="同じグループ内でドラッグ、または Shift+↑↓ で手動並べ替え">
+                                <ComboBoxItem Content="パス順"/><ComboBoxItem Content="ファイル名順"/>
+                                <ComboBoxItem Content="変更種類順"/><ComboBoxItem Content="手動順"/>
+                            </ComboBox>
+                        </DockPanel>
+                    </StackPanel>
+                    <ScrollViewer x:Name="SidebarActions" DockPanel.Dock="Bottom" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="8,6,8,8">
+                        <Button x:Name="CommitStagedButton" Click="CommitStagedButton_Click" Padding="8,5" Style="{StaticResource WorkingActionStyle}"
                                 IsEnabled="{Binding CanCommitStagedChanges}" ToolTip="{Binding CommitStagedToolTip}" ToolTipService.ShowOnDisabled="True"
                                 AutomationProperties.Name="ステージ済みをコミット">
                             <StackPanel Orientation="Horizontal"><TextBlock Text="✓" FontSize="15" Margin="0,0,6,0"/><TextBlock Text="ステージ済みをコミット" VerticalAlignment="Center"/></StackPanel>
                         </Button>
-                        <Button x:Name="StashPreparedButton" Click="StashPreparedButton_Click" Padding="8,5" Margin="0,6,0,0"
+                        <Button x:Name="StashPreparedButton" Click="StashPreparedButton_Click" Padding="8,5" Margin="0,6,0,0" Style="{StaticResource WorkingActionStyle}"
                                 IsEnabled="{Binding CanStashPreparedFiles}" Foreground="{StaticResource StashAccentBrush}"
                                 ToolTip="{Binding StashPreparedFileCount, StringFormat='準備群の {0} ファイルをスタッシュ（ステージ済みの変更・新規ファイルを含む）'}"
                                 AutomationProperties.Name="スタッシュ準備群をスタッシュ">
                             <StackPanel Orientation="Horizontal"><TextBlock Text="▣↓" FontSize="14" Margin="0,0,6,0"/><TextBlock Text="スタッシュ" VerticalAlignment="Center"/></StackPanel>
                         </Button>
-                        <TextBlock Text="{Binding OperationStatus}" Foreground="#D4D4D4" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" MaxHeight="90"/>
+                        <Button x:Name="UpdateFromBaseButton" Content="退避してベースを取り込み" Padding="8,5" Margin="0,6,0,0"
+                                Click="UpdateFromBaseButton_Click" IsEnabled="{Binding CanUpdateFromBase}"
+                                ToolTip="現在の変更をスタッシュ → ベースの追跡先を fetch・merge → ステージ状態を含めて復元。成功時だけスタッシュを削除"/>
+                        <Expander x:Name="RecentCommitsExpander" Header="直近コミット" Foreground="#D4D4D4" Margin="0,10,0,0">
+                            <StackPanel>
+                                <DockPanel Margin="0,4,0,5">
+                                    <Button DockPanel.Dock="Right" Content="表示" Click="ShowCommitButton_Click" Padding="8,3"/>
+                                    <TextBox x:Name="CommitRevisionBox" MinHeight="26" Margin="0,0,5,0" Padding="5,3"
+                                             Background="#1E1E1E" Foreground="#D4D4D4" ToolTip="過去のコミットの SHA・タグ・HEAD~10 などを指定" KeyDown="CommitRevisionBox_KeyDown"/>
+                                </DockPanel>
+                                <ListBox x:Name="RecentCommitList" ItemsSource="{Binding RecentCommits}" SelectedItem="{Binding SelectedCommit, Mode=TwoWay}"
+                                         MaxHeight="180" Background="#1E1E1E" Foreground="#D4D4D4" BorderThickness="0"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                    <ListBox.Style><Style TargetType="ListBox"><Style.Triggers><DataTrigger Binding="{Binding IsBusy}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger></Style.Triggers></Style></ListBox.Style>
+                                    <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="2,3" ToolTip="{Binding Sha}">
+                                        <TextBlock Text="{Binding Display}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Details}" Foreground="#999999" FontSize="10" Margin="0,2,0,0"/>
+                                    </StackPanel></DataTemplate></ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+                        </Expander>
+                        <ScrollViewer MaxHeight="100" VerticalScrollBarVisibility="Auto"><TextBlock Text="{Binding OperationStatus}" Foreground="#D4D4D4" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"/></ScrollViewer>
                     </StackPanel>
+                    </ScrollViewer>
                     <ListBox x:Name="FileList" ItemsSource="{Binding FileView}" SelectedItem="{Binding SelectedFile, Mode=TwoWay}"
                              Background="Transparent" Foreground="#D4D4D4" BorderThickness="0" Padding="6,0,6,8"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto"
                              VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.IsVirtualizingWhenGrouping="True"
-                             VirtualizingPanel.VirtualizationMode="Recycling" SelectionChanged="FileList_SelectionChanged">
+                             VirtualizingPanel.VirtualizationMode="Recycling" SelectionChanged="FileList_SelectionChanged"
+                             AllowDrop="True" PreviewMouseLeftButtonDown="FileList_PreviewMouseLeftButtonDown" PreviewMouseMove="FileList_PreviewMouseMove"
+                             DragOver="FileList_DragOver" Drop="FileList_Drop">
                         <ListBox.GroupStyle>
                             <GroupStyle>
                                 <GroupStyle.HeaderTemplate>
@@ -231,6 +277,7 @@
                                                         <Style TargetType="Button" BasedOn="{StaticResource SectionActionButtonStyle}">
                                                             <Setter Property="ToolTip" Value="このリポジトリの未ステージ変更をすべてステージ"/>
                                                             <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding DataContext.IsWorkingMode, RelativeSource={RelativeSource AncestorType=controls:GitDiffRepositoryView}}" Value="False"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
                                                                 <DataTrigger Binding="{Binding DataContext.IsBusy, RelativeSource={RelativeSource AncestorType=controls:GitDiffRepositoryView}}" Value="True">
                                                                     <Setter Property="IsEnabled" Value="False"/>
                                                                 </DataTrigger>
@@ -335,6 +382,7 @@
                                                 <Setter Property="Content" Value="＋"/>
                                                 <Setter Property="ToolTip" Value="このファイルをステージ"/>
                                                 <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsReadOnly}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
                                                     <DataTrigger Binding="{Binding IsStaged}" Value="True">
                                                         <Setter Property="Content" Value="−"/><Setter Property="ToolTip" Value="このファイルのステージを解除"/>
                                                     </DataTrigger>
@@ -351,6 +399,7 @@
                                             <Style TargetType="Button" BasedOn="{StaticResource FileIconButtonStyle}">
                                                 <Setter Property="ToolTip" Value="このファイルをスタッシュ準備群に追加（ステージ済みの変更も対象）"/>
                                                 <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsReadOnly}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
                                                     <DataTrigger Binding="{Binding IsStashPrepared}" Value="True">
                                                         <Setter Property="ToolTip" Value="このファイルをスタッシュ準備群から解除"/>
                                                         <Setter Property="Foreground" Value="{StaticResource StashAccentBrush}"/>
@@ -376,6 +425,7 @@
                                         <Button.Style>
                                             <Style TargetType="Button" BasedOn="{StaticResource FileIconButtonStyle}">
                                                 <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsReadOnly}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
                                                     <MultiTrigger><MultiTrigger.Conditions><Condition Property="IsMouseOver" Value="True"/><Condition Property="IsEnabled" Value="True"/></MultiTrigger.Conditions><Setter Property="Foreground" Value="#F38BA8"/></MultiTrigger>
                                                     <DataTrigger Binding="{Binding IsStaged}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
                                                     <DataTrigger Binding="{Binding IsStashPrepared}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger>
@@ -412,11 +462,11 @@
                         </StackPanel>
                     </DockPanel>
                     <WrapPanel Margin="0,8,0,0">
-                        <Button Content="選択行をステージ" Click="StageLinesButton_Click" Padding="8,4" Margin="0,0,6,0"
+                        <Button Content="選択行をステージ" Click="StageLinesButton_Click" Padding="8,4" Margin="0,0,6,0" Style="{StaticResource WorkingActionStyle}"
                                 IsEnabled="{Binding CanStageLines}" ToolTip="差分コード内で選択した追加行・削除行をステージ"/>
-                        <Button Content="選択行を破棄" Click="DiscardLinesButton_Click" Padding="8,4" Margin="0,0,6,0"
+                        <Button Content="選択行を破棄" Click="DiscardLinesButton_Click" Padding="8,4" Margin="0,0,6,0" Style="{StaticResource WorkingActionStyle}"
                                 IsEnabled="{Binding CanStageLines}" ToolTip="選択した未ステージの変更行を元に戻す"/>
-                        <Button Content="ファイルの変更を破棄" Click="DiscardFileButton_Click" Padding="8,4"
+                        <Button Content="ファイルの変更を破棄" Click="DiscardFileButton_Click" Padding="8,4" Style="{StaticResource WorkingActionStyle}"
                                 IsEnabled="{Binding CanDiscardFile}" ToolTip="このファイルの未ステージ変更を元に戻す"/>
                         <StackPanel Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center">
                             <Button x:Name="DecreaseDiffFontButton" Content="−" Width="25" Padding="0,4" Click="DecreaseDiffFontButton_Click"
@@ -427,6 +477,24 @@
                                     ToolTip="差分の文字を大きくする" AutomationProperties.Name="差分の文字を大きくする"/>
                         </StackPanel>
                     </WrapPanel>
+                    <StackPanel Margin="0,10,0,0">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="次へ" Padding="7,3" Click="NextSearchButton_Click" ToolTip="F3"/>
+                            <Button DockPanel.Dock="Right" Content="前へ" Padding="7,3" Margin="4,0" Click="PreviousSearchButton_Click" ToolTip="Shift+F3"/>
+                            <Button DockPanel.Dock="Right" Content="検索" Padding="7,3" Margin="4,0" Click="SearchButton_Click"/>
+                            <CheckBox DockPanel.Dock="Right" Content="全差分" IsChecked="{Binding SearchAllFiles}" Foreground="#D4D4D4" VerticalAlignment="Center" Margin="8,0,4,0" ToolTip="選択中のモードの全ファイルを検索"/>
+                            <TextBox x:Name="DiffSearchBox" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" MinWidth="90" MinHeight="27" Padding="5,3"
+                                     Background="#1E1E1E" Foreground="#D4D4D4" KeyDown="DiffSearchBox_KeyDown" ToolTip="表示中のファイルを検索（Ctrl+F）。全差分の検索は Ctrl+Shift+F"/>
+                        </DockPanel>
+                        <TextBlock Text="{Binding SearchStatus}" Foreground="#A0C4E2" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                        <ListBox x:Name="DiffSearchResults" ItemsSource="{Binding SearchResults}" SelectedItem="{Binding SelectedSearchResult, Mode=TwoWay}"
+                                 MaxHeight="130" Background="#1E1E1E" Foreground="#D4D4D4" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="2,2">
+                                <TextBlock Text="{Binding Location}" Foreground="#8CBFE5" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{Binding Preview}" FontFamily="Consolas" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel></DataTemplate></ListBox.ItemTemplate>
+                        </ListBox>
+                    </StackPanel>
                   </StackPanel>
                 </Border>
                 <TextBlock Grid.Row="1" Text="{Binding Message}" TextWrapping="Wrap" Foreground="#B7B7B7">
@@ -442,7 +510,7 @@
         </Grid>
         <Border Grid.Row="2" Background="#252526" BorderBrush="#3A3A3A" BorderThickness="0,1,0,0" Padding="12,7">
             <DockPanel>
-                <TextBlock DockPanel.Dock="Right" Text="↑↓: ファイル選択  ·  Tab: フォーカス移動  ·  F5: 更新  ·  Alt+F4: 閉じる" Foreground="#999999" FontSize="11" Margin="16,0,0,0"/>
+                <TextBlock DockPanel.Dock="Right" Text="Shift+↑↓: 並べ替え  ·  Ctrl+F: 検索  ·  Ctrl+Shift+F: 全差分検索  ·  F3: 次へ  ·  F5: 更新" Foreground="#999999" FontSize="11" Margin="16,0,0,0"/>
                 <TextBlock Text="{Binding Overview}" Foreground="#A8A8A8" FontSize="11"/>
             </DockPanel>
         </Border>

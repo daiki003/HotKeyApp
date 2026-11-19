@@ -25,6 +25,9 @@ namespace HotKeyCommandApp.Views.Controls
         private bool _disposed;
         private int _inputVersion;
         private int _diffFontSize = 12;
+        private Point _fileDragStart;
+        private GitDiffFile _draggedFile;
+        private const string FileDragFormat = "HotKeyCommandApp.GitDiffFile";
 
         public GitDiffRepositoryView(string repositoryPath, double movementSpeed, Func<string, string, int?, Task> openFile = null)
         {
@@ -34,9 +37,11 @@ namespace HotKeyCommandApp.Views.Controls
             _viewModel = new GitDiffViewModel(RepositoryPath, movementSpeed);
             DataContext = _viewModel;
             DiffLines.LineOpenRequested += line => _ = OpenFileAsync(_viewModel.SelectedFile, line);
+            _viewModel.SearchMatchRequested += result => DiffLines.SelectSearchMatch(result);
             _viewModel.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(GitDiffViewModel.Lines)) DiffLines.SetLines(_viewModel.Lines, _viewModel.SelectedFile, RepositoryPath);
+                if (args.PropertyName == nameof(GitDiffViewModel.SelectedSearchResult) && _viewModel.SelectedSearchResult == null) DiffLines.ClearSearchMatch();
                 if (args.PropertyName == nameof(GitDiffViewModel.IsBusy) && !_viewModel.IsBusy) ProcessActivationRefresh();
             };
             Loaded += async (_, _) =>
@@ -51,6 +56,13 @@ namespace HotKeyCommandApp.Views.Controls
         public GitDiffViewModel ViewModel => _viewModel;
         public bool IsDiffTextFocused => DiffLines.IsKeyboardFocusWithin || SelectedFilePathBox.IsKeyboardFocusWithin;
         public bool IsModalDialogOpen => _isModalDialogOpen;
+
+        private void SidebarPanel_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (SidebarActions == null || SidebarHeader == null) return;
+            // 小さいウィンドウでもファイル一覧の領域を残し、下部の操作はスクロールで利用できるようにする。
+            SidebarActions.MaxHeight = Math.Max(40, (e.NewSize.Height - SidebarHeader.ActualHeight - SidebarHeader.Margin.Top - SidebarHeader.Margin.Bottom) / 2);
+        }
 
         public void RequestRefreshOnActivation()
         {
@@ -219,6 +231,68 @@ namespace HotKeyCommandApp.Views.Controls
             if (restoreFocus && CanRestoreFocus(inputVersion)) FocusFileList();
         }
 
+        private async void UpdateFromBaseButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_viewModel.CanUpdateFromBase) await _viewModel.UpdateFromBaseAsync();
+        }
+
+        private void ShowCommitButton_Click(object sender, RoutedEventArgs e) => _viewModel.ShowCommit(CommitRevisionBox.Text);
+        private void CommitRevisionBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Enter) return;
+            _viewModel.ShowCommit(CommitRevisionBox.Text);
+            e.Handled = true;
+        }
+        private async void SearchButton_Click(object sender, RoutedEventArgs e) => await _viewModel.SearchAsync();
+        private async void DiffSearchBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Enter) return;
+            e.Handled = true;
+            await _viewModel.SearchAsync();
+        }
+        private void NextSearchButton_Click(object sender, RoutedEventArgs e) => _viewModel.NextSearchResult(1);
+        private void PreviousSearchButton_Click(object sender, RoutedEventArgs e) => _viewModel.NextSearchResult(-1);
+
+        private void FileList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            _draggedFile = null;
+            if (_viewModel.IsBusy || e.OriginalSource is not DependencyObject source) return;
+            if (ItemsControl.ContainerFromElement(FileList, source) is not ListBoxItem { DataContext: GitDiffFile file }) return;
+            for (var current = source; current != null && current is not ListBoxItem; current = VisualTreeHelper.GetParent(current))
+                if (current is Button { Name: not "FileOpenButton" }) return;
+            _draggedFile = file;
+            _fileDragStart = e.GetPosition(FileList);
+        }
+
+        private void FileList_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (_draggedFile == null || e.LeftButton != MouseButtonState.Pressed || _viewModel.IsBusy) return;
+            var point = e.GetPosition(FileList);
+            if (Math.Abs(point.X - _fileDragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(point.Y - _fileDragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+            try { DragDrop.DoDragDrop(FileList, new DataObject(FileDragFormat, _draggedFile), DragDropEffects.Move); }
+            finally { _draggedFile = null; }
+            e.Handled = true;
+        }
+
+        private GitDiffFile DropTarget(DragEventArgs e) => e.OriginalSource is DependencyObject source &&
+            ItemsControl.ContainerFromElement(FileList, source) is ListBoxItem { DataContext: GitDiffFile file } ? file : null;
+
+        private void FileList_DragOver(object sender, DragEventArgs e)
+        {
+            var source = e.Data.GetData(FileDragFormat) as GitDiffFile;
+            var target = DropTarget(e);
+            e.Effects = !_viewModel.IsBusy && source != null && target != null && source.Section == target.Section && _viewModel.Files.Contains(source)
+                ? DragDropEffects.Move : DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        private void FileList_Drop(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetData(FileDragFormat) is GitDiffFile source) _viewModel.MoveFile(source, DropTarget(e));
+            e.Handled = true;
+        }
+
         private async void StageLinesButton_Click(object sender, RoutedEventArgs e)
         {
             if (!_viewModel.CanStageLines) return;
@@ -335,7 +409,7 @@ namespace HotKeyCommandApp.Views.Controls
             for (var element = e.OriginalSource as DependencyObject; element != null && element != this;
                  element = element is FrameworkContentElement content ? content.Parent : VisualTreeHelper.GetParent(element))
             {
-                if (element is ButtonBase or Thumb or ScrollBar) return;
+                if (element is ButtonBase or Thumb or ScrollBar or TextBoxBase or Selector or Expander) return;
             }
 
             if (!HeaderButtons.Any(button => button.IsKeyboardFocusWithin)) FocusHeaderButton(RefreshButton);
@@ -345,6 +419,27 @@ namespace HotKeyCommandApp.Views.Controls
         private void View_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             _inputVersion++;
+            if (e.Key == Key.F && (Keyboard.Modifiers == ModifierKeys.Control || Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift)))
+            {
+                _viewModel.SearchAllFiles = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+                DiffSearchBox.Focus();
+                DiffSearchBox.SelectAll();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.F3)
+            {
+                _viewModel.NextSearchResult(Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? -1 : 1);
+                e.Handled = true;
+                return;
+            }
+            if (FileList.IsKeyboardFocusWithin && Keyboard.Modifiers == ModifierKeys.Shift && e.Key is Key.Up or Key.Down)
+            {
+                _viewModel.MoveSelectedFile(e.Key == Key.Up ? -1 : 1);
+                FocusFileList();
+                e.Handled = true;
+                return;
+            }
             if (Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.Up or Key.Down or Key.Left or Key.Right)
             {
                 if (e.Key is Key.Left or Key.Right && (DecreaseDiffFontButton.IsKeyboardFocused || IncreaseDiffFontButton.IsKeyboardFocused))

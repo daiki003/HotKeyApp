@@ -19,31 +19,16 @@ namespace HotKeyCommandApp.ViewModels
     public class MainViewModel : INotifyPropertyChanged
     {
         private readonly ConfigService _configService;
+        private readonly CommandFileSearchService _fileSearch = new();
         private readonly ActionRunner _actionRunner;
         private readonly WindowService _windowService;
         private AppSettings _appSettings;
         public AppSettings AppSettings => _appSettings;
 
         private readonly Stack<(CommandEntry? Parent, CommandEntry? LastSelected, string Title)> _navigationHistory = new();
-        private readonly List<NavigationState> _history = new();
-        private int _historyIndex = -1;
+        private readonly PaletteNavigationHistory _viewHistory = new();
         private bool _isNavigatingHistory = false;
         private System.Threading.CancellationTokenSource? _iconLoadCts;
-
-        private class NavigationState
-        {
-            public string Title { get; init; } = "";
-            public CommandEntry? SelectedItem { get; init; }
-            public string? SelectedTemplateId { get; init; }
-            public List<(CommandEntry? Parent, CommandEntry? LastSelected, string Title)> NavigationStack { get; init; } = new();
-
-            public CommandEntry? ParentMenu { get; init; }
-            public bool IsRoot { get; init; }
-
-            public bool IsInputMode { get; init; }
-            public string InputText { get; init; } = "";
-            public string InputPrompt { get; init; } = "";
-        }
 
         private List<CommandEntry> _rootCommands = new();
         public ObservableCollection<CommandEntry> DisplayCommands { get; } = new();
@@ -595,12 +580,6 @@ namespace HotKeyCommandApp.ViewModels
         {
             if (_isNavigatingHistory) return;
 
-            // 現在のインデックス以降を削除
-            if (_historyIndex >= 0 && _historyIndex < _history.Count - 1)
-            {
-                _history.RemoveRange(_historyIndex + 1, _history.Count - (_historyIndex + 1));
-            }
-
             // 現在の「親」を特定
             CommandEntry? parent = null;
             bool isRoot = false;
@@ -618,7 +597,7 @@ namespace HotKeyCommandApp.ViewModels
                 }
             }
 
-            var state = new NavigationState
+            var state = new PaletteNavigationState
             {
                 Title = Title,
                 SelectedItem = SelectedItem,
@@ -631,27 +610,7 @@ namespace HotKeyCommandApp.ViewModels
                 InputPrompt = InputPrompt
             };
 
-            // 直前の履歴と同じ状態なら記録しない
-            if (_history.Count > 0)
-            {
-                var last = _history.Last();
-                if (last.Title == state.Title &&
-                    last.IsInputMode == state.IsInputMode &&
-                    last.InputText == state.InputText &&
-                    last.SelectedItem == state.SelectedItem)
-                {
-                    return;
-                }
-            }
-
-            _history.Add(state);
-            _historyIndex++;
-
-            if (_history.Count > 50)
-            {
-                _history.RemoveAt(0);
-                _historyIndex--;
-            }
+            _viewHistory.Record(state);
         }
 
         public void Execute(CommandEntry? command)
@@ -985,99 +944,21 @@ namespace HotKeyCommandApp.ViewModels
                 // Debounce search by 150ms to prevent lag while typing fast
                 await Task.Delay(150, ct);
 
-                var rootsToSearch = new List<string>();
-                string filter;
-
-                if (Path.IsPathRooted(query))
+                var search = await _fileSearch.SearchAsync(query, ct);
+                var results = search.Paths.Select(path => new CommandEntry
                 {
-                    string root;
-                    if (query.EndsWith(Path.DirectorySeparatorChar) || query.EndsWith(Path.AltDirectorySeparatorChar))
-                    {
-                        root = query;
-                        filter = string.Empty;
-                    }
-                    else
-                    {
-                        root = Path.GetDirectoryName(query) ?? (query.Length >= 2 ? query.Substring(0, 3) : "C:\\");
-                        filter = Path.GetFileName(query) ?? string.Empty;
-                    }
-                    if (Directory.Exists(root)) rootsToSearch.Add(root);
-                }
-                else
+                    Name = path,
+                    Value = "TYPE_TEMPLATE",
+                    IsSystem = true
+                }).ToList();
+
+                if (search.IsDriveList)
                 {
-                    // Add common search roots
-                    string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                    if (Directory.Exists(userProfile)) rootsToSearch.Add(userProfile);
-
-                    rootsToSearch.Add(AppDomain.CurrentDomain.BaseDirectory);
-                    rootsToSearch.Add(Environment.GetFolderPath(Environment.SpecialFolder.Desktop));
-                    rootsToSearch.Add(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
-
-                    // Also include the current directory if it's different from BaseDirectory
-                    string currentDir = Directory.GetCurrentDirectory();
-                    if (!rootsToSearch.Contains(currentDir)) rootsToSearch.Add(currentDir);
-
-                    filter = query;
-                }
-
-                if (rootsToSearch.Count == 0)
-                {
-                    // Fallback to drives if nothing else found
-                    var drives = DriveInfo.GetDrives().Where(d => d.IsReady).ToList();
                     DisplayCommands.Clear();
-                    foreach (var d in drives) DisplayCommands.Add(new CommandEntry { Name = d.Name, Value = "TYPE_TEMPLATE", IsSystem = true });
+                    foreach (var result in results) DisplayCommands.Add(result);
                     UpdateListBoxVisibility();
                     return;
                 }
-
-                var results = await Task.Run(() =>
-                {
-                    var found = new List<CommandEntry>();
-                    var queue = new Queue<string>();
-                    foreach (var root in rootsToSearch)
-                    {
-                        if (Directory.Exists(root)) queue.Enqueue(root);
-                    }
-                    int dirCount = 0;
-
-                    var blacklist = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        "Windows", "$Recycle.Bin", "System Volume Information", "ProgramData"
-                    };
-
-                    while (queue.Count > 0 && found.Count < 30 && dirCount < 1000)
-                    {
-                        if (ct.IsCancellationRequested) return found;
-                        var currentDir = queue.Dequeue();
-                        dirCount++;
-
-                        try
-                        {
-                            foreach (var entry in Directory.EnumerateFileSystemEntries(currentDir))
-                            {
-                                if (ct.IsCancellationRequested) return found;
-                                string name = Path.GetFileName(entry);
-
-                                // Skip blacklisted or hidden/system folders
-                                if (blacklist.Contains(name)) continue;
-
-                                if (name.Contains(filter, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    found.Add(new CommandEntry { Name = entry, Value = "TYPE_TEMPLATE", IsSystem = true });
-                                    if (found.Count >= 30) return found;
-                                }
-
-                                if (Directory.Exists(entry))
-                                {
-                                    // Basic depth check or just ignore massive system folders
-                                    queue.Enqueue(entry);
-                                }
-                            }
-                        }
-                        catch { /* Access denied */ }
-                    }
-                    return found;
-                }, ct);
 
                 if (ct.IsCancellationRequested) return;
 
@@ -1123,15 +1004,13 @@ namespace HotKeyCommandApp.ViewModels
 
                 int? previousIndex = SelectedItem != null ? DisplayCommands.IndexOf(SelectedItem) : (int?)null;
 
-                var entries = Directory.EnumerateFileSystemEntries(path)
+                var entries = _fileSearch.SearchFolder(path, query)
                     .Select(p => new CommandEntry
                     {
                         Name = Path.GetFileName(p),
                         Value = p,
                         Category = CommandCategory.Open
                     })
-                    .Where(e => e.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
-                    .Take(30)
                     .ToList();
 
                 UpdateDisplay(entries, $"検索: {query}", null, _targetFolderCommand);
@@ -1170,7 +1049,7 @@ namespace HotKeyCommandApp.ViewModels
             }
 
             // 2. Window Global (anywhere in the tree)
-            var globalCommand = FindCommandByHotkeyRecursively(_rootCommands, hotkey, HotkeyType.WindowGlobal);
+            var globalCommand = CommandTreeService.FindByHotkey(_rootCommands, hotkey, HotkeyType.WindowGlobal);
             if (globalCommand != null)
             {
                 Execute(globalCommand);
@@ -1180,25 +1059,11 @@ namespace HotKeyCommandApp.ViewModels
             return false;
         }
 
-        private CommandEntry? FindCommandByHotkeyRecursively(List<CommandEntry> commands, string hotkey, HotkeyType type)
-        {
-            foreach (var command in commands)
-            {
-                if (command.Hotkey == hotkey && command.HotkeyType == type) return command;
-                if (command.Children != null)
-                {
-                    var found = FindCommandByHotkeyRecursively(command.Children, hotkey, type);
-                    if (found != null) return found;
-                }
-            }
-            return null;
-        }
-
         private void ReconstructNavigationHistory(CommandEntry target)
         {
             // 階層パスを取得
             var path = new List<CommandEntry>();
-            if (FindPathToCommand(_rootCommands, target, path))
+            if (CommandTreeService.TryFindPath(_rootCommands, target, path))
             {
                 // ターゲット本体もパスに含める（スタックには親・自分・タイトルのセットが必要なため）
                 path.Add(target);
@@ -1219,21 +1084,6 @@ namespace HotKeyCommandApp.ViewModels
                     currentTitle = itemInPath.Name;
                 }
             }
-        }
-
-        private bool FindPathToCommand(List<CommandEntry> list, CommandEntry target, List<CommandEntry> path)
-        {
-            foreach (var item in list)
-            {
-                if (item == target) return true;
-                if (item.Children != null)
-                {
-                    path.Add(item);
-                    if (FindPathToCommand(item.Children, target, path)) return true;
-                    path.RemoveAt(path.Count - 1);
-                }
-            }
-            return false;
         }
 
         private readonly Dictionary<int, CommandEntry> _globalHotkeyMapping = new();
@@ -1483,7 +1333,7 @@ namespace HotKeyCommandApp.ViewModels
             if (originalCommand != null)
             {
                 // Edit case: 既存のコマンドを新しいインスタンスで置き換える
-                if (ReplaceCommandInHierarchy(_rootCommands, originalCommand, command))
+                if (CommandTreeService.Replace(_rootCommands, originalCommand, command))
                 {
                     _configService.SaveCommands(_rootCommands);
 
@@ -1515,35 +1365,10 @@ namespace HotKeyCommandApp.ViewModels
             }
         }
 
-        private bool ReplaceCommandInHierarchy(List<CommandEntry> list, CommandEntry target, CommandEntry newCommand)
-        {
-            int index = list.IndexOf(target);
-            if (index >= 0)
-            {
-                list[index] = newCommand;
-                return true;
-            }
-            foreach (var item in list)
-            {
-                if (item.Children != null && ReplaceCommandInHierarchy(item.Children, target, newCommand)) return true;
-            }
-            return false;
-        }
-
         private bool RemoveFromCurrentList(CommandEntry target)
         {
             // Update _rootCommands hierarchy
-            return RemoveCommandFromHierarchy(_rootCommands, target);
-        }
-
-        private bool RemoveCommandFromHierarchy(List<CommandEntry> list, CommandEntry target)
-        {
-            if (list.Remove(target)) return true;
-            foreach (var item in list)
-            {
-                if (item.Children != null && RemoveCommandFromHierarchy(item.Children, target)) return true;
-            }
-            return false;
+            return CommandTreeService.Remove(_rootCommands, target);
         }
 
         private void CancelInput(bool restoreList = true)
@@ -1576,27 +1401,28 @@ namespace HotKeyCommandApp.ViewModels
 
         private void NavigateBack()
         {
-            if (_historyIndex > 0)
-            {
-                _isNavigatingHistory = true;
-                _historyIndex--;
-                RestoreState(_history[_historyIndex]);
-                _isNavigatingHistory = false;
-            }
+            if (_viewHistory.TryGoBack(out var state)) RestoreHistoryState(state);
         }
 
         private void NavigateForward()
         {
-            if (_historyIndex >= 0 && _historyIndex < _history.Count - 1)
+            if (_viewHistory.TryGoForward(out var state)) RestoreHistoryState(state);
+        }
+
+        private void RestoreHistoryState(PaletteNavigationState state)
+        {
+            _isNavigatingHistory = true;
+            try
             {
-                _isNavigatingHistory = true;
-                _historyIndex++;
-                RestoreState(_history[_historyIndex]);
+                RestoreState(state);
+            }
+            finally
+            {
                 _isNavigatingHistory = false;
             }
         }
 
-        private void RestoreState(NavigationState state)
+        private void RestoreState(PaletteNavigationState state)
         {
             // 状態の復元
             IsInputMode = state.IsInputMode;

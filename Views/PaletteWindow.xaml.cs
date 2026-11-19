@@ -265,6 +265,7 @@ namespace HotKeyCommandApp.Views
                         this.Top = vm.WindowTop;
                         this.Left = vm.WindowLeft;
                     }
+                    Logger.Log($"[Lifecycle] Palette loaded: pid={Environment.ProcessId}, visible={IsVisible}");
                 };
 
                 vm.PropertyChanged += (s, ev) =>
@@ -356,7 +357,7 @@ namespace HotKeyCommandApp.Views
             }
             else if (id == 9000) // デフォルトのホットキー (Win+Alt+Z)
             {
-                if (this.IsVisible)
+                if (this.IsVisible && this.WindowState != WindowState.Minimized)
                 {
                     if (this.IsActive)
                     {
@@ -422,8 +423,29 @@ namespace HotKeyCommandApp.Views
             }
         }
 
+        public void ShowPalette()
+        {
+            Logger.Log($"[Lifecycle] External show request: pid={Environment.ProcessId}");
+            foreach (Window owned in OwnedWindows)
+            {
+                if (!owned.IsVisible) continue;
+                if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+                if (!IsVisible) Show();
+                if (owned.WindowState == WindowState.Minimized) owned.WindowState = WindowState.Normal;
+                owned.Activate();
+                owned.Focus();
+                return;
+            }
+            OnRequestShow();
+        }
+
         private void OnRequestShow()
         {
+            if (this.WindowState == WindowState.Minimized)
+            {
+                this.WindowState = WindowState.Normal;
+            }
+
             if (!this.IsVisible)
             {
                 this.Show();
@@ -443,6 +465,7 @@ namespace HotKeyCommandApp.Views
                 
                 FocusListBox();
                 SyncSelection();
+                Logger.Log($"[Lifecycle] Palette shown: pid={Environment.ProcessId}, visible={IsVisible}, state={WindowState}, active={IsActive}");
             }), System.Windows.Threading.DispatcherPriority.Render);
         }
 
@@ -904,7 +927,19 @@ namespace HotKeyCommandApp.Views
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
             base.OnClosing(e);
+            // 常駐中は受信用ウィンドウを破棄せず、閉じる操作を非表示へ変える。
+            e.Cancel = true;
+            Logger.Log($"[Lifecycle] Palette close converted to hide: pid={Environment.ProcessId}");
             this.Hide();
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            CompositionTarget.Rendering -= OnRendering;
+            _globalKeyHookService?.Dispose();
+            _hotKeyService?.Dispose();
+            Logger.Log($"[Lifecycle] Palette destroyed: pid={Environment.ProcessId}");
+            base.OnClosed(e);
         }
 
         private void ListBoxItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)

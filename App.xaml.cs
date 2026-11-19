@@ -7,19 +7,49 @@ namespace HotKeyCommandApp
 {
     public partial class App : Application
     {
+        private SingleInstanceService? _singleInstance;
+
         protected override void OnStartup(StartupEventArgs e)
         {
             this.DispatcherUnhandledException += App_DispatcherUnhandledException;
             AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
 
             this.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            _singleInstance = new SingleInstanceService();
+            if (!_singleInstance.IsPrimary)
+            {
+                Logger.Log($"[Lifecycle] Duplicate launch: pid={Environment.ProcessId}; requesting existing palette");
+                _singleInstance.RequestShow();
+                Shutdown();
+                return;
+            }
+
+            Logger.Log($"[Lifecycle] Application started: pid={Environment.ProcessId}");
+            AppDomain.CurrentDomain.ProcessExit += (_, _) => Logger.Log($"[Lifecycle] Process exit: pid={Environment.ProcessId}");
+            _singleInstance.ListenForShowRequests(() =>
+            {
+                if (Dispatcher.HasShutdownStarted) return;
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (MainWindow is Views.PaletteWindow palette) palette.ShowPalette();
+                }));
+            });
             base.OnStartup(e);
 
             // Register for startup
             var startupService = new StartupService();
             startupService.Register();
 
-            // The MainWindow will be shown automatically because of StartupUri in App.xaml
+            // 単一起動を確認してから、常駐ウィンドウを一度だけ生成する。
+            MainWindow = new Views.PaletteWindow();
+            MainWindow.Show();
+        }
+
+        protected override void OnExit(ExitEventArgs e)
+        {
+            Logger.Log($"[Lifecycle] Application exit: pid={Environment.ProcessId}, code={e.ApplicationExitCode}");
+            _singleInstance?.Dispose();
+            base.OnExit(e);
         }
 
         private void App_DispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)

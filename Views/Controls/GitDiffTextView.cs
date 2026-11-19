@@ -42,6 +42,7 @@ namespace HotKeyCommandApp.Views.Controls
                 CaretBrush = Brushes.White,
                 IsReadOnly = true,
                 IsReadOnlyCaretVisible = true,
+                IsInactiveSelectionHighlightEnabled = true,
                 AcceptsReturn = true,
                 TextWrapping = TextWrapping.NoWrap,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -78,6 +79,7 @@ namespace HotKeyCommandApp.Views.Controls
             _background.Lines = lines;
             _background.Syntax = Array.Empty<IReadOnlyList<GitDiffSyntaxSpan>>();
             _background.Changes = Array.Empty<IReadOnlyList<GitDiffChangeSpan>>();
+            _background.SearchMatch = null;
             _background.ClearRows();
             ClearLineLinks();
             UpdateGutterWidth();
@@ -207,6 +209,20 @@ namespace HotKeyCommandApp.Views.Controls
             QueueRowsUpdate();
         }
 
+        public void SelectSearchMatch(GitDiffSearchResult result)
+        {
+            _textBox.UpdateLayout();
+            if (result.LineIndex < 0 || result.LineIndex >= _textBox.LineCount) return;
+            int start = _textBox.GetCharacterIndexFromLineIndex(result.LineIndex);
+            if (start < 0 || start + result.Start + result.Length > _textBox.Text.Length) return;
+            _textBox.Select(start + result.Start, result.Length);
+            _textBox.ScrollToLine(result.LineIndex);
+            _background.SearchMatch = result;
+            RequestRowsUpdate();
+        }
+
+        public void ClearSearchMatch() { _background.SearchMatch = null; _background.InvalidateVisual(); }
+
         private void QueueRowsUpdate()
         {
             if (_updatePending) return;
@@ -306,6 +322,8 @@ namespace HotKeyCommandApp.Views.Controls
             public IEnumerable<(int Index, Rect Bounds)> VisibleRows => _rows.Select(row => (row.Index, row.Bounds));
             public IReadOnlyList<GitDiffSyntaxSpan>[] Syntax { get; set; } = Array.Empty<IReadOnlyList<GitDiffSyntaxSpan>>();
             public IReadOnlyList<GitDiffChangeSpan>[] Changes { get; set; } = Array.Empty<IReadOnlyList<GitDiffChangeSpan>>();
+            public GitDiffSearchResult SearchMatch { get; set; }
+            private static readonly Brush SearchBackground = Brush("#956B16");
 
             public void ClearRows()
             {
@@ -387,6 +405,8 @@ namespace HotKeyCommandApp.Views.Controls
                         foreach (var span in Changes[row.Index])
                             drawingContext.DrawGeometry(changeBrush, null, text.BuildHighlightGeometry(origin, span.Start, span.Length));
                     }
+                    if (SearchMatch is { } match && match.LineIndex == row.Index && match.Start + match.Length <= line.Text.Length)
+                        drawingContext.DrawGeometry(SearchBackground, null, text.BuildHighlightGeometry(origin, match.Start, match.Length));
                     drawingContext.DrawText(text, origin);
                     drawingContext.Pop();
                 }

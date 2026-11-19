@@ -1,169 +1,62 @@
-# Settings Refactor Design
+# 設定画面の共通構造
 
-## 全体像
+この資料は現在の実装を示す。セクションの共通化と一覧ナビゲーションの共通化は実装済み。
 
-```text
-SettingsWindow / GitSettingsDialog
-        │
-        │  セクション切替・保存・ウィンドウ全体キー処理
-        ▼
-ISettingsSectionViewModel
-        │
-        ├─ SizeSettingsSectionViewModel
-        ├─ OthersSettingsSectionViewModel
-        ├─ ShortcutSettingsSectionViewModel
-        ├─ ConstantsSettingsSectionViewModel
-        ├─ SelectTemplatesSettingsSectionViewModel
-        ├─ GitAliasSettingsSectionViewModel
-        ├─ GitFunctionsSettingsSectionViewModel
-        └─ GitRepositoryMappingsSectionViewModel
-        │
-        │  各セクションに対応する View / Control
-        ▼
-Section Control
-        │
-        ├─ 単一値レコード系
-        │    ├─ SizeSettingsSectionControl
-        │    ├─ OthersSettingsSectionControl
-        │    └─ ShortcutSettingsSectionControl
-        │
-        └─ ペアレコード系
-             ├─ PairEditorSectionControl
-             └─ AliasPairEditorControl
-```
-
-## いまの共通化の核
-
-```text
-[セクション単位]
-ISettingsRecordSectionControl
-    ├─ FocusFirstRecord()
-    ├─ FocusLastRecord()
-    └─ FocusRecordAfterAppend()
-
-[一覧単位]
-SettingsRecordListControl
-    ├─ EditableValueRecordControl
-    └─ ActionValueRecordControl
-```
-
-関連ファイル:
-
-- `Views/Controls/ISettingsRecordSectionControl.cs`
-- `Views/Controls/SettingsRecordListControl.xaml.cs`
-
-## ここから整理したい設計
-
-ポイントは、`ISettingsRecordSectionControl` の下に、さらに「一覧ナビゲーション」の抽象を作ることです。
-
-```text
-ISettingsSectionViewModel
-        │
-        ▼
-Section Control
-        │
-        ├─ ISettingsRecordSectionControl   ← セクションとしての共通契約
-        │      ├─ FocusFirstRecord()
-        │      ├─ FocusLastRecord()
-        │      └─ FocusRecordAfterAppend()
-        │
-        ▼
-ISettingsRecordListNavigator            ← 新しく切りたい下位抽象
-        ├─ FocusFirstRecord()
-        ├─ FocusLastRecord()
-        ├─ FocusRecordAfterAppend()
-        ├─ IsFocusInEditor()
-        └─ TryHandleKeyboardShortcut(...)
-```
-
-## その上に載る想定
-
-```text
-ISettingsRecordListNavigator
-    ├─ SettingsRecordListControl
-    │    ├─ EditableValueRecordControl
-    │    └─ ActionValueRecordControl
-    │
-    └─ AliasPairEditorControl
-         ├─ レコードボタン
-         ├─ 編集 TextBox
-         ├─ タブ
-         ├─ 追加ボタン
-         └─ 並び替え / キー移動
-```
-
-## 責務分担のイメージ
-
-```text
-1. Window
-   - タブ切替
-   - Ctrl+Enter / Esc などウィンドウ全体操作
-   - SaveAll()
-
-2. Section Control
-   - 自分がどの一覧ナビゲータを使うかだけ知る
-   - 先頭/末尾フォーカスを一覧へ委譲
-
-3. Record List Navigator
-   - レコードのフォーカス移動
-   - 編集中判定
-   - レコード追加後フォーカス
-   - 一覧固有キー処理
-
-4. Record Control
-   - 1行の表示/編集切替
-   - Enter / Esc
-```
-
-## 単一値系とペアレコード系の関係
-
-```text
-[単一値系]
-Size / Others / Shortcut
-    └─ SettingsRecordListControl
-         └─ 単純な縦並びレコード
-
-[ペアレコード系]
-Constants / SelectTemplates / Git Alias / Repository
-    └─ AliasPairEditorControl
-         └─ タブ・フォルダ・並び替え付きレコード
-```
-
-見た目は違っても、共通点は次です。
-
-```text
-- レコードボタンを持つ
-- 縦に並ぶ
-- 先頭/末尾/追加後フォーカスがある
-- 編集中かどうかを持つ
-- キーボード移動がある
-```
-
-## 最終的に目指している形
+## ウィンドウから一覧への委譲
 
 ```text
 SettingsWindow / GitSettingsDialog
-        │
-        ▼
-Section Control
-        │
-        ▼
-ISettingsRecordSectionControl
-        │
-        ▼
-ISettingsRecordListNavigator
-        ├─ SettingsRecordListControl
-        └─ AliasPairEditorControl
+    ├─ SettingsTabShellController
+    │    └─ ISettingsSectionViewModel: Save / Reset
+    └─ セクションの Control
+         ├─ ISettingsRecordSectionControl
+         └─ ISettingsRecordListNavigator
+              ├─ SettingsRecordListControl
+              └─ AliasPairEditorControl
 ```
 
-## 一言でいうと
+- ウィンドウ全体の操作は [SettingsWindow](../Views/SettingsWindow.xaml.cs)、[GitSettingsDialog](../Views/GitSettingsDialog.xaml.cs)、[SettingsDialogKeyboardNavigationHelper](../Views/Controls/SettingsDialogKeyboardNavigationHelper.cs) が担当する。
+- セクションの選択と保存は [SettingsTabShellController](../ViewModels/Settings/SettingsTabShellController.cs) と [ISettingsSectionViewModel](../ViewModels/Settings/ISettingsSectionViewModel.cs) を入口にする。
+- セクション単位のフォーカス移動には [ISettingsRecordSectionControl](../Views/Controls/ISettingsRecordSectionControl.cs)、一覧のキー操作には [ISettingsRecordListNavigator](../Views/Controls/ISettingsRecordListNavigator.cs) を使う。
+- [PairEditorSectionControl](../Views/Controls/PairEditorSectionControl.xaml.cs) はセクションの契約を実装し、一覧操作を内部の共通エディターへ委譲する。
 
-- 今は `セクション共通化` までは入っている
-- 次にやりたいのは `一覧ナビゲーション共通化`
-- ペアレコード系は、その `一覧ナビゲーション共通化` の側へ寄せる
+## 画面ごとの入口
 
-## 次の候補
+| 画面 | セクションの状態 | 一覧 UI |
+| --- | --- | --- |
+| サイズ調整 | [SizeSettingsSectionViewModel](../ViewModels/Settings/SizeSettingsSectionViewModel.cs) | [SizeSettingsSectionControl](../Views/Controls/SizeSettingsSectionControl.xaml.cs) |
+| ショートカット | [ShortcutSettingsSectionViewModel](../ViewModels/Settings/ShortcutSettingsSectionViewModel.cs) | [ShortcutSettingsSectionControl](../Views/Controls/ShortcutSettingsSectionControl.xaml.cs) |
+| その他 | [OthersSettingsSectionViewModel](../ViewModels/Settings/OthersSettingsSectionViewModel.cs) | [OthersSettingsSectionControl](../Views/Controls/OthersSettingsSectionControl.xaml.cs) |
+| 定数定義 | [ConstantsSettingsSectionViewModel](../ViewModels/Settings/ConstantsSettingsSectionViewModel.cs) | [PairEditorSectionControl](../Views/Controls/PairEditorSectionControl.xaml) |
+| 選択式テンプレート | [SelectTemplatesSettingsSectionViewModel](../ViewModels/Settings/SelectTemplatesSettingsSectionViewModel.cs) | [PairEditorSectionControl](../Views/Controls/PairEditorSectionControl.xaml) |
+| Git エイリアス | [GitAliasSettingsSectionViewModel](../ViewModels/Settings/GitAliasSettingsSectionViewModel.cs) | [AliasPairEditorControl](../Views/Controls/AliasPairEditorControl.xaml) |
+| リポジトリ名 | [GitRepositoryMappingsSectionViewModel](../ViewModels/Settings/GitRepositoryMappingsSectionViewModel.cs) | [AliasPairEditorControl](../Views/Controls/AliasPairEditorControl.xaml) |
+| Git 関数 | [GitFunctionsSettingsSectionViewModel](../ViewModels/Settings/GitFunctionsSettingsSectionViewModel.cs) | [GitFunctionsSectionControl](../Views/Controls/GitFunctionsSectionControl.xaml) |
 
-1. `ISettingsRecordListNavigator` のような下位インターフェースを追加
-2. `SettingsRecordListControl` と `AliasPairEditorControl` をそこへ揃える
-3. `PairEditorSectionControl` も `ISettingsRecordSectionControl` を実装して委譲する
+定数定義・選択式テンプレートも、セクションの内側で同じ [AliasPairEditorControl](../Views/Controls/AliasPairEditorControl.xaml.cs) を使う。名前に Alias と付いていても、エイリアス専用の部品として扱わない。
+
+## ペアレコード系の責務
+
+| 担当 | 責務 |
+| --- | --- |
+| [AliasPairEditorControl](../Views/Controls/AliasPairEditorControl.xaml.cs) | 行・内部タブの表示、キーとドラッグ操作の受付、編集欄のフォーカス、変更後の再描画 |
+| [PairEntryListEditor](../Services/PairEntryListEditor.cs) | 表示順の取得、旧フォルダ構造の平坦化、行の並び替え、隣接タブへの移動、保存用の順序の正規化 |
+| [PairEditorTabEditSession](../Models/PairEditorTabEditSession.cs) | タブ名編集の開始・確定・キャンセルと空欄時の復元 |
+| [IPairEditorTab / IPairEditorTabHost](../Models/PairEditorTabs.cs) | タブのデータと選択状態の契約 |
+| [GitAliasTabHost](../Models/GitAliasTabHost.cs) | エイリアス設定のタブの作成・削除・選択 |
+| [IPairEntryEditable](../Models/IPairEntryEditable.cs) | 2項目の値、親フォルダ、保存順の共通契約 |
+
+データの順序操作には WPF のフォーカスや Dispatcher を持ち込まない。Control は操作後に表示を更新し、元の行または適切な隣接行へフォーカスを戻す。
+
+旧フォルダデータは読み取り時に一覧へ平坦化する。参照先のない行も保持し、平坦化後は親フォルダを空にして順序を正規化する。
+
+## 見た目とキー操作を変更するとき
+
+- 共通スタイルは [SettingsSharedResources.xaml](../Views/Controls/SettingsSharedResources.xaml) と [AliasPairEditorControl.xaml](../Views/Controls/AliasPairEditorControl.xaml) を確認する。
+- ペアレコードの通常表示と編集欄は `SettingsRecordMinHeight` を共有する。F2時の行・タブの高さを維持する。
+- 行の先頭・末尾・隣接セルへの移動、Shift+Up / Shift+Down、内部タブへの移動は共通 Control を入口にし、4画面で同じ動作を維持する。
+- 一覧上部の内部タブもペアレコード系の範囲に含める。エイリアス設定だけの挙動は、その用途を明示して変更する。
+
+通常設定の編集・保存は [AppSettingsEditorSession](../Services/AppSettingsEditorSession.cs)、Git 設定の編集・保存は [GitSettingsEditorSession](../Services/GitSettingsEditorSession.cs) を参照する。
+
+回帰テストは [PairEditorTests.cs](../Tests/RefactoringIntegration/PairEditorTests.cs)。実行方法は [テスト手順](./Testing.md) を参照する。

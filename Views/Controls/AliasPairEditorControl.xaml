@@ -57,6 +57,7 @@
         <Style x:Key="RowButtonStyle" TargetType="Button" BasedOn="{StaticResource SettingsRecordButtonStyle}"/>
 
         <Style x:Key="PairEntryTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource SettingsRecordValueTextBoxStyle}">
+            <Setter Property="MinHeight" Value="{StaticResource SettingsRecordMinHeight}"/>
             <EventSetter Event="PreviewKeyDown" Handler="EntryTextBox_PreviewKeyDown"/>
             <EventSetter Event="GotFocus" Handler="EntryTextBox_GotFocus"/>
             <EventSetter Event="LostKeyboardFocus" Handler="EntryTextBox_LostKeyboardFocus"/>
@@ -203,11 +204,12 @@
                                     </Style>
                                 </TextBlock.Style>
                             </TextBlock>
+                            <!-- 編集枠の分を相殺し、タブ名の編集前後で高さを保つ。 -->
                             <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
                                      VerticalContentAlignment="Center"
                                      VerticalAlignment="Center"
                                      Padding="0"
-                                     Margin="0"
+                                     Margin="-1"
                                      MinHeight="0"
                                      BorderThickness="1"
                                      PreviewKeyDown="TabNameTextBox_PreviewKeyDown"
