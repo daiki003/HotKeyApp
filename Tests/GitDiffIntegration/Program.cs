@@ -283,6 +283,12 @@ internal static partial class Program
               ((Button)secondView.FindName("CopyCurrentBranchButton")).IsEnabled, "現在のブランチ名をコピーするボタン");
         Check(secondView.ViewModel.BaseBranch == "main" && ((TextBlock)secondView.FindName("BaseBranchText")).Text == "ベース: main",
             "設定済みベースブランチをヘッダーに表示");
+        PressArrow(window, secondTab, Key.PageDown);
+        await WaitForAsync(() => !secondView.ViewModel.IsBusy);
+        Check(secondView.ViewModel.Mode == GitDiffMode.Commit && ReferenceEquals(tabs.SelectedItem, secondTab),
+            "リポジトリタブ上のPageDownでもリポジトリを変えずに差分モードを切り替え");
+        PressArrow(window, secondTab, Key.PageUp);
+        await WaitForAsync(() => !secondView.ViewModel.IsBusy && secondView.ViewModel.Lines.Count > 0);
         await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
         window.Activate();
         TestHeaderNavigation(window, secondView);

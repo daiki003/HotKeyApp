@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using HotKeyCommandApp.Models;
 using HotKeyCommandApp.Services;
 using HotKeyCommandApp.ViewModels;
@@ -79,6 +80,39 @@ internal static partial class Program
                 GitDiffSearchResult displayedMatch = null;
                 vm.SearchMatchRequested += match => displayedMatch = match;
                 await WaitForAsync(() => !vm.IsBusy && vm.Lines.Count > 0);
+                var modeTabs = (TabControl)view.FindName("DiffModeTabs");
+                var recentCommits = (Expander)view.FindName("RecentCommitsExpander");
+                Check(modeTabs.Items.Cast<TabItem>().Select(tab => tab.Header?.ToString())
+                    .SequenceEqual(new[] { "未コミットの差分", "コミットの差分", "ベースとの差分" }), "差分モードを3つのタブで表示");
+                var update = (Button)view.FindName("UpdateFromBaseButton");
+                var pull = (Button)view.FindName("PullButton");
+                Check(ReferenceEquals(update.Parent, pull.Parent) &&
+                      update.TranslatePoint(new Point(), view).X > pull.TranslatePoint(new Point(), view).X &&
+                      Math.Abs(update.TranslatePoint(new Point(), view).Y - pull.TranslatePoint(new Point(), view).Y) < 1,
+                    "ベース取り込みボタンをプルの右隣に配置");
+                Check(recentCommits.Visibility == Visibility.Collapsed, "未コミット差分では直近コミット欄を非表示");
+                PressArrow(window, view, Key.PageDown);
+                await WaitForAsync(() => !vm.IsBusy);
+                Check(vm.Mode == GitDiffMode.Commit && modeTabs.SelectedIndex == 1 && recentCommits.IsVisible,
+                    "PageDownでコミット差分へ移動して直近コミット欄を表示");
+                PressArrow(window, (TextBox)view.FindName("DiffSearchBox"), Key.PageDown);
+                await WaitForAsync(() => !vm.IsBusy);
+                Check(vm.Mode == GitDiffMode.BaseBranch && modeTabs.SelectedIndex == 2 && recentCommits.Visibility == Visibility.Collapsed,
+                    "検索欄からもPageDownでベース差分へ移動し直近コミット欄を非表示");
+                PressArrow(window, view, Key.PageDown);
+                Check(vm.Mode == GitDiffMode.BaseBranch, "末尾モードではPageDownで折り返さない");
+                PressArrow(window, view, Key.PageUp);
+                await WaitForAsync(() => !vm.IsBusy);
+                PressArrow(window, (TabItem)modeTabs.SelectedItem, Key.PageUp);
+                await WaitForAsync(() => !vm.IsBusy && vm.Lines.Count > 0);
+                Check(vm.Mode == GitDiffMode.Uncommitted && modeTabs.SelectedIndex == 0, "PageUpで未コミット差分まで戻れる");
+                PressArrow(window, view, Key.PageUp);
+                Check(vm.Mode == GitDiffMode.Uncommitted, "先頭モードではPageUpで折り返さない");
+                modeTabs.SelectedIndex = 1;
+                await WaitForAsync(() => !vm.IsBusy);
+                Check(vm.Mode == GitDiffMode.Commit && recentCommits.IsVisible, "タブ選択で表示モードとコミット欄を切り替え");
+                modeTabs.SelectedIndex = 0;
+                await WaitForAsync(() => !vm.IsBusy && vm.Lines.Count > 0);
                 vm.SelectedSortIndex = (int)GitDiffSortOrder.FileName;
                 Check(vm.Files.First().Path == "z/a.txt", "ファイル名順の並べ替え");
                 vm.SelectedFile = vm.Files.First();
@@ -111,7 +145,7 @@ internal static partial class Program
                 await vm.SearchAsync();
                 Check(vm.SearchResults.Select(match => match.File.Path).Distinct().Count() == 3, "全差分検索は選択中モードの累積差分を対象にする");
                 await WaitForAsync(() => displayedMatch == vm.SelectedSearchResult);
-                ((Expander)view.FindName("RecentCommitsExpander")).IsExpanded = true;
+                recentCommits.IsExpanded = true;
                 window.UpdateLayout();
                 SavePreview(window, "diff-features-base.png");
                 vm.ShowCommit(featureSha[..7]);

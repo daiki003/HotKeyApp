@@ -189,7 +189,7 @@ namespace HotKeyCommandApp.Views.Controls
             }
         }
 
-        private Button[] HeaderButtons => new[] { PushButton, PullButton, RefreshButton, RenameBranchButton, CopyCurrentBranchButton }
+        private Button[] HeaderButtons => new[] { PushButton, PullButton, UpdateFromBaseButton, RefreshButton, RenameBranchButton, CopyCurrentBranchButton }
             .Where(button => button.IsVisible && button.IsEnabled).ToArray();
 
         private Button[] FileActionButtons => new[] { CommitStagedButton, StashPreparedButton }
@@ -234,6 +234,12 @@ namespace HotKeyCommandApp.Views.Controls
         private async void UpdateFromBaseButton_Click(object sender, RoutedEventArgs e)
         {
             if (_viewModel.CanUpdateFromBase) await _viewModel.UpdateFromBaseAsync();
+            FocusHeaderButton(UpdateFromBaseButton);
+        }
+
+        public void SwitchDiffMode(int direction)
+        {
+            _viewModel.SelectedModeIndex = Math.Clamp(_viewModel.SelectedModeIndex + direction, 0, DiffModeTabs.Items.Count - 1);
         }
 
         private void ShowCommitButton_Click(object sender, RoutedEventArgs e) => _viewModel.ShowCommit(CommitRevisionBox.Text);
@@ -419,6 +425,12 @@ namespace HotKeyCommandApp.Views.Controls
         private void View_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             _inputVersion++;
+            if (Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.PageUp or Key.PageDown)
+            {
+                SwitchDiffMode(e.Key == Key.PageDown ? 1 : -1);
+                e.Handled = true;
+                return;
+            }
             if (e.Key == Key.F && (Keyboard.Modifiers == ModifierKeys.Control || Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift)))
             {
                 _viewModel.SearchAllFiles = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
