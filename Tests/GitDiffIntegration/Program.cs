@@ -637,6 +637,14 @@ internal static partial class Program
         var list = (ListBox)view.FindName("FileList");
         await WaitForAsync(() => view.ViewModel.Files.Count == 2 && !view.ViewModel.IsBusy && list.IsKeyboardFocusWithin);
         window.UpdateLayout();
+        list.SelectedIndex = 1;
+        Keyboard.ClearFocus();
+        PressArrow(window, window, Key.Up);
+        Check(list.IsKeyboardFocusWithin && list.SelectedIndex == 0, "フォーカスがない状態の上キーで先頭ファイルへ移動");
+        list.SelectedIndex = 1;
+        Keyboard.ClearFocus();
+        PressArrow(window, window, Key.Down);
+        Check(list.IsKeyboardFocusWithin && list.SelectedIndex == 0, "フォーカスがない状態の下キーで先頭ファイルへ移動");
         var item = (ListBoxItem)list.ItemContainerGenerator.ContainerFromItem(list.SelectedItem);
         var rowButtons = FindVisuals<Button>(item).Where(button => button.Name is "FileCopyButton" or "FileStageButton").ToArray();
         Check(rowButtons.Length == 2, "ファイル行の操作ボタンを取得");
@@ -824,6 +832,13 @@ internal static partial class Program
         await WaitForAsync(() => !view.ViewModel.IsBusy && view.ViewModel.Message == "未コミットの変更はありません。");
         await WaitForAsync(() => ((Button)view.FindName("RefreshButton")).IsKeyboardFocused);
         Check(((Button)view.FindName("RefreshButton")).IsKeyboardFocused, "差分がない初回表示後は更新ボタンにフォーカス");
+        var copyBranch = (Button)view.FindName("CopyCurrentBranchButton");
+        Keyboard.ClearFocus();
+        PressArrow(window, window, Key.Up);
+        Check(copyBranch.IsKeyboardFocused, "差分とフォーカスがない状態の上キーでブランチ名コピーへ移動");
+        Keyboard.ClearFocus();
+        PressArrow(window, window, Key.Down);
+        Check(copyBranch.IsKeyboardFocused, "差分とフォーカスがない状態の下キーでブランチ名コピーへ移動");
         window.WindowState = WindowState.Normal;
         window.Left = SystemParameters.VirtualScreenLeft + 100;
         window.Top = SystemParameters.VirtualScreenTop + 100;

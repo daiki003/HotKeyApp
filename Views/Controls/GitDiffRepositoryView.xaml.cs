@@ -427,6 +427,12 @@ namespace HotKeyCommandApp.Views.Controls
             else FocusHeaderButton(RefreshButton);
         }
 
+        public void FocusFromEmptyArrow()
+        {
+            if (FileList.Items.Count > 0) FocusFileAt(0);
+            else FocusHeaderButton(CopyCurrentBranchButton);
+        }
+
         private void FileList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (FileList.SelectedItem != null) FileList.ScrollIntoView(FileList.SelectedItem);

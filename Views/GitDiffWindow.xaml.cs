@@ -284,6 +284,13 @@ namespace HotKeyCommandApp.Views
         private async void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             if (ActiveView?.TryCopyDiffSelection(e) == true) return;
+            if (Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.Up or Key.Down &&
+                (Keyboard.FocusedElement == null || ReferenceEquals(Keyboard.FocusedElement, this) || ReferenceEquals(Keyboard.FocusedElement, ActiveView)))
+            {
+                ActiveView?.FocusFromEmptyArrow();
+                e.Handled = true;
+                return;
+            }
             if (Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.PageUp or Key.PageDown)
             {
                 ActiveView?.SwitchDiffMode(e.Key == Key.PageDown ? 1 : -1);
