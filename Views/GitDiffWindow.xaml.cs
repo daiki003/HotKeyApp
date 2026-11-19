@@ -285,7 +285,9 @@ namespace HotKeyCommandApp.Views
         {
             if (ActiveView?.TryCopyDiffSelection(e) == true) return;
             if (Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.Up or Key.Down &&
-                (Keyboard.FocusedElement == null || ReferenceEquals(Keyboard.FocusedElement, this) || ReferenceEquals(Keyboard.FocusedElement, ActiveView)))
+                (Keyboard.FocusedElement == null || ReferenceEquals(Keyboard.FocusedElement, this) ||
+                 ReferenceEquals(Keyboard.FocusedElement, ActiveView) || Keyboard.FocusedElement is TabItem or TabControl ||
+                 ActiveView?.IsEmptyFileListFocused == true))
             {
                 ActiveView?.FocusFromEmptyArrow();
                 e.Handled = true;

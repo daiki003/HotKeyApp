@@ -432,6 +432,7 @@ namespace HotKeyCommandApp.Views.Controls
             if (FileList.Items.Count > 0) FocusFileAt(0);
             else FocusHeaderButton(CopyCurrentBranchButton);
         }
+        public bool IsEmptyFileListFocused => FileList.Items.Count == 0 && FileList.IsKeyboardFocused;
 
         private void FileList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
