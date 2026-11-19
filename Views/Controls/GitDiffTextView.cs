@@ -26,6 +26,13 @@ namespace HotKeyCommandApp.Views.Controls
         private CancellationTokenSource _highlightCts;
         private string _fileKey;
         private HwndSource _source;
+        private int _selectionAnchor;
+        private int _selectionAnchorEnd;
+        private bool _selectingWords;
+        private bool _selectingText;
+        public bool HasTextSelection => _textBox.SelectionLength > 0;
+        public string SelectedText => _textBox.SelectedText;
+        public event EventHandler TextMouseInteraction;
         public event EventHandler SelectionChanged;
         public event Action<int> LineOpenRequested;
 
@@ -39,7 +46,9 @@ namespace HotKeyCommandApp.Views.Controls
                 BorderThickness = new Thickness(0),
                 Background = Brushes.Transparent,
                 Foreground = Brushes.Transparent,
-                CaretBrush = Brushes.White,
+                CaretBrush = Brushes.Transparent,
+                SelectionBrush = Brushes.Transparent,
+                Focusable = false,
                 IsReadOnly = true,
                 IsReadOnlyCaretVisible = true,
                 IsInactiveSelectionHighlightEnabled = true,
@@ -58,7 +67,10 @@ namespace HotKeyCommandApp.Views.Controls
             _textBox.Loaded += (_, _) => RequestRowsUpdate();
             _textBox.IsVisibleChanged += (_, _) => RequestRowsUpdate();
             _textBox.LayoutUpdated += (_, _) => { if (_rowsDirty) QueueRowsUpdate(); };
-            _textBox.SelectionChanged += (_, _) => SelectionChanged?.Invoke(this, EventArgs.Empty);
+            _textBox.SelectionChanged += (_, _) => { _background.InvalidateVisual(); SelectionChanged?.Invoke(this, EventArgs.Empty); };
+            _textBox.AddHandler(Mouse.PreviewMouseDownEvent, new MouseButtonEventHandler(TextMouseDown), true);
+            _textBox.AddHandler(Mouse.PreviewMouseMoveEvent, new MouseEventHandler(TextMouseMove), true);
+            _textBox.AddHandler(Mouse.PreviewMouseUpEvent, new MouseButtonEventHandler(TextMouseUp), true);
             PreviewMouseWheel += OnPreviewMouseWheel;
             Loaded += (_, _) =>
             {
@@ -66,6 +78,74 @@ namespace HotKeyCommandApp.Views.Controls
                 _source?.AddHook(OnWindowMessage);
             };
             Unloaded += (_, _) => { _source?.RemoveHook(OnWindowMessage); _source = null; };
+        }
+
+        private void TextMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left) return;
+            for (var element = e.OriginalSource as DependencyObject; element != null && element != _textBox; element = VisualTreeHelper.GetParent(element))
+                if (element is System.Windows.Controls.Primitives.ScrollBar or System.Windows.Controls.Primitives.Thumb) return;
+            int index = _textBox.GetCharacterIndexFromPoint(e.GetPosition(_textBox), true);
+            if (index < 0) return;
+            TextMouseInteraction?.Invoke(this, EventArgs.Empty);
+            if (e.ClickCount >= 2 && _textBox.Text.Length > 0)
+            {
+                (_selectionAnchor, _selectionAnchorEnd) = WordBounds(_textBox.Text, index);
+                _textBox.Select(_selectionAnchor, _selectionAnchorEnd - _selectionAnchor);
+                _selectingWords = true;
+            }
+            else
+            {
+                _selectionAnchor = index;
+                _selectionAnchorEnd = index;
+                _selectingWords = false;
+                _textBox.Select(index, 0);
+            }
+            _selectingText = true;
+            _textBox.CaptureMouse();
+            e.Handled = true;
+        }
+
+        private static (int Start, int End) WordBounds(string text, int index)
+        {
+            int position = Math.Clamp(index, 0, text.Length - 1);
+            int start = position, end = position + 1;
+            if (char.IsLetterOrDigit(text[position]) || text[position] == '_')
+            {
+                while (start > 0 && (char.IsLetterOrDigit(text[start - 1]) || text[start - 1] == '_')) start--;
+                while (end < text.Length && (char.IsLetterOrDigit(text[end]) || text[end] == '_')) end++;
+            }
+            return (start, end);
+        }
+
+        private static (int Start, int Length) WordDragRange(string text, int anchorStart, int anchorEnd, int index)
+        {
+            if (index >= anchorStart && index <= anchorEnd) return (anchorStart, anchorEnd - anchorStart);
+            var word = WordBounds(text, index);
+            int start = Math.Min(anchorStart, word.Start), end = Math.Max(anchorEnd, word.End);
+            return (start, end - start);
+        }
+
+        private void TextMouseMove(object sender, MouseEventArgs e)
+        {
+            if (!_selectingText || e.LeftButton != MouseButtonState.Pressed) return;
+            int index = _textBox.GetCharacterIndexFromPoint(e.GetPosition(_textBox), true);
+            if (index >= 0)
+            {
+                var range = _selectingWords && _textBox.Text.Length > 0
+                    ? WordDragRange(_textBox.Text, _selectionAnchor, _selectionAnchorEnd, index)
+                    : (Math.Min(index, _selectionAnchor), Math.Abs(index - _selectionAnchor));
+                _textBox.Select(range.Item1, range.Item2);
+            }
+            e.Handled = true;
+        }
+
+        private void TextMouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left || !_selectingText) return;
+            _selectingText = false;
+            _textBox.ReleaseMouseCapture();
+            e.Handled = true;
         }
 
         public void SetLines(IReadOnlyList<GitDiffLine> lines, GitDiffFile file = null, string repositoryPath = null)
@@ -148,7 +228,7 @@ namespace HotKeyCommandApp.Views.Controls
             var point = PointFromScreen(new Point(unchecked((short)(position & 0xffff)), unchecked((short)((position >> 16) & 0xffff))));
             if (!new Rect(RenderSize).Contains(point)) return IntPtr.Zero;
             int delta = unchecked((short)(((long)wParam >> 16) & 0xffff));
-            _textBox.ScrollToHorizontalOffset(_textBox.HorizontalOffset - delta / 120.0 * 48);
+            _textBox.ScrollToHorizontalOffset(_textBox.HorizontalOffset + delta / 120.0 * 48);
             handled = true;
             return IntPtr.Zero;
         }
@@ -221,7 +301,18 @@ namespace HotKeyCommandApp.Views.Controls
             RequestRowsUpdate();
         }
 
-        public void ClearSearchMatch() { _background.SearchMatch = null; _background.InvalidateVisual(); }
+        public void ClearSearchMatch()
+        {
+            if (_background.SearchMatch is { } match && match.LineIndex >= 0 && match.LineIndex < _textBox.LineCount)
+            {
+                int lineStart = _textBox.GetCharacterIndexFromLineIndex(match.LineIndex);
+                if (lineStart >= 0 && _textBox.SelectionStart == lineStart + match.Start && _textBox.SelectionLength == match.Length)
+                    _textBox.Select(_textBox.SelectionStart, 0);
+            }
+            _background.SearchMatch = null;
+            _background.InvalidateVisual();
+        }
+        public void SetSearchText(string text) { _background.SearchText = text ?? string.Empty; _background.InvalidateVisual(); }
 
         private void QueueRowsUpdate()
         {
@@ -315,7 +406,7 @@ namespace HotKeyCommandApp.Views.Controls
             public double NumberColumnWidth { get; set; } = 48;
             public double MarkerColumnWidth { get; set; } = 24;
 
-            private readonly record struct VisibleRow(GitDiffLine Line, Rect Bounds, int Index);
+            private readonly record struct VisibleRow(GitDiffLine Line, Rect Bounds, int Index, int CharacterIndex);
 
             public DiffBackground(TextBox textBox) => _textBox = textBox;
             public IReadOnlyList<GitDiffLine> Lines { get; set; } = Array.Empty<GitDiffLine>();
@@ -323,7 +414,10 @@ namespace HotKeyCommandApp.Views.Controls
             public IReadOnlyList<GitDiffSyntaxSpan>[] Syntax { get; set; } = Array.Empty<IReadOnlyList<GitDiffSyntaxSpan>>();
             public IReadOnlyList<GitDiffChangeSpan>[] Changes { get; set; } = Array.Empty<IReadOnlyList<GitDiffChangeSpan>>();
             public GitDiffSearchResult SearchMatch { get; set; }
-            private static readonly Brush SearchBackground = Brush("#956B16");
+            public string SearchText { get; set; } = string.Empty;
+            private static readonly Brush SearchBackground = Brush("#D98B13");
+            private static readonly Brush SearchOtherBackground = Brush("#695527");
+            private static readonly Brush SelectionBackground = Brush("#264F78");
 
             public void ClearRows()
             {
@@ -349,7 +443,7 @@ namespace HotKeyCommandApp.Views.Controls
                         int index = _textBox.GetCharacterIndexFromLineIndex(i);
                         if (index < 0) continue;
                         Rect rect = _textBox.GetRectFromCharacterIndex(index);
-                        if (!rect.IsEmpty) rows.Add(new VisibleRow(Lines[i], rect, i));
+                        if (!rect.IsEmpty) rows.Add(new VisibleRow(Lines[i], rect, i, index));
                     }
                     _rows = rows;
                     InvalidateVisual();
@@ -405,6 +499,21 @@ namespace HotKeyCommandApp.Views.Controls
                         foreach (var span in Changes[row.Index])
                             drawingContext.DrawGeometry(changeBrush, null, text.BuildHighlightGeometry(origin, span.Start, span.Length));
                     }
+                    if (!string.IsNullOrWhiteSpace(SearchText) && line.Kind is not (GitDiffLineKind.Hunk or GitDiffLineKind.Notice))
+                    {
+                        for (int start = 0; start <= line.Text.Length - SearchText.Length;)
+                        {
+                            int found = line.Text.IndexOf(SearchText, start, StringComparison.OrdinalIgnoreCase);
+                            if (found < 0) break;
+                            drawingContext.DrawGeometry(SearchOtherBackground, null, text.BuildHighlightGeometry(origin, found, SearchText.Length));
+                            start = found + SearchText.Length;
+                        }
+                    }
+                    int lineStart = row.CharacterIndex;
+                    int selectionStart = Math.Max(_textBox.SelectionStart, lineStart);
+                    int selectionEnd = Math.Min(_textBox.SelectionStart + _textBox.SelectionLength, lineStart + line.Text.Length);
+                    if (lineStart >= 0 && selectionEnd > selectionStart)
+                        drawingContext.DrawGeometry(SelectionBackground, null, text.BuildHighlightGeometry(origin, selectionStart - lineStart, selectionEnd - selectionStart));
                     if (SearchMatch is { } match && match.LineIndex == row.Index && match.Start + match.Length <= line.Text.Length)
                         drawingContext.DrawGeometry(SearchBackground, null, text.BuildHighlightGeometry(origin, match.Start, match.Length));
                     drawingContext.DrawText(text, origin);

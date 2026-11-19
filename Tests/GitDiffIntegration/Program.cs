@@ -470,6 +470,11 @@ internal static partial class Program
         var tabs = (TabControl)window.FindName("RepositoryTabs");
         var view = (GitDiffRepositoryView)((TabItem)tabs.SelectedItem).Content;
         var diff = (GitDiffTextView)view.FindName("DiffLines");
+        var wordDrag = typeof(GitDiffTextView).GetMethod("WordDragRange", BindingFlags.NonPublic | BindingFlags.Static);
+        var leftRange = ((int, int))wordDrag.Invoke(null, new object[] { "alpha middle omega", 6, 12, 2 });
+        var rightRange = ((int, int))wordDrag.Invoke(null, new object[] { "alpha middle omega", 6, 12, 15 });
+        var innerRange = ((int, int))wordDrag.Invoke(null, new object[] { "alpha middle omega", 6, 12, 9 });
+        Check(leftRange == (0, 12) && rightRange == (6, 12) && innerRange == (6, 6), "単語選択から左右にドラッグして範囲を拡張");
         var background = FindVisuals<FrameworkElement>(diff).Single(element => element.GetType().Name == "DiffBackground");
         var changes = background.GetType().GetProperty("Changes");
         await WaitForAsync(() => changes.GetValue(background) is IReadOnlyList<GitDiffChangeSpan>[] spans && spans.Count(line => line.Count > 0) == 2);
@@ -536,7 +541,8 @@ internal static partial class Program
             spans.Any(line => line.Any(span => span.Color.Equals("#569CD6", StringComparison.OrdinalIgnoreCase))));
         var text = FindVisuals<TextBox>(diff).Single();
         window.Activate();
-        text.Focus();
+        view.FocusFileList();
+        var retainedFocus = Keyboard.FocusedElement;
         text.Select(text.Text.IndexOf("string", StringComparison.Ordinal), 6);
         await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         window.UpdateLayout();
@@ -554,12 +560,12 @@ internal static partial class Program
         int originalStart = text.SelectionStart;
         view.RequestRefreshOnActivation();
         await WaitForAsync(() => !view.ViewModel.IsBusy);
-        Check(ReferenceEquals(originalLines, view.ViewModel.Lines) && text.IsKeyboardFocused &&
+        Check(ReferenceEquals(originalLines, view.ViewModel.Lines) && Keyboard.FocusedElement == retainedFocus &&
             text.SelectionStart == originalStart && text.SelectionLength == 6, "Unchanged refresh preserves display, focus and selection");
         File.AppendAllText(Path.Combine(path, "sample.cs"), "// appended\n");
         view.RequestRefreshOnActivation();
         await WaitForAsync(() => !view.ViewModel.IsBusy);
-        Check(!ReferenceEquals(originalLines, view.ViewModel.Lines) && text.IsKeyboardFocused &&
+        Check(!ReferenceEquals(originalLines, view.ViewModel.Lines) && Keyboard.FocusedElement == retainedFocus &&
             text.SelectionStart == originalStart && text.SelectionLength == 6, "Changed refresh preserves focus and selection");
         window.UpdateLayout();
         text.ScrollToHorizontalOffset(200);
@@ -573,12 +579,12 @@ internal static partial class Program
         object[] wheelArgs = { IntPtr.Zero, 0x020E, new IntPtr(120 << 16), coordinates, false };
         wheelHandler.Invoke(diff, wheelArgs);
         await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
-        Check((bool)wheelArgs[4] && text.HorizontalOffset < offset, "横ホイールの正の入力で逆方向へスクロール");
+        Check((bool)wheelArgs[4] && text.HorizontalOffset > offset, "横ホイールの正の入力で右へスクロール");
         offset = text.HorizontalOffset;
         wheelArgs = new object[] { IntPtr.Zero, 0x020E, new IntPtr(-120 << 16), coordinates, false };
         wheelHandler.Invoke(diff, wheelArgs);
         await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
-        Check((bool)wheelArgs[4] && text.HorizontalOffset > offset, "横ホイールの負の入力でも逆方向へスクロール");
+        Check((bool)wheelArgs[4] && text.HorizontalOffset < offset, "横ホイールの負の入力で左へスクロール");
         SavePreview(window, "syntax-horizontal.png");
         window.Close();
     }
@@ -871,13 +877,15 @@ internal static partial class Program
         rename.Focus();
         PressArrow(window, rename, Key.Right);
         Check(copy.IsKeyboardFocused, "右キーで隣のコピーボタンへ移動");
+        var stageAll = FindSectionActionButton(view, isStaged: false);
         PressArrow(window, copy, Key.Down);
         var files = (ListBox)view.FindName("FileList");
-        Check(files.IsKeyboardFocusWithin, "下段ヘッダーボタンから下キーでファイル一覧へ移動");
+        Check(stageAll.IsKeyboardFocused, "下段ヘッダーから下キーですべてステージへ移動");
+        PressArrow(window, stageAll, Key.Down);
+        Check(files.IsKeyboardFocusWithin, "すべてステージから下キーで先頭ファイルへ移動");
         var item = (ListBoxItem)files.ItemContainerGenerator.ContainerFromItem(files.SelectedItem);
         var row = (Border)item.Template.FindName("Row", item);
         Check(((SolidColorBrush)row.BorderBrush).Color == Color.FromRgb(0, 122, 204), "ファイルにフォーカス中は枠を強調");
-        var stageAll = FindSectionActionButton(view, isStaged: false);
         stageAll.Focus();
         Check(item.IsSelected && ((SolidColorBrush)row.BorderBrush).Color == Colors.Transparent,
             "ボタンへフォーカスするとファイルの選択を保ちつつ枠の強調を解除");
@@ -890,6 +898,10 @@ internal static partial class Program
         Check(stageAll.IsKeyboardFocused, "先頭ファイルから上キーで見出しのすべてステージへ移動");
         PressArrow(window, stageAll, Key.Up);
         Check(copy.IsKeyboardFocused, "先頭ファイルから上キーでヘッダーへ移動");
+        var searchBox = (TextBox)view.FindName("DiffSearchBox");
+        searchBox.Focus();
+        PressArrow(window, searchBox, Key.Escape);
+        Check(copy.IsKeyboardFocused, "検索欄でEscを押すと直前のボタンへ戻る");
         window.UpdateLayout();
         Check(ReferenceEquals(branch.Parent, copy.Parent), "ブランチ名の行にリネームとコピーボタンを配置");
         branch.ClearValue(FrameworkElement.WidthProperty);

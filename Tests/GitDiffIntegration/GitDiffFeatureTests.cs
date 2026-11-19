@@ -38,6 +38,7 @@ internal static partial class Program
         using (var repository = new Repository(path))
         {
             rootSha = CommitFile(repository, "shared.txt", "initial\n", "initial").Sha;
+            CommitFile(repository, "unchanged.txt", "unchanged\n", "unchanged file");
             repository.CreateBranch("base", repository.Head.Tip);
             featureSha = CommitFile(repository, "shared.txt", "committed NEEDLE\n", "feature change").Sha;
             CommitFile(repository, "removed.txt", "deleted NEEDLE\n", "file to remove");
@@ -51,7 +52,7 @@ internal static partial class Program
             File.WriteAllText(Path.Combine(path, "b.txt"), "another NEEDLE\n");
         }
         var service = new GitDiffService(path);
-        Check(service.ReadRecentCommits(CancellationToken.None).Count == 3, "直近コミットの取得");
+        Check(service.ReadRecentCommits(CancellationToken.None).Count == 4, "直近コミットの取得");
         var rootFiles = service.ReadComparisonFiles(GitDiffMode.Commit, rootSha, CancellationToken.None);
         Check(service.ReadDiff(rootFiles.Single(), CancellationToken.None).Lines.Any(line => line.Kind == GitDiffLineKind.Added && line.Text == "initial"), "初回コミットは空のツリーと比較");
         var committed = service.ReadComparisonFiles(GitDiffMode.Commit, featureSha, CancellationToken.None).Single();
@@ -111,6 +112,33 @@ internal static partial class Program
                 modeTabs.SelectedIndex = 1;
                 await WaitForAsync(() => !vm.IsBusy);
                 Check(vm.Mode == GitDiffMode.Commit && recentCommits.IsVisible, "タブ選択で表示モードとコミット欄を切り替え");
+                var commitList = (ListBox)view.FindName("RecentCommitList");
+                recentCommits.IsExpanded = true;
+                await WaitForAsync(() => commitList.IsKeyboardFocusWithin && commitList.SelectedIndex == 0);
+                Check(commitList.IsEnabled, "直近コミットを開くと一覧にフォーカス");
+                var revisionBox = (TextBox)view.FindName("CommitRevisionBox");
+                PressArrow(window, (UIElement)Keyboard.FocusedElement, Key.Up);
+                Check(revisionBox.IsKeyboardFocused, "先頭コミットから上キーでコミット検索欄へ移動");
+                PressArrow(window, revisionBox, Key.Up);
+                var expanderHeader = (System.Windows.Controls.Primitives.ToggleButton)recentCommits.Template.FindName("HeaderSite", recentCommits);
+                Check(expanderHeader.IsKeyboardFocused, "コミット検索欄から上キーで開閉ボタンへ移動");
+                var headerBorder = (Border)expanderHeader.Template.FindName("HeaderBorder", expanderHeader);
+                Check(((System.Windows.Media.SolidColorBrush)headerBorder.BorderBrush).Color == System.Windows.Media.Color.FromRgb(117, 190, 255),
+                    "直近コミット開閉ボタンのフォーカスを強調");
+                await WaitForAsync(() => !vm.IsBusy && vm.Files.Count > 0);
+                PressArrow(window, expanderHeader, Key.Up);
+                var fileList = (ListBox)view.FindName("FileList");
+                Check(fileList.IsKeyboardFocusWithin && fileList.SelectedIndex == fileList.Items.Count - 1,
+                    "直近コミット開閉ボタンから上キーで最後の差分ファイルへ移動");
+                PressArrow(window, (UIElement)Keyboard.FocusedElement, Key.Down);
+                Check(expanderHeader.IsKeyboardFocused, "最後の差分ファイルから下キーで直近コミット開閉ボタンへ移動");
+                revisionBox.Focus();
+                PressArrow(window, revisionBox, Key.Down);
+                Check(commitList.IsKeyboardFocusWithin && commitList.SelectedIndex == 0, "コミット検索欄から下キーで先頭コミットへ移動");
+                PressArrow(window, (UIElement)Keyboard.FocusedElement, Key.Down);
+                Check(commitList.SelectedIndex == 1 && commitList.IsEnabled && commitList.IsKeyboardFocusWithin,
+                    "直近コミットを下キーで選択し読み込み中もフォーカスを維持");
+                await WaitForAsync(() => !vm.IsBusy);
                 modeTabs.SelectedIndex = 0;
                 await WaitForAsync(() => !vm.IsBusy && vm.Lines.Count > 0);
                 vm.SelectedSortIndex = (int)GitDiffSortOrder.FileName;
@@ -125,8 +153,14 @@ internal static partial class Program
                 vm.SelectedFile = vm.Files.First(file => file.Path == "shared.txt" && !file.IsStaged);
                 await WaitForAsync(() => vm.Lines.Any(line => line.Text.Contains("working")));
                 vm.SearchText = "needle";
-                await vm.SearchAsync();
+                await WaitForAsync(() => !vm.IsSearching && vm.SearchResults.Count == 3);
                 Check(vm.SearchResults.Count == 3 && vm.SearchResults.All(result => result.File == vm.SelectedFile), "表示中ファイルの検索と同一行の複数ヒット");
+                await WaitForAsync(() => displayedMatch == vm.SelectedSearchResult);
+                var firstMatch = vm.SelectedSearchResult;
+                var linesBeforeNext = vm.Lines;
+                PressArrow(window, (TextBox)view.FindName("DiffSearchBox"), Key.F3);
+                Check(vm.SelectedSearchResult != null && vm.SelectedSearchResult != firstMatch, "F3で次の検索結果へ移動");
+                Check(ReferenceEquals(vm.Lines, linesBeforeNext) && displayedMatch == vm.SelectedSearchResult, "同一ファイル内のF3移動では差分を再描画しない");
                 vm.SearchAllFiles = true;
                 await vm.SearchAsync();
                 Check(vm.SearchResults.Select(result => result.File.Path).Distinct().Count() == 4, "ステージ済み・未ステージ・削除・未追跡を全差分検索");
@@ -154,6 +188,19 @@ internal static partial class Program
                 ((ListBox)view.FindName("RecentCommitList")).SelectedItem = vm.RecentCommits.First(commit => commit.Sha == rootSha);
                 await WaitForAsync(() => !vm.IsBusy && vm.SelectedCommit.Sha == rootSha && vm.Lines.Any(line => line.Text == "initial"));
                 Check(vm.SelectedCommit.Sha == rootSha, "折りたたみ欄からコミットを選択して表示");
+                File.WriteAllText(Path.Combine(path, "many-matches.txt"), string.Join("\n", Enumerable.Repeat("needle", 5100)));
+                vm.SelectedModeIndex = (int)GitDiffMode.Uncommitted;
+                await WaitForAsync(() => !vm.IsBusy && vm.Files.Any(file => file.Path == "many-matches.txt"));
+                vm.SelectedFile = vm.Files.First(file => file.Path == "many-matches.txt");
+                vm.SearchAllFiles = false;
+                vm.SearchText = "needle";
+                int collectionChanges = 0;
+                vm.SearchResults.CollectionChanged += (_, _) => collectionChanges++;
+                await vm.SearchAsync();
+                Check(vm.SearchResults.Count == 5000 && collectionChanges == 1, "大量の検索結果を一度の通知で表示");
+                var searchBox = (TextBox)view.FindName("DiffSearchBox");
+                searchBox.Text = "needl";
+                Check(vm.SearchText == "needl" && vm.SearchResults.Count == 0 && !vm.IsSearching, "検索語を削除すると大量の結果を破棄");
                 window.UpdateLayout();
                 SavePreview(window, "diff-features-commit.png");
             }
@@ -185,6 +232,7 @@ internal static partial class Program
         var recreated = service.ReadDiff(files.Single(file => file.Path == "recreated.txt"), CancellationToken.None);
         Check(recreated.RawPatch.Contains("+recreated content") && recreated.RawPatch.Contains("-original"), "ベースに存在しブランチで削除後に未追跡として再作成されたファイルを比較");
         Check(files.Single(file => file.Path == "new-name.txt").OldPath == "old-name.txt", "ベース比較で名前変更を保持");
+        Check(!service.ReadDiff(files.Single(file => file.Path == "new-name.txt"), CancellationToken.None).Message.Contains("表示できる差分はありません"), "ベース比較で名前変更の差分を表示");
         Check(service.ReadDiff(files.Single(file => file.Path == "deleted.txt"), CancellationToken.None).Deleted == 1, "ベース比較で削除ファイルを表示");
         Check(service.ReadDiff(files.Single(file => file.Path == "binary.bin"), CancellationToken.None).Message.Contains("バイナリ"), "ベース比較でバイナリを識別");
 
