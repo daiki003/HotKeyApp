@@ -43,6 +43,7 @@ namespace HotKeyCommandApp
             // 単一起動を確認してから、常駐ウィンドウを一度だけ生成する。
             MainWindow = new Views.PaletteWindow();
             MainWindow.Show();
+            Views.GitDiffWindow.RestoreSession();
         }
 
         protected override void OnExit(ExitEventArgs e)

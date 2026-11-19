@@ -59,6 +59,11 @@ internal static partial class Program
                     Console.WriteLine("スタッシュ準備群のテストに成功しました。");
                     return;
                 }
+                if (args.Contains("--commit-focus"))
+                {
+                    await TestCommitFocusAsync(workspace);
+                    return;
+                }
                 TestShortcutSettings();
                 TestSyntaxHighlighting();
                 TestIntralineHighlighting();
@@ -77,6 +82,7 @@ internal static partial class Program
                 await TestSyntaxViewAsync(workspace);
                 await TestFileActionNavigationAsync(workspace);
                 await TestStashPreparationAsync(workspace);
+                await TestCommitFocusAsync(workspace);
                 await TestPlacementAndInitialFocusAsync(workspace);
                 Console.WriteLine("差分タブとショートカット設定のテストに成功しました。");
             }
@@ -283,6 +289,12 @@ internal static partial class Program
               ((Button)secondView.FindName("CopyCurrentBranchButton")).IsEnabled, "現在のブランチ名をコピーするボタン");
         Check(secondView.ViewModel.BaseBranch == "main" && ((TextBlock)secondView.FindName("BaseBranchText")).Text == "ベース: main",
             "設定済みベースブランチをヘッダーに表示");
+        PressArrow(window, secondTab, Key.PageDown);
+        await WaitForAsync(() => !secondView.ViewModel.IsBusy);
+        Check(secondView.ViewModel.Mode == GitDiffMode.Commit && ReferenceEquals(tabs.SelectedItem, secondTab),
+            "リポジトリタブ上のPageDownでもリポジトリを変えずに差分モードを切り替え");
+        PressArrow(window, secondTab, Key.PageUp);
+        await WaitForAsync(() => !secondView.ViewModel.IsBusy && secondView.ViewModel.Lines.Count > 0);
         await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
         window.Activate();
         TestHeaderNavigation(window, secondView);
@@ -464,6 +476,11 @@ internal static partial class Program
         var tabs = (TabControl)window.FindName("RepositoryTabs");
         var view = (GitDiffRepositoryView)((TabItem)tabs.SelectedItem).Content;
         var diff = (GitDiffTextView)view.FindName("DiffLines");
+        var wordDrag = typeof(GitDiffTextView).GetMethod("WordDragRange", BindingFlags.NonPublic | BindingFlags.Static);
+        var leftRange = ((int, int))wordDrag.Invoke(null, new object[] { "alpha middle omega", 6, 12, 2 });
+        var rightRange = ((int, int))wordDrag.Invoke(null, new object[] { "alpha middle omega", 6, 12, 15 });
+        var innerRange = ((int, int))wordDrag.Invoke(null, new object[] { "alpha middle omega", 6, 12, 9 });
+        Check(leftRange == (0, 12) && rightRange == (6, 12) && innerRange == (6, 6), "単語選択から左右にドラッグして範囲を拡張");
         var background = FindVisuals<FrameworkElement>(diff).Single(element => element.GetType().Name == "DiffBackground");
         var changes = background.GetType().GetProperty("Changes");
         await WaitForAsync(() => changes.GetValue(background) is IReadOnlyList<GitDiffChangeSpan>[] spans && spans.Count(line => line.Count > 0) == 2);
@@ -530,7 +547,8 @@ internal static partial class Program
             spans.Any(line => line.Any(span => span.Color.Equals("#569CD6", StringComparison.OrdinalIgnoreCase))));
         var text = FindVisuals<TextBox>(diff).Single();
         window.Activate();
-        text.Focus();
+        view.FocusFileList();
+        var retainedFocus = Keyboard.FocusedElement;
         text.Select(text.Text.IndexOf("string", StringComparison.Ordinal), 6);
         await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         window.UpdateLayout();
@@ -548,12 +566,12 @@ internal static partial class Program
         int originalStart = text.SelectionStart;
         view.RequestRefreshOnActivation();
         await WaitForAsync(() => !view.ViewModel.IsBusy);
-        Check(ReferenceEquals(originalLines, view.ViewModel.Lines) && text.IsKeyboardFocused &&
+        Check(ReferenceEquals(originalLines, view.ViewModel.Lines) && Keyboard.FocusedElement == retainedFocus &&
             text.SelectionStart == originalStart && text.SelectionLength == 6, "Unchanged refresh preserves display, focus and selection");
         File.AppendAllText(Path.Combine(path, "sample.cs"), "// appended\n");
         view.RequestRefreshOnActivation();
         await WaitForAsync(() => !view.ViewModel.IsBusy);
-        Check(!ReferenceEquals(originalLines, view.ViewModel.Lines) && text.IsKeyboardFocused &&
+        Check(!ReferenceEquals(originalLines, view.ViewModel.Lines) && Keyboard.FocusedElement == retainedFocus &&
             text.SelectionStart == originalStart && text.SelectionLength == 6, "Changed refresh preserves focus and selection");
         window.UpdateLayout();
         text.ScrollToHorizontalOffset(200);
@@ -567,12 +585,12 @@ internal static partial class Program
         object[] wheelArgs = { IntPtr.Zero, 0x020E, new IntPtr(120 << 16), coordinates, false };
         wheelHandler.Invoke(diff, wheelArgs);
         await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
-        Check((bool)wheelArgs[4] && text.HorizontalOffset < offset, "横ホイールの正の入力で逆方向へスクロール");
+        Check((bool)wheelArgs[4] && text.HorizontalOffset > offset, "横ホイールの正の入力で右へスクロール");
         offset = text.HorizontalOffset;
         wheelArgs = new object[] { IntPtr.Zero, 0x020E, new IntPtr(-120 << 16), coordinates, false };
         wheelHandler.Invoke(diff, wheelArgs);
         await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
-        Check((bool)wheelArgs[4] && text.HorizontalOffset > offset, "横ホイールの負の入力でも逆方向へスクロール");
+        Check((bool)wheelArgs[4] && text.HorizontalOffset < offset, "横ホイールの負の入力で左へスクロール");
         SavePreview(window, "syntax-horizontal.png");
         window.Close();
     }
@@ -625,6 +643,14 @@ internal static partial class Program
         var list = (ListBox)view.FindName("FileList");
         await WaitForAsync(() => view.ViewModel.Files.Count == 2 && !view.ViewModel.IsBusy && list.IsKeyboardFocusWithin);
         window.UpdateLayout();
+        list.SelectedIndex = 1;
+        Keyboard.ClearFocus();
+        PressArrow(window, window, Key.Up);
+        Check(list.IsKeyboardFocusWithin && list.SelectedIndex == 0, "フォーカスがない状態の上キーで先頭ファイルへ移動");
+        list.SelectedIndex = 1;
+        Keyboard.ClearFocus();
+        PressArrow(window, window, Key.Down);
+        Check(list.IsKeyboardFocusWithin && list.SelectedIndex == 0, "フォーカスがない状態の下キーで先頭ファイルへ移動");
         var item = (ListBoxItem)list.ItemContainerGenerator.ContainerFromItem(list.SelectedItem);
         var rowButtons = FindVisuals<Button>(item).Where(button => button.Name is "FileCopyButton" or "FileStageButton").ToArray();
         Check(rowButtons.Length == 2, "ファイル行の操作ボタンを取得");
@@ -796,6 +822,51 @@ internal static partial class Program
             "スタッシュ失敗時は準備群と作業ファイルを維持");
     }
 
+    private static async Task TestCommitFocusAsync(string workspace)
+    {
+        string path = CreateRepository(workspace, "commit-focus", "staged.txt");
+        using (var repository = new Repository(path))
+        {
+            repository.Config.Set("user.name", "Focus Test");
+            repository.Config.Set("user.email", "focus@example.invalid");
+            Commands.Stage(repository, "staged.txt");
+        }
+        GitDiffWindow.ShowForRepository(path);
+        var window = Application.Current.Windows.OfType<GitDiffWindow>().Single();
+        var tabs = (TabControl)window.FindName("RepositoryTabs");
+        var view = (GitDiffRepositoryView)((TabItem)tabs.SelectedItem).Content;
+        await WaitForAsync(() => !view.ViewModel.IsBusy && view.ViewModel.CanCommitStagedChanges);
+        var commit = (Button)view.FindName("CommitStagedButton");
+        async Task CommitFromDialogAsync(string message)
+        {
+            window.Activate();
+            await WaitForAsync(() => window.IsActive);
+            commit.Focus();
+            _ = Application.Current.Dispatcher.BeginInvoke(() =>
+            {
+                var dialog = Application.Current.Windows.OfType<CommitMessageDialog>().Single();
+                ((TextBox)dialog.FindName("MessageBox")).Text = message;
+                FindVisuals<Button>(dialog).Single(button => Equals(button.Content, "コミット")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            }, System.Windows.Threading.DispatcherPriority.Background);
+            commit.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await WaitForAsync(() => !view.ViewModel.IsBusy && view.ViewModel.OperationStatus == "ステージ済みの変更をコミットしました。");
+        }
+
+        await CommitFromDialogAsync("first commit");
+        Check(view.ViewModel.Files.Count == 0 && ((Button)view.FindName("CopyCurrentBranchButton")).IsKeyboardFocused,
+            "コミット後に差分がなければブランチ名コピーへフォーカス");
+        File.WriteAllText(Path.Combine(path, "staged.txt"), "new staged change\n");
+        File.WriteAllText(Path.Combine(path, "remaining.txt"), "remaining change\n");
+        using (var repository = new Repository(path)) Commands.Stage(repository, "staged.txt");
+        await view.RefreshAsync();
+        await WaitForAsync(() => !view.ViewModel.IsBusy && view.ViewModel.CanCommitStagedChanges);
+        await CommitFromDialogAsync("second commit");
+        var list = (ListBox)view.FindName("FileList");
+        Check(view.ViewModel.Files.Count == 1 && list.IsKeyboardFocusWithin && view.ViewModel.SelectedFile.Path == "remaining.txt",
+            "コミット後に差分が残ればファイル一覧へフォーカス");
+        window.Close();
+    }
+
     private static async Task TestPlacementAndInitialFocusAsync(string workspace)
     {
         string path = CreateRepository(workspace, "clean-repository", "clean.txt");
@@ -812,6 +883,29 @@ internal static partial class Program
         await WaitForAsync(() => !view.ViewModel.IsBusy && view.ViewModel.Message == "未コミットの変更はありません。");
         await WaitForAsync(() => ((Button)view.FindName("RefreshButton")).IsKeyboardFocused);
         Check(((Button)view.FindName("RefreshButton")).IsKeyboardFocused, "差分がない初回表示後は更新ボタンにフォーカス");
+        var copyBranch = (Button)view.FindName("CopyCurrentBranchButton");
+        Keyboard.ClearFocus();
+        PressArrow(window, window, Key.Up);
+        Check(copyBranch.IsKeyboardFocused, "差分とフォーカスがない状態の上キーでブランチ名コピーへ移動");
+        Keyboard.ClearFocus();
+        PressArrow(window, window, Key.Down);
+        Check(copyBranch.IsKeyboardFocused, "差分とフォーカスがない状態の下キーでブランチ名コピーへ移動");
+        var repositoryTab = (TabItem)tabs.SelectedItem;
+        repositoryTab.Focus();
+        Check(repositoryTab.IsKeyboardFocused, "リポジトリタブにフォーカスを設定");
+        PressArrow(window, repositoryTab, Key.Down);
+        Check(copyBranch.IsKeyboardFocused, "差分なしでリポジトリタブから下キーを押すとブランチ名コピーへ移動");
+        var modeTabs = (TabControl)view.FindName("DiffModeTabs");
+        var modeTab = (TabItem)modeTabs.SelectedItem;
+        modeTab.Focus();
+        Check(modeTab.IsKeyboardFocused, "差分モードタブにフォーカスを設定");
+        PressArrow(window, modeTab, Key.Up);
+        Check(copyBranch.IsKeyboardFocused, "差分なしで差分モードタブから上キーを押すとブランチ名コピーへ移動");
+        var emptyList = (ListBox)view.FindName("FileList");
+        emptyList.Focus();
+        Check(emptyList.IsKeyboardFocused, "空の差分一覧にフォーカスを設定");
+        PressArrow(window, emptyList, Key.Down);
+        Check(copyBranch.IsKeyboardFocused, "空の差分一覧から下キーを押すとブランチ名コピーへ移動");
         window.WindowState = WindowState.Normal;
         window.Left = SystemParameters.VirtualScreenLeft + 100;
         window.Top = SystemParameters.VirtualScreenTop + 100;
@@ -865,13 +959,15 @@ internal static partial class Program
         rename.Focus();
         PressArrow(window, rename, Key.Right);
         Check(copy.IsKeyboardFocused, "右キーで隣のコピーボタンへ移動");
+        var stageAll = FindSectionActionButton(view, isStaged: false);
         PressArrow(window, copy, Key.Down);
         var files = (ListBox)view.FindName("FileList");
-        Check(files.IsKeyboardFocusWithin, "下段ヘッダーボタンから下キーでファイル一覧へ移動");
+        Check(stageAll.IsKeyboardFocused, "下段ヘッダーから下キーですべてステージへ移動");
+        PressArrow(window, stageAll, Key.Down);
+        Check(files.IsKeyboardFocusWithin, "すべてステージから下キーで先頭ファイルへ移動");
         var item = (ListBoxItem)files.ItemContainerGenerator.ContainerFromItem(files.SelectedItem);
         var row = (Border)item.Template.FindName("Row", item);
         Check(((SolidColorBrush)row.BorderBrush).Color == Color.FromRgb(0, 122, 204), "ファイルにフォーカス中は枠を強調");
-        var stageAll = FindSectionActionButton(view, isStaged: false);
         stageAll.Focus();
         Check(item.IsSelected && ((SolidColorBrush)row.BorderBrush).Color == Colors.Transparent,
             "ボタンへフォーカスするとファイルの選択を保ちつつ枠の強調を解除");
@@ -884,6 +980,10 @@ internal static partial class Program
         Check(stageAll.IsKeyboardFocused, "先頭ファイルから上キーで見出しのすべてステージへ移動");
         PressArrow(window, stageAll, Key.Up);
         Check(copy.IsKeyboardFocused, "先頭ファイルから上キーでヘッダーへ移動");
+        var searchBox = (TextBox)view.FindName("DiffSearchBox");
+        searchBox.Focus();
+        PressArrow(window, searchBox, Key.Escape);
+        Check(copy.IsKeyboardFocused, "検索欄でEscを押すと直前のボタンへ戻る");
         window.UpdateLayout();
         Check(ReferenceEquals(branch.Parent, copy.Parent), "ブランチ名の行にリネームとコピーボタンを配置");
         branch.ClearValue(FrameworkElement.WidthProperty);

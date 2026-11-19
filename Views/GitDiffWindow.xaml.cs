@@ -15,6 +15,8 @@ namespace HotKeyCommandApp.Views
     {
         private const string TabReorderDataFormat = "HotKeyCommandApp.GitDiffRepositoryTab";
         private static readonly string PlacementPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "git_diff_window_placement.json");
+        private static readonly string SessionPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "git_diff_session.json");
+        private bool _restoringSession;
         private Point _tabDragStartPoint;
         private TabItem _draggedTab;
         private WindowState _lastNonMinimizedWindowState = WindowState.Normal;
@@ -42,19 +44,57 @@ namespace HotKeyCommandApp.Views
             Application.Current.Windows.OfType<GitDiffWindow>().FirstOrDefault()?.FocusWindow();
         }
 
-        public GitDiffWindow(string repositoryPath, double movementSpeed = 1200.0)
+        private sealed record DiffSession(string[] Repositories, string SelectedRepository, double MovementSpeed);
+
+        public static void RestoreSession()
         {
+            try
+            {
+                if (!File.Exists(SessionPath)) return;
+                var session = JsonSerializer.Deserialize<DiffSession>(File.ReadAllText(SessionPath));
+                var paths = session?.Repositories?.Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path) && LibGit2Sharp.Repository.IsValid(path))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                if (paths == null || paths.Length == 0) return;
+                var window = new GitDiffWindow(paths[0], session.MovementSpeed > 0 ? session.MovementSpeed : 1200.0, true);
+                foreach (var path in paths.Skip(1)) window.SelectRepository(path, session.MovementSpeed);
+                if (paths.Contains(session.SelectedRepository, StringComparer.OrdinalIgnoreCase))
+                    window.SelectRepository(session.SelectedRepository, session.MovementSpeed);
+                window._restoringSession = false;
+                window.SaveSession();
+                window.Show();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException or LibGit2Sharp.LibGit2SharpException) { }
+        }
+
+        private void SaveSession()
+        {
+            if (_restoringSession) return;
+            try
+            {
+                var paths = RepositoryViews.Select(view => view.RepositoryPath).ToArray();
+                File.WriteAllText(SessionPath, JsonSerializer.Serialize(new DiffSession(paths, ActiveView?.RepositoryPath, ActiveView?.ViewModel.MovementSpeed ?? 1200.0)));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+
+        public GitDiffWindow(string repositoryPath, double movementSpeed = 1200.0, bool restoringSession = false)
+        {
+            _restoringSession = restoringSession;
             InitializeComponent();
             RestorePlacement();
             _lastNonMinimizedWindowState = WindowState;
             StateChanged += (_, _) => { if (WindowState != WindowState.Minimized) _lastNonMinimizedWindowState = WindowState; };
             SelectRepository(repositoryPath, movementSpeed);
             ContentRendered += (_, _) => FocusActiveViewIfNeeded();
-            Activated += (_, _) =>
+            Activated += async (_, _) =>
             {
-                if (ActiveView?.IsModalDialogOpen != true)
-                    foreach (var view in RepositoryViews) view.RequestRefreshOnActivation();
-                Dispatcher.BeginInvoke(FocusActiveViewIfNeeded, System.Windows.Threading.DispatcherPriority.Loaded);
+                bool modalWasOpen = ActiveView?.IsModalDialogOpen == true;
+                var viewsToRefresh = RepositoryViews.Where(view => view.IsRefreshReady).ToArray();
+                await Task.Delay(150);
+                while (IsActive && Mouse.LeftButton == MouseButtonState.Pressed) await Task.Delay(50);
+                if (!modalWasOpen && IsActive && IsVisible && ActiveView?.IsModalDialogOpen != true)
+                    foreach (var view in viewsToRefresh) view.RequestRefreshOnActivation();
+                if (IsActive && IsVisible) _ = Dispatcher.BeginInvoke(FocusActiveViewIfNeeded, System.Windows.Threading.DispatcherPriority.Loaded);
             };
             Closed += (_, _) =>
             {
@@ -123,6 +163,7 @@ namespace HotKeyCommandApp.Views
                 RepositoryTabs.Items.Add(tab);
             }
             RepositoryTabs.SelectedItem = tab;
+            SaveSession();
         }
 
         private void FocusWindow()
@@ -144,6 +185,7 @@ namespace HotKeyCommandApp.Views
         {
             if (e.Source != RepositoryTabs) return;
             DataContext = ActiveView?.ViewModel;
+            SaveSession();
             var selected = ActiveView;
             Dispatcher.BeginInvoke(() =>
             {
@@ -163,6 +205,7 @@ namespace HotKeyCommandApp.Views
             if (RepositoryTabs.Items.Count == 1) { Close(); return; }
             RepositoryTabs.Items.Remove(tab);
             view.Dispose();
+            SaveSession();
         }
 
         private void TabHeader_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -214,6 +257,7 @@ namespace HotKeyCommandApp.Views
             int insertionIndex = targetIndex + (e.GetPosition(header).X >= header.ActualWidth / 2 ? 1 : 0);
             if (sourceIndex < insertionIndex) insertionIndex--;
             RepositoryTabs.MoveTab(source, insertionIndex);
+            SaveSession();
             e.Effects = DragDropEffects.Move;
             e.Handled = true;
         }
@@ -229,11 +273,32 @@ namespace HotKeyCommandApp.Views
         {
             if (RepositoryViews.Any(view => view.ViewModel.IsOperating)) { e.Cancel = true; return; }
             base.OnClosing(e);
-            if (!e.Cancel) SavePlacement();
+            if (!e.Cancel)
+            {
+                SavePlacement();
+                try { File.Delete(SessionPath); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
         }
 
         private async void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (ActiveView?.TryCopyDiffSelection(e) == true) return;
+            if (Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.Up or Key.Down &&
+                (Keyboard.FocusedElement == null || ReferenceEquals(Keyboard.FocusedElement, this) ||
+                 ReferenceEquals(Keyboard.FocusedElement, ActiveView) || Keyboard.FocusedElement is TabItem or TabControl ||
+                 ActiveView?.IsEmptyFileListFocused == true))
+            {
+                ActiveView?.FocusFromEmptyArrow();
+                e.Handled = true;
+                return;
+            }
+            if (Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.PageUp or Key.PageDown)
+            {
+                ActiveView?.SwitchDiffMode(e.Key == Key.PageDown ? 1 : -1);
+                e.Handled = true;
+                return;
+            }
             if (Keyboard.Modifiers == ModifierKeys.Control)
             {
                 if (e.Key is Key.PageUp or Key.PageDown)
@@ -264,6 +329,7 @@ namespace HotKeyCommandApp.Views
                 if (e.Key is Key.PageUp or Key.PageDown)
                 {
                     RepositoryTabs.MoveSelectedTab(e.Key == Key.PageDown ? 1 : -1);
+                    SaveSession();
                     ActiveView?.FocusFileList();
                     e.Handled = true;
                     return;

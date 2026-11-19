@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -18,11 +19,13 @@ namespace HotKeyCommandApp.ViewModels
         private readonly GitSettingsManager _settingsManager;
         private readonly string _repositoryPath;
         private GitDiffContent _displayedDiff;
+        private string _displayedFileKey;
         private CancellationTokenSource _refreshCts;
         private CancellationTokenSource _diffCts;
         private CancellationTokenSource _searchCts;
         private readonly Dictionary<string, int> _manualOrder = new(StringComparer.Ordinal);
         private bool _selectingSearchMatch;
+        private int _searchGeneration;
         private bool _disposed;
 
         public GitDiffViewModel(string repositoryPath, double movementSpeed = 1200.0)
@@ -75,7 +78,7 @@ namespace HotKeyCommandApp.ViewModels
             get => _selectedCommit;
             set
             {
-                if (_disposed || IsBusy || value == null || value == _selectedCommit && Mode == GitDiffMode.Commit) return;
+                if (_disposed || IsOperating || value == null || value == _selectedCommit && Mode == GitDiffMode.Commit) return;
                 _selectedCommit = value;
                 OnPropertyChanged();
                 _mode = GitDiffMode.Commit;
@@ -144,7 +147,18 @@ namespace HotKeyCommandApp.ViewModels
             private set { _baseBranch = value; OnPropertyChanged(); OnPropertyChanged(nameof(BaseBranchDisplay)); OnPropertyChanged(nameof(CanUpdateFromBase)); }
         }
         public string BaseBranchDisplay => string.IsNullOrWhiteSpace(BaseBranch) ? "未設定" : BaseBranch;
-        public ObservableCollection<GitDiffFile> Files { get; } = new();
+        public ObservableCollection<GitDiffFile> Files { get; } = new BulkFileCollection();
+        private sealed class BulkFileCollection : ObservableCollection<GitDiffFile>
+        {
+            public void ReplaceAll(IEnumerable<GitDiffFile> files)
+            {
+                Items.Clear();
+                foreach (var file in files) Items.Add(file);
+                OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+                OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+                OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+            }
+        }
         public ListCollectionView FileView { get; }
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -156,7 +170,7 @@ namespace HotKeyCommandApp.ViewModels
             {
                 if (ReferenceEquals(_selectedFile, value)) return;
                 _selectedFile = value;
-                if (!_selectingSearchMatch && !SearchAllFiles) CancelSearch();
+                if (!_selectingSearchMatch && !SearchAllFiles) ScheduleSearch();
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(SelectedFilePath));
                 OnPropertyChanged(nameof(Comparison));
@@ -204,10 +218,21 @@ namespace HotKeyCommandApp.ViewModels
             "ベースブランチを取り込み、退避した変更を復元しました。復元したスタッシュは削除しました。");
 
         private string _searchText = string.Empty;
-        public string SearchText { get => _searchText; set { if (_searchText == value) return; _searchText = value; OnPropertyChanged(); CancelSearch(); } }
+        public string SearchText { get => _searchText; set { if (_searchText == value) return; _searchText = value; OnPropertyChanged(); ScheduleSearch(); } }
         private bool _searchAllFiles;
-        public bool SearchAllFiles { get => _searchAllFiles; set { if (_searchAllFiles == value) return; _searchAllFiles = value; OnPropertyChanged(); CancelSearch(); } }
-        public ObservableCollection<GitDiffSearchResult> SearchResults { get; } = new();
+        public bool SearchAllFiles { get => _searchAllFiles; set { if (_searchAllFiles == value) return; _searchAllFiles = value; OnPropertyChanged(); ScheduleSearch(); } }
+        public ObservableCollection<GitDiffSearchResult> SearchResults { get; } = new BulkSearchResultCollection();
+        private sealed class BulkSearchResultCollection : ObservableCollection<GitDiffSearchResult>
+        {
+            public void ReplaceAll(IEnumerable<GitDiffSearchResult> results)
+            {
+                Items.Clear();
+                foreach (var result in results) Items.Add(result);
+                OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+                OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+                OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+            }
+        }
         private string _searchStatus = string.Empty;
         public string SearchStatus { get => _searchStatus; private set { _searchStatus = value; OnPropertyChanged(); } }
         private bool _isSearching;
@@ -217,23 +242,42 @@ namespace HotKeyCommandApp.ViewModels
         public GitDiffSearchResult SelectedSearchResult
         {
             get => _selectedSearchResult;
-            set { _selectedSearchResult = value; OnPropertyChanged(); if (value != null) _ = NavigateSearchResultAsync(value); }
+            set { if (_selectedSearchResult == value) return; _selectedSearchResult = value; OnPropertyChanged(); if (value != null) _ = NavigateSearchResultAsync(value); }
         }
 
         private void CancelSearch()
         {
-            _searchCts?.Cancel();
-            SearchResults.Clear();
+            _searchGeneration++;
+            var previousSearch = _searchCts;
+            _searchCts = null;
+            if (previousSearch != null) _ = CancelAndDisposeSearchAsync(previousSearch);
             SelectedSearchResult = null;
+            if (SearchResults.Count > 0) SearchResults.Clear();
             SearchStatus = string.Empty;
             IsSearching = false;
+        }
+
+        private async void ScheduleSearch()
+        {
+            CancelSearch();
+            if (_disposed || string.IsNullOrWhiteSpace(SearchText)) return;
+            int generation = _searchGeneration;
+            await Task.Delay(200);
+            while (!_disposed && generation == _searchGeneration && IsBusy) await Task.Delay(100);
+            if (!_disposed && generation == _searchGeneration) await SearchAsync();
+        }
+
+        private static async Task CancelAndDisposeSearchAsync(CancellationTokenSource source)
+        {
+            try { await source.CancelAsync(); }
+            catch (AggregateException) { }
+            finally { source.Dispose(); }
         }
 
         public async Task SearchAsync()
         {
             CancelSearch();
             if (_disposed || IsBusy || string.IsNullOrWhiteSpace(SearchText)) return;
-            _searchCts?.Dispose();
             _searchCts = new CancellationTokenSource();
             var token = _searchCts.Token;
             string query = SearchText;
@@ -267,7 +311,7 @@ namespace HotKeyCommandApp.ViewModels
                     return matches;
                 }, token);
                 if (token.IsCancellationRequested || _disposed) return;
-                foreach (var result in results) SearchResults.Add(result);
+                ((BulkSearchResultCollection)SearchResults).ReplaceAll(results);
                 SearchStatus = results.Count >= 5000 ? "5,000 件まで表示しています。検索語を絞り込んでください。" : $"{results.Count} 件（大文字・小文字を区別しない／差分と前後の行）";
                 if (results.Count > 0) SelectedSearchResult = results[0];
             }
@@ -279,10 +323,13 @@ namespace HotKeyCommandApp.ViewModels
         private async Task NavigateSearchResultAsync(GitDiffSearchResult result)
         {
             if (_disposed || IsBusy || !Files.Contains(result.File)) return;
+            bool alreadyDisplayed = SelectedFile == result.File && _displayedFileKey == result.File.Key &&
+                result.LineIndex < Lines.Count && Lines[result.LineIndex] == result.Line;
             _selectingSearchMatch = true;
             try { SelectedFile = Files.First(file => file == result.File); }
             finally { _selectingSearchMatch = false; }
-            await LoadDiffAsync(SelectedFile, fullContent: true);
+            if (!alreadyDisplayed)
+                await LoadDiffAsync(SelectedFile, preserveDisplay: _displayedFileKey == result.File.Key, fullContent: true);
             if (_disposed || SelectedSearchResult != result || SelectedFile != result.File) return;
             if (result.LineIndex < Lines.Count && Lines[result.LineIndex] == result.Line) SearchMatchRequested?.Invoke(result);
             else SearchStatus = "差分が変更されました。もう一度検索してください。";
@@ -440,8 +487,12 @@ namespace HotKeyCommandApp.ViewModels
                 CurrentBranch = snapshot.Branch.CurrentBranch;
                 CurrentBranchName = snapshot.Branch.BranchName;
                 SetTrackingInfo(snapshot.Branch);
-                RecentCommits.Clear();
-                foreach (var commit in await commitsTask) RecentCommits.Add(commit);
+                var commits = await commitsTask;
+                if (!RecentCommits.SequenceEqual(commits))
+                {
+                    RecentCommits.Clear();
+                    foreach (var commit in commits) RecentCommits.Add(commit);
+                }
                 OnPropertyChanged(nameof(SelectedCommit));
                 if (snapshot.Result.Error != null)
                 {
@@ -478,7 +529,14 @@ namespace HotKeyCommandApp.ViewModels
                 TrackingStatusText = "取得失敗";
                 Message = $"ファイル一覧を取得できませんでした。\n{ex.Message}";
             }
-            finally { if (!token.IsCancellationRequested && !_disposed) IsRefreshing = false; }
+            finally
+            {
+                if (!token.IsCancellationRequested && !_disposed)
+                {
+                    IsRefreshing = false;
+                    if (!string.IsNullOrWhiteSpace(SearchText)) ScheduleSearch();
+                }
+            }
         }
 
         private void ApplyFileSnapshot(IReadOnlyList<GitDiffFile> snapshot)
@@ -493,6 +551,12 @@ namespace HotKeyCommandApp.ViewModels
                 .ThenBy(file => _sortOrder == GitDiffSortOrder.Manual ? _manualOrder.GetValueOrDefault(file.Key, int.MaxValue) : 0)
                 .ThenBy(file => _sortOrder == GitDiffSortOrder.FileName ? file.FileName : _sortOrder == GitDiffSortOrder.Change ? file.Change : string.Empty, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(file => file.Path, StringComparer.OrdinalIgnoreCase).ToArray();
+            if (files.Length + Files.Count > 200 && !Files.SequenceEqual(files))
+            {
+                ((BulkFileCollection)Files).ReplaceAll(files);
+            }
+            else
+            {
             var fileSet = files.ToHashSet();
             for (int i = Files.Count - 1; i >= 0; i--)
                 if (!fileSet.Contains(Files[i])) Files.RemoveAt(i);
@@ -501,6 +565,7 @@ namespace HotKeyCommandApp.ViewModels
                 int existingIndex = Files.IndexOf(files[i]);
                 if (existingIndex < 0) Files.Insert(i, files[i]);
                 else if (existingIndex != i) Files.Move(existingIndex, i);
+            }
             }
             OnPropertyChanged(nameof(HasStagedChanges));
             OnPropertyChanged(nameof(HasUnstagedChanges));
@@ -552,6 +617,7 @@ namespace HotKeyCommandApp.ViewModels
             if (!preserveDisplay)
             {
                 _displayedDiff = null;
+                _displayedFileKey = null;
                 OnPropertyChanged(nameof(CanStageLines));
                 OnPropertyChanged(nameof(CanDiscardFile));
                 Lines = Array.Empty<GitDiffLine>();
@@ -561,13 +627,14 @@ namespace HotKeyCommandApp.ViewModels
             if (!preserveDisplay) Message = "差分を読み込んでいます...";
             try
             {
-                var previousDiff = preserveDisplay ? _displayedDiff : null;
+                var previousDiff = preserveDisplay && !fullContent ? _displayedDiff : null;
                 var diff = await Task.Run(() => _service.ReadDiff(file, token, previousDiff, fullContent), token);
                 if (token.IsCancellationRequested || _disposed) return;
                 bool unchanged = preserveDisplay && _displayedDiff != null &&
                     _displayedDiff.RawPatch == diff.RawPatch && _displayedDiff.Message == diff.Message &&
                     _displayedDiff.Added == diff.Added && _displayedDiff.Deleted == diff.Deleted;
                 _displayedDiff = diff;
+                _displayedFileKey = file.Key;
                 if (!unchanged) Lines = diff.Lines;
                 OnPropertyChanged(nameof(CanStageLines));
                 OnPropertyChanged(nameof(CanDiscardFile));
@@ -588,8 +655,9 @@ namespace HotKeyCommandApp.ViewModels
             _refreshCts?.Dispose();
             _diffCts?.Cancel();
             _diffCts?.Dispose();
-            _searchCts?.Cancel();
-            _searchCts?.Dispose();
+            var search = _searchCts;
+            _searchCts = null;
+            if (search != null) _ = CancelAndDisposeSearchAsync(search);
         }
 
         private void OnPropertyChanged([CallerMemberName] string name = null)

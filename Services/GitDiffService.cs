@@ -64,6 +64,7 @@ namespace HotKeyCommandApp.Services
             foreach (var change in changes)
             {
                 token.ThrowIfCancellationRequested();
+                if (change.Status == ChangeKind.Unmodified) continue;
                 files.Add(new GitDiffFile(change.Path, change.OldPath, false, change.Status switch
                 {
                     ChangeKind.Added or ChangeKind.Untracked => "追加", ChangeKind.Deleted => "削除",

@@ -27,6 +27,9 @@ namespace HotKeyCommandApp.Views.Controls
         private int _diffFontSize = 12;
         private Point _fileDragStart;
         private GitDiffFile _draggedFile;
+        private bool _copyDiffSelection;
+        private IInputElement _lastNavigationFocus;
+        private IInputElement _searchReturnFocus;
         private const string FileDragFormat = "HotKeyCommandApp.GitDiffFile";
 
         public GitDiffRepositoryView(string repositoryPath, double movementSpeed, Func<string, string, int?, Task> openFile = null)
@@ -37,10 +40,18 @@ namespace HotKeyCommandApp.Views.Controls
             _viewModel = new GitDiffViewModel(RepositoryPath, movementSpeed);
             DataContext = _viewModel;
             DiffLines.LineOpenRequested += line => _ = OpenFileAsync(_viewModel.SelectedFile, line);
+            DiffLines.TextMouseInteraction += (_, _) => _copyDiffSelection = true;
+            Keyboard.AddGotKeyboardFocusHandler(this, (_, e) =>
+            {
+                _copyDiffSelection = false;
+                if (ReferenceEquals(e.NewFocus, DiffSearchBox)) _searchReturnFocus = _lastNavigationFocus;
+                else if (e.NewFocus is ButtonBase or ListBoxItem) _lastNavigationFocus = e.NewFocus;
+            });
             _viewModel.SearchMatchRequested += result => DiffLines.SelectSearchMatch(result);
             _viewModel.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(GitDiffViewModel.Lines)) DiffLines.SetLines(_viewModel.Lines, _viewModel.SelectedFile, RepositoryPath);
+                if (args.PropertyName == nameof(GitDiffViewModel.SearchText)) DiffLines.SetSearchText(_viewModel.SearchText);
                 if (args.PropertyName == nameof(GitDiffViewModel.SelectedSearchResult) && _viewModel.SelectedSearchResult == null) DiffLines.ClearSearchMatch();
                 if (args.PropertyName == nameof(GitDiffViewModel.IsBusy) && !_viewModel.IsBusy) ProcessActivationRefresh();
             };
@@ -56,6 +67,7 @@ namespace HotKeyCommandApp.Views.Controls
         public GitDiffViewModel ViewModel => _viewModel;
         public bool IsDiffTextFocused => DiffLines.IsKeyboardFocusWithin || SelectedFilePathBox.IsKeyboardFocusWithin;
         public bool IsModalDialogOpen => _isModalDialogOpen;
+        public bool IsRefreshReady => _initialized && !_disposed;
 
         private void SidebarPanel_SizeChanged(object sender, SizeChangedEventArgs e)
         {
@@ -123,6 +135,7 @@ namespace HotKeyCommandApp.Views.Controls
             if (sender is not Button { Tag: GitDiffFile file }) return;
             e.Handled = true;
             _viewModel.SelectedFile = file;
+            FocusFileList();
         }
 
         private async void FileNameButton_MouseDoubleClick(object sender, MouseButtonEventArgs e)
@@ -189,7 +202,7 @@ namespace HotKeyCommandApp.Views.Controls
             }
         }
 
-        private Button[] HeaderButtons => new[] { PushButton, PullButton, RefreshButton, RenameBranchButton, CopyCurrentBranchButton }
+        private Button[] HeaderButtons => new[] { PushButton, PullButton, UpdateFromBaseButton, RefreshButton, RenameBranchButton, CopyCurrentBranchButton }
             .Where(button => button.IsVisible && button.IsEnabled).ToArray();
 
         private Button[] FileActionButtons => new[] { CommitStagedButton, StashPreparedButton }
@@ -234,6 +247,12 @@ namespace HotKeyCommandApp.Views.Controls
         private async void UpdateFromBaseButton_Click(object sender, RoutedEventArgs e)
         {
             if (_viewModel.CanUpdateFromBase) await _viewModel.UpdateFromBaseAsync();
+            FocusHeaderButton(UpdateFromBaseButton);
+        }
+
+        public void SwitchDiffMode(int direction)
+        {
+            _viewModel.SelectedModeIndex = Math.Clamp(_viewModel.SelectedModeIndex + direction, 0, DiffModeTabs.Items.Count - 1);
         }
 
         private void ShowCommitButton_Click(object sender, RoutedEventArgs e) => _viewModel.ShowCommit(CommitRevisionBox.Text);
@@ -244,11 +263,28 @@ namespace HotKeyCommandApp.Views.Controls
             e.Handled = true;
         }
         private async void SearchButton_Click(object sender, RoutedEventArgs e) => await _viewModel.SearchAsync();
-        private async void DiffSearchBox_KeyDown(object sender, KeyEventArgs e)
+        private void RecentCommitsExpander_Expanded(object sender, RoutedEventArgs e)
+        {
+            if (!ReferenceEquals(e.OriginalSource, RecentCommitsExpander)) return;
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (!RecentCommitsExpander.IsExpanded || !RecentCommitList.IsVisible || !RecentCommitList.IsEnabled || RecentCommitList.Items.Count == 0) return;
+                if (RecentCommitList.SelectedItem == null) RecentCommitList.SelectedIndex = 0;
+                RecentCommitList.ScrollIntoView(RecentCommitList.SelectedItem);
+                RecentCommitList.UpdateLayout();
+                if (RecentCommitList.ItemContainerGenerator.ContainerFromItem(RecentCommitList.SelectedItem) is ListBoxItem item) item.Focus();
+            }, System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+        private ToggleButton RecentCommitsHeader()
+        {
+            RecentCommitsExpander.ApplyTemplate();
+            return RecentCommitsExpander.Template.FindName("HeaderSite", RecentCommitsExpander) as ToggleButton;
+        }
+        private void DiffSearchBox_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key != Key.Enter) return;
             e.Handled = true;
-            await _viewModel.SearchAsync();
+            _viewModel.NextSearchResult(Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? -1 : 1);
         }
         private void NextSearchButton_Click(object sender, RoutedEventArgs e) => _viewModel.NextSearchResult(1);
         private void PreviousSearchButton_Click(object sender, RoutedEventArgs e) => _viewModel.NextSearchResult(-1);
@@ -377,8 +413,14 @@ namespace HotKeyCommandApp.Views.Controls
         private async void CommitStagedButton_Click(object sender, RoutedEventArgs e)
         {
             if (!_viewModel.CanCommitStagedChanges) return;
+            int inputVersion = _inputVersion;
             var dialog = new CommitMessageDialog(stagedOnly: true) { Owner = Window.GetWindow(this) };
-            if (ShowModal(dialog.ShowDialog) == true) await _viewModel.CommitStagedAsync(dialog.Message);
+            bool confirmed = ShowModal(dialog.ShowDialog) == true;
+            if (confirmed) await _viewModel.CommitStagedAsync(dialog.Message);
+            if (!CanRestoreFocus(inputVersion)) return;
+            if (!confirmed && CommitStagedButton.IsEnabled) CommitStagedButton.Focus();
+            else if (_viewModel.Files.Count > 0) FocusFileList();
+            else FocusHeaderButton(CopyCurrentBranchButton);
         }
 
         public void FocusFileList()
@@ -390,6 +432,13 @@ namespace HotKeyCommandApp.Views.Controls
             if (FileList.ItemContainerGenerator.ContainerFromItem(_viewModel.SelectedFile) is ListBoxItem item) item.Focus();
             else FocusHeaderButton(RefreshButton);
         }
+
+        public void FocusFromEmptyArrow()
+        {
+            if (FileList.Items.Count > 0) FocusFileAt(0);
+            else FocusHeaderButton(CopyCurrentBranchButton);
+        }
+        public bool IsEmptyFileListFocused => FileList.Items.Count == 0 && FileList.IsKeyboardFocused;
 
         private void FileList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -404,6 +453,7 @@ namespace HotKeyCommandApp.Views.Controls
         private void View_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             _inputVersion++;
+            if (!DiffLines.IsMouseOver) _copyDiffSelection = false;
             if (_viewModel.Files.Count != 0) return;
 
             for (var element = e.OriginalSource as DependencyObject; element != null && element != this;
@@ -419,6 +469,20 @@ namespace HotKeyCommandApp.Views.Controls
         private void View_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             _inputVersion++;
+            if (TryCopyDiffSelection(e)) return;
+            if (e.Key == Key.Escape && DiffSearchBox.IsKeyboardFocusWithin)
+            {
+                if (_searchReturnFocus is not UIElement { IsVisible: true, IsEnabled: true, Focusable: true } target || !target.Focus())
+                    FocusFileList();
+                e.Handled = true;
+                return;
+            }
+            if (Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.PageUp or Key.PageDown)
+            {
+                SwitchDiffMode(e.Key == Key.PageDown ? 1 : -1);
+                e.Handled = true;
+                return;
+            }
             if (e.Key == Key.F && (Keyboard.Modifiers == ModifierKeys.Control || Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift)))
             {
                 _viewModel.SearchAllFiles = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
@@ -433,6 +497,42 @@ namespace HotKeyCommandApp.Views.Controls
                 e.Handled = true;
                 return;
             }
+            if (Keyboard.Modifiers == ModifierKeys.None && CommitRevisionBox.IsKeyboardFocusWithin && e.Key is Key.Up or Key.Down)
+            {
+                if (e.Key == Key.Up)
+                {
+                    RecentCommitsHeader()?.Focus();
+                }
+                else if (RecentCommitList.IsVisible && RecentCommitList.IsEnabled && RecentCommitList.Items.Count > 0)
+                {
+                    RecentCommitList.SelectedIndex = 0;
+                    RecentCommitList.ScrollIntoView(RecentCommitList.SelectedItem);
+                    RecentCommitList.UpdateLayout();
+                    if (RecentCommitList.ItemContainerGenerator.ContainerFromIndex(0) is ListBoxItem item) item.Focus();
+                }
+                e.Handled = true;
+                return;
+            }
+            if (Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.Up or Key.Down && RecentCommitList.IsKeyboardFocusWithin)
+            {
+                if (RecentCommitList.Items.Count > 0)
+                {
+                    int index = RecentCommitList.SelectedIndex;
+                    if (e.Key == Key.Up && index == 0)
+                    {
+                        CommitRevisionBox.Focus();
+                        e.Handled = true;
+                        return;
+                    }
+                    int next = Math.Clamp(index + (e.Key == Key.Down ? 1 : -1), 0, RecentCommitList.Items.Count - 1);
+                    RecentCommitList.SelectedIndex = next;
+                    RecentCommitList.ScrollIntoView(RecentCommitList.SelectedItem);
+                    RecentCommitList.UpdateLayout();
+                    if (RecentCommitList.ItemContainerGenerator.ContainerFromItem(RecentCommitList.SelectedItem) is ListBoxItem commitItem) commitItem.Focus();
+                }
+                e.Handled = true;
+                return;
+            }
             if (FileList.IsKeyboardFocusWithin && Keyboard.Modifiers == ModifierKeys.Shift && e.Key is Key.Up or Key.Down)
             {
                 _viewModel.MoveSelectedFile(e.Key == Key.Up ? -1 : 1);
@@ -442,6 +542,12 @@ namespace HotKeyCommandApp.Views.Controls
             }
             if (Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.Up or Key.Down or Key.Left or Key.Right)
             {
+                if (e.Key == Key.Up && RecentCommitsHeader()?.IsKeyboardFocused == true && FileList.Items.Count > 0)
+                {
+                    FocusFileAt(FileList.Items.Count - 1);
+                    e.Handled = true;
+                    return;
+                }
                 if (e.Key is Key.Left or Key.Right && (DecreaseDiffFontButton.IsKeyboardFocused || IncreaseDiffFontButton.IsKeyboardFocused))
                 {
                     if (e.Key == Key.Left) DecreaseDiffFontButton.Focus();
@@ -466,7 +572,10 @@ namespace HotKeyCommandApp.Views.Controls
                     }).Where(candidate => candidate.primary > 1)
                       .OrderBy(candidate => candidate.cross).ThenBy(candidate => candidate.primary).FirstOrDefault();
                     if (next.button != null) next.button.Focus();
-                    else if (e.Key == Key.Down && _viewModel.Files.Count > 0) FocusFileList();
+                    else if (e.Key == Key.Down && FileList.Items.Count > 0)
+                    {
+                        if (FileList.Items[0] is not GitDiffFile firstFile || !TryFocusSectionAction(firstFile)) FocusFileAt(0);
+                    }
                     e.Handled = true;
                     return;
                 }
@@ -531,6 +640,12 @@ namespace HotKeyCommandApp.Views.Controls
                         e.Handled = true;
                         return;
                     }
+                    if (e.Key == Key.Down && fileIndex == FileList.Items.Count - 1 && RecentCommitsExpander.IsVisible && RecentCommitsExpander.IsEnabled)
+                    {
+                        RecentCommitsHeader()?.Focus();
+                        e.Handled = true;
+                        return;
+                    }
                     if (e.Key == Key.Down && fileIndex == FileList.Items.Count - 1 && actionButtons.Length > 0)
                     {
                         actionButtons[0].Focus();
@@ -546,6 +661,15 @@ namespace HotKeyCommandApp.Views.Controls
                     }
                 }
             }
+        }
+
+        public bool TryCopyDiffSelection(KeyEventArgs e)
+        {
+            if (!_copyDiffSelection || !DiffLines.HasTextSelection || Keyboard.Modifiers != ModifierKeys.Control || e.Key != Key.C) return false;
+            try { Clipboard.SetText(DiffLines.SelectedText); }
+            catch (ExternalException) { _viewModel.SetOperationStatus("クリップボードにコピーできませんでした。"); }
+            e.Handled = true;
+            return true;
         }
 
         private void FocusFileAt(int index, int buttonIndex = -1)

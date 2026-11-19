@@ -12,7 +12,7 @@ namespace HotKeyCommandApp.Models
         public string Comparison => ComparisonLabel ?? (IsStaged ? "HEAD → インデックス" : "インデックス → 作業ツリー");
     }
 
-    public enum GitDiffMode { Uncommitted, BaseBranch, Commit }
+    public enum GitDiffMode { Uncommitted, Commit, BaseBranch }
     public enum GitDiffSortOrder { Path, FileName, Change, Manual }
     public sealed record GitDiffCommit(string Sha, string Subject, string Author, DateTimeOffset Date)
     {
